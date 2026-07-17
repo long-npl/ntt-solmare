@@ -117,7 +117,9 @@ Khi `正規コピーライト` **thay đổi so với giá trị đang lưu** �
 - 1 sheet log riêng (trong cùng spreadsheet `顧客作品マスタ` hoặc 1 sheet control riêng — quyết định khi implement) ghi mỗi lần chạy:
   - Timestamp bắt đầu/kết thúc, số dòng thêm mới, số dòng cập nhật, danh sách タイトルID rơi vào "cá biệt" (tầng 4 copyright), danh sách lỗi (nếu có nguồn không đọc được).
 - Nếu 1 nguồn input lỗi (không mở được spreadsheet, sheet đổi tên...): ghi log lỗi rõ ràng, dừng an toàn (không ghi dữ liệu thiếu/sai vào output), giữ nguyên output của lần chạy trước.
-- Gửi Slack: **chưa làm ở bản này** — để 1 hàm `notifySlack(message)` rỗng/no-op có comment TODO, gọi sẵn ở các điểm cần cảnh báo (cá biệt, lỗi nguồn), để nối thật dễ dàng khi có webhook.
+- **Gửi Slack qua Slack Web API** (`chat.postMessage`, không dùng Incoming Webhook): hàm `notifySlack(message)` gọi `UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {...})` với header `Authorization: Bearer <token>`, `channel` và `text` lấy từ Script Properties (`SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`). Giá trị thật của token/channel **chưa có** — để placeholder trong `Script Properties` (không hardcode trong code), user tự điền sau khi tạo Slack App nội bộ (scope `chat:write`, invite bot vào channel).
+  - Gọi `notifySlack()` ở 2 điểm: (a) khi có tác phẩm rơi vào tầng "cá biệt" (mục 6, tầng 4) — gộp thành 1 tin nhắn liệt kê danh sách タイトルID/タイトル名 cuối mỗi lần chạy, không gửi từng dòng riêng lẻ; (b) khi 1 nguồn input lỗi không đọc được.
+  - Nếu `SLACK_BOT_TOKEN`/`SLACK_CHANNEL_ID` chưa được cấu hình (rỗng) → `notifySlack()` chỉ ghi vào log sheet, bỏ qua gọi API (không throw lỗi), để không chặn luồng chính khi chưa có token thật.
 
 ## 9. Giả định & điều kiện tiên quyết (cần xác nhận trước khi build thật)
 
@@ -125,3 +127,4 @@ Khi `正規コピーライト` **thay đổi so với giá trị đang lưu** �
 2. Cột `コピーライト` trong 顧客作品マスタ giữ lại (xem 4.1) — cần Ikenaga/Trang xác nhận, vì tài liệu gốc ghi "ガワ chưa chốt".
 3. Cấu trúc thật của nguồn 配信停止タイトル (hiện là thư mục Drive) — cần bổ sung khi có, không block việc build GAS❶ ở các nguồn còn lại.
 4. Danh sách NXB có sheet quy tắc riêng (LINE/スクエニ/リブレ/オーバーラップ/ヒーローズ) có thể chưa đầy đủ — thiết kế registry mở để dễ thêm NXB mới.
+5. `SLACK_BOT_TOKEN` và `SLACK_CHANNEL_ID` (Script Properties) — chưa có giá trị thật, user sẽ tạo Slack App nội bộ (scope `chat:write`) và điền sau khi code xong.
