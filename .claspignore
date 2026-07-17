@@ -1,0 +1,7 @@
+**/node_modules/**
+docs/**
+example/**
+.code-review-graph/**
+.claude/**
+.git/**
+*.md
