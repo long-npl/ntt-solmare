@@ -184,7 +184,9 @@ Nguyên nhân: khi 1 field vừa build lại không match được gì (vd `look
 
 **Fix:** thêm `normalizeForCompare()`/`sameValue()` (`logic/upsert.js`) — coi `undefined`, `null`, chuỗi rỗng, và chuỗi chỉ có khoảng trắng là CÙNG 1 giá trị "không có gì" (cũng trim khoảng trắng đầu/cuối để loại luôn nhiễu do copy-paste). Áp dụng `sameValue()` ở MỌI nơi so sánh giá trị field cũ/mới, thay cho `===`.
 
-**Ý nghĩa cho việc đọc code:** không bao giờ so sánh trực tiếp `===` giữa 1 giá trị vừa tính trong bộ nhớ (có thể là `undefined`/`null`) với 1 giá trị đọc lại từ Google Sheets (luôn là `''` cho ô trống, không bao giờ là `undefined`/`null`). Luôn chuẩn hoá cả 2 vế trước khi so sánh.
+**Bổ sung sau đó — biến thể Unicode của ký hiệu ©:** cùng gốc vấn đề, phát hiện thêm dữ liệu bản quyền thật lẫn lộn nhiều ký hiệu "bản quyền" khác nhau về Unicode nhưng giống hệt về ý nghĩa: `©` (U+00A9, chuẩn), `Ⓒ`/`ⓒ` (U+24B8/U+24D2, "circled Latin letter C"), và `(C)`/`(c)` (3 ký tự ASCII). Ví dụ 2 chuỗi copyright chỉ khác đúng 1 ký hiệu này (`©` vs `ⓒ`) bị `sameValue()` (trước khi sửa) coi là "đã đổi", dù nội dung/ý nghĩa giống hệt. `normalizeForCompare()` giờ quy tất cả các biến thể này về cùng 1 dạng `©` **chỉ để so sánh** — giá trị thật sự GHI vào sheet vẫn giữ nguyên ký hiệu gốc từ nguồn.
+
+**Ý nghĩa cho việc đọc code:** không bao giờ so sánh trực tiếp `===` giữa 1 giá trị vừa tính trong bộ nhớ (có thể là `undefined`/`null`) với 1 giá trị đọc lại từ Google Sheets (luôn là `''` cho ô trống, không bao giờ là `undefined`/`null`). Luôn chuẩn hoá cả 2 vế trước khi so sánh — và với dữ liệu do nhiều bên nhập tay (như ký hiệu ©), cân nhắc luôn cả biến thể Unicode/ASCII tương đương, không chỉ khoảng trắng.
 
 ## 3e. Bài học 5: CMSID cũng có thể KHÔNG duy nhất — 2 tác phẩm chung 1 CMSID
 

@@ -22,12 +22,26 @@
  * nguồn) không phải là thay đổi có ý nghĩa nghiệp vụ, nên cũng được trim
  * trước khi so sánh.
  *
+ * Cũng chuẩn hoá các BIẾN THỂ UNICODE của ký hiệu bản quyền "©" về cùng 1
+ * dạng trước khi so sánh — dữ liệu thật cho thấy các NXB khác nhau dùng lẫn
+ * lộn: `©` (U+00A9, ký hiệu chuẩn), `Ⓒ`/`ⓒ` (U+24B8/U+24D2, "circled Latin
+ * letter C" trong khối Enclosed Alphanumerics), và `(C)`/`(c)` (3 ký tự ASCII
+ * viết tay). Về ý nghĩa, tất cả đều là "bản quyền" — nhưng so sánh `===` trực
+ * tiếp sẽ coi 2 chuỗi chỉ khác nhau đúng 1 ký hiệu này là "đã đổi", gây log
+ * audit sai lệch và dịch chuyển lịch sử CopyRight過去1-10 một cách không cần
+ * thiết (cùng loại vấn đề với bug ở undefined/null/''). CHỈ chuẩn hoá để SO
+ * SÁNH — giá trị thật sự GHI vào sheet vẫn giữ nguyên ký hiệu gốc từ nguồn,
+ * không bị đổi.
+ *
  * @param {*} value
  * @returns {string}
  */
 function normalizeForCompare(value) {
   if (value === undefined || value === null) return '';
-  return String(value).trim();
+  return String(value)
+    .trim()
+    .replace(/\(c\)/gi, '©') // (C) hoặc (c) -> ©
+    .replace(/[©Ⓒⓒ]/g, '©'); // Ⓒ/ⓒ (circled Latin letter C) -> © (ký hiệu chuẩn)
 }
 
 /**
