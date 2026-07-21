@@ -212,6 +212,20 @@ Vì `customerKeyFn` khi đó chỉ là `String(cmsId)`, 2 tác phẩm khác nhau
 
 **Ý nghĩa cho việc đọc code:** ngay cả 1 ID tưởng như "chắc chắn duy nhất" (CMSID — hệ thống quản lý trung tâm cấp ID) vẫn có thể bị dùng trùng do lỗi nhập liệu thủ công. Khi thiết kế khoá cho dữ liệu do con người nhập tay, cân nhắc khoá ghép (composite key) thay vì tin tưởng tuyệt đối 1 cột duy nhất, và LUÔN log cảnh báo khi phát hiện trùng lặp bất thường thay vì âm thầm chọn 1 trong 2.
 
+## 3f. Bài học 6: fix ở tầng SO SÁNH không tự lan sang tầng TRA CỨU
+
+Sau khi `normalizeForCompare()`/`sameValue()` được thêm để tránh false-positive "đã đổi", 1 lượt `/code-review` phát hiện: các nơi TRA CỨU theo tên tác phẩm/NXB (không phải so sánh cũ-mới) — Tier 2/Tier 3 trong `copyrightResolver.js`, và toàn bộ 6 hàm `parseXxxSheet()` + `resolvePublisherAliasMatch()` trong `copyrightRules.js` — vẫn dùng `.trim()` hoặc `Map.get()` thô, KHÔNG đi qua `sameValue()`/`normalizeForCompare()`.
+
+Hệ quả: nếu CMS ghi tên tác phẩm bằng wave dash `〜` còn sheet bản quyền riêng của NXB ghi bằng fullwidth tilde `～` (hoặc NXB ghi full-width Latin còn CMS ghi half-width), lookup Tier 2/3 **âm thầm miss** — tác phẩm bị rơi xuống tầng thấp hơn hoặc tầng 4 (cá biệt), dù về ý nghĩa 2 tên hoàn toàn giống nhau.
+
+**Fix:** tách `normalizeForCompare()` thành 2 lớp — `normalizeJapaneseText()` (chung, không có phần fold ký hiệu ©, dùng được cho MỌI text tiếng Nhật) và `normalizeForCompare()` (= `normalizeJapaneseText()` + fold ©, chỉ dùng cho field bản quyền). Toàn bộ nơi build/tra Map theo titleName/tên NXB (cả 2 phía — lúc build map lẫn lúc query) đều đổi sang gọi `normalizeJapaneseText()`: 6 hàm `parseXxxSheet()` + `resolvePublisherAliasMatch()` (`sources/copyrightRules.js`), Tier-2/Tier-3 lookup trong `resolveCopyright()` (`logic/copyrightResolver.js`), và `buildNgTitleLookup()` (`sources/ngTitleSource.js`).
+
+Tiện thể fix luôn 1 gap khác cùng đợt review: `（Ｃ）`/`（ｃ）` (ngoặc + chữ C đều full-width — kiểu gõ IME tiếng Nhật rất phổ biến) trước đó KHÔNG được nhận diện tương đương với `©`/`(C)`, vì bước fold © chạy TRƯỚC NFKC (bắt buộc, để không mất dấu hiệu `Ⓒ`/`ⓒ` — xem mục 3d), nhưng full-width→half-width chỉ được NFKC xử lý, quá muộn để quy tắc © bắt lại. Regex © giờ khớp cả 2 dạng ngoặc (full-width lẫn half-width) ngay từ đầu.
+
+**Không sửa (chấp nhận là đánh đổi có chủ đích):** review còn tìm ra 5 điểm khác — dấu ngã fold-về-ASCII-tilde (đã xác nhận không có cách sửa an toàn hơn), `shiftCopyrightHistory` không tự "chữa lành" ký hiệu Unicode cũ khi nguồn đã sửa (đánh đổi để tránh ghi lại sheet không cần thiết), regex `(c)` áp dụng cho mọi field kể cả field không phải bản quyền (rủi ro thấp, không đáng đổi lấy 1 API phức tạp hơn), `headerMap.js` và `logic/upsert.js` vẫn là 2 bộ chuẩn hoá riêng (khác mục đích thật sự — tên cột vs nội dung text), và thứ tự © trước NFKC chỉ được bảo vệ bằng comment (dự án không có test suite theo quyết định trước đó). Xem chi tiết lý do trong `docs/superpowers/plans/2026-07-21-unicode-normalization-lookup-fixes.md`.
+
+**Ý nghĩa cho việc đọc code:** 1 fix ở tầng "so sánh cũ/mới có đổi không" không tự động bảo vệ tầng "tra cứu quy tắc theo tên" — đây là 2 bài toán riêng dùng chung 1 lớp dữ liệu (title/tên NXB), nhưng nằm ở 2 chỗ khác nhau trong pipeline. Khi sửa 1 loại chuẩn hoá text, phải rà lại TẤT CẢ những nơi khác so sánh/khoá cùng loại dữ liệu đó, không chỉ nơi phát hiện ra vấn đề đầu tiên.
+
 ## 4. Bảng tra nhanh: file nào làm việc gì
 
 | File | Vai trò | Chạy được ở đâu |
@@ -221,10 +235,10 @@ Vì `customerKeyFn` khi đó chỉ là `String(cmsId)`, 2 tác phẩm khác nhau
 | `src/sources/regulationSource.js` | Parse 作品レギュレーション判定 (3-tier lookup) | Cả 2 |
 | `src/sources/cmsSource.js` | Parse 先行タイトル情報(CMS) | Cả 2 |
 | `src/sources/ngTitleSource.js` | Parse 外部出稿用NGタイトル | Cả 2 |
-| `src/sources/copyrightRules.js` | Parse 基本のC表記 + 5 sheet NXB riêng | Cả 2 |
+| `src/sources/copyrightRules.js` | Parse 基本のC表記 + 5 sheet NXB riêng (key theo `normalizeJapaneseText()`) | Cả 2 |
 | `src/logic/customerWorkMaster.js` | Ghép 3 nguồn thành work list | Cả 2 |
-| `src/logic/copyrightResolver.js` | Logic 4 tầng bản quyền | Cả 2 |
-| `src/logic/upsert.js` | Diff cũ/mới + đánh số ổn định + `sameValue()` | Cả 2 |
+| `src/logic/copyrightResolver.js` | Logic 4 tầng bản quyền (Tier 2/3 tra theo `normalizeJapaneseText()`) | Cả 2 |
+| `src/logic/upsert.js` | Diff cũ/mới + đánh số ổn định + `sameValue()`/`normalizeJapaneseText()` | Cả 2 |
 | `src/logic/copyrightHistory.js` | Dịch chuyển lịch sử CopyRight過去1-10 | Cả 2 |
 | `src/logic/changeDetail.js` | Tính diff field-by-field cho log audit | Cả 2 |
 | `src/io/sheetIO.js` | Đọc/ghi 2 sheet output thật (lọc theo CMSID) | **Chỉ Apps Script** |
