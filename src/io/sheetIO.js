@@ -100,7 +100,12 @@ function readCustomerWorkMaster() {
   var records = [];
   for (var i = 1; i < rows.length; i++) {
     var row = rows[i];
-    if (!row[colTitleId]) continue;
+    // Lọc theo CMS ID (KHÔNG phải タイトルID): タイトルID có thể trống ở ~3.5%
+    // tác phẩm thật (xem cmsSource.js) — nếu lọc theo タイトルID như trước, các
+    // dòng đó bị coi là "trống/chưa tồn tại" mỗi lần đọc lại existingCustomerRows,
+    // nên bị thêm lặp lại vô hạn dù đã đổi khoá upsert sang CMSID (đây chính là
+    // nguyên nhân gây trùng dòng còn sót lại sau lần fix trước).
+    if (!row[colCmsId]) continue;
     records.push({
       titleNo: row[colTitleNo],
       cmsId: row[colCmsId],
