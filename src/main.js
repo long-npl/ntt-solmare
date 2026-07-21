@@ -73,8 +73,12 @@ function attachRowOffsets(diffResult, existingRecords, keyFn) {
  *     (logic/copyrightHistory.js) để quyết định giá trị mới + lịch sử 過去.
  *  7. diffUpsert() + attachRowOffsets() cho コピーライトマスタ, rồi
  *     writeCopyrightMaster() ghi thật lên sheet.
- *  8. Nếu có tác phẩm tầng 4 (cá biệt): notifySlack() báo danh sách.
- *  9. appendLogEntry() ghi log (luôn chạy, kể cả khi lỗi — xem khối catch).
+ *  8. buildChangeDetailRows() (logic/changeDetail.js) cho CẢ 2 master, rồi
+ *     appendChangeDetailRows() ghi audit log field-by-field vào sheet
+ *     "GAS1変更詳細" (io/logSheet.js) — 1 dòng = 1 field của 1 tác phẩm đã
+ *     đổi, kèm giá trị cũ/mới, để backup/tra cứu khi phát hiện vấn đề sau này.
+ *  9. Nếu có tác phẩm tầng 4 (cá biệt): notifySlack() báo danh sách.
+ * 10. appendLogEntry() ghi log tổng hợp (luôn chạy, kể cả khi lỗi — xem khối catch).
  *
  * XỬ LÝ LỖI: nếu BẤT KỲ bước nào throw (vd 1 sheet nguồn bị đổi tên/xoá cột,
  * hoặc mất quyền truy cập), khối catch sẽ: ghi lỗi vào log, báo Slack, rồi
@@ -188,7 +192,26 @@ function runGas1() {
     writeCustomerWorkMaster(customerDiff);
     writeCopyrightMaster(copyrightDiff);
 
-    // ---- Bước 8-9: Slack (nếu có cá biệt) + log (luôn luôn) ----
+    // ---- Bước 8: log audit chi tiết (backup từng field đã đổi, để tra
+    // ngược lại nếu sau này phát hiện giá trị nào đó bị sai — xem
+    // io/logSheet.js). CHỈ ghi field mà GAS❶ đang thực sự theo dõi (KHÔNG
+    // gồm ①広告出稿ポリシー/②一般面出稿NG — 2 cột đó ngoài phạm vi 顧客作品
+    // マスタ hiện tại).
+    var runAt = new Date();
+    var customerChangeRows = buildChangeDetailRows('顧客作品マスタ', customerDiff.toUpdate, [
+      { key: 'author', label: '作家名' },
+      { key: 'genre', label: 'ジャンル' },
+      { key: 'publisher', label: '出版社' },
+      { key: 'logoJudgement', label: '③シーモアロゴ判定' },
+      { key: 'remark', label: '備考' },
+      { key: 'copyright', label: 'コピーライト' },
+    ], runAt);
+    var copyrightChangeRows = buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate, [
+      { key: 'copyrightCurrent', label: '正規コピーライト' },
+    ], runAt);
+    appendChangeDetailRows(customerChangeRows.concat(copyrightChangeRows));
+
+    // ---- Bước 9-10: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {
       notifySlack('GAS❶: ' + irregularTitles.length + '件のタイトルが個別対応(コピーライト特定不可)になりました:\n' + irregularTitles.join('\n'));
     }
@@ -345,4 +368,19 @@ function probe_appendLogEntry() {
     irregularTitles: ['probe run'],
     errors: [],
   });
+}
+
+/** Chạy thử appendChangeDetailRows() — kiểm tra tab GAS1変更詳細 được tạo/ghi đúng. */
+function probe_appendChangeDetailRows() {
+  appendChangeDetailRows([
+    {
+      runAt: new Date(),
+      master: '顧客作品マスタ',
+      titleNo: 9999,
+      titleName: 'probe run タイトル',
+      field: '③シーモアロゴ判定',
+      oldValue: 'ロゴなし',
+      newValue: 'ロゴあり',
+    },
+  ]);
 }

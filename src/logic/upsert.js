@@ -22,12 +22,15 @@
  * @param {function(object, object): boolean} isEqualFn - So sánh (existing, incoming)
  *   -> true nếu coi là "không đổi", false nếu coi là "cần update"
  * @returns {{
- *   toUpdate: Array<{key: string, record: object}>,
+ *   toUpdate: Array<{key: string, record: object, previous: object}>,
  *   toAdd: Array<object>,
  *   unchangedKeys: Array<string>
  * }}
  *   toUpdate: dòng đã tồn tại nhưng có thay đổi — record.rowOffset PHẢI được
- *     gán thêm bởi attachRowOffsets() (main.js) trước khi đưa cho sheetIO ghi
+ *     gán thêm bởi attachRowOffsets() (main.js) trước khi đưa cho sheetIO ghi.
+ *     `previous` là bản ghi CŨ (từ existingRecords) tương ứng — giữ lại để
+ *     logic/changeDetail.js so sánh field-by-field, phục vụ log audit chi
+ *     tiết (xem buildChangeDetailRows() và io/logSheet.appendChangeDetailRows()).
  *   toAdd: dòng có key CHƯA từng xuất hiện trong existingRecords — sẽ được
  *     append vào cuối sheet (xem sheetIO.writeCustomerWorkMaster()/writeCopyrightMaster())
  *   unchangedKeys: chỉ để tham khảo/log, KHÔNG được ghi lại vào sheet
@@ -52,7 +55,7 @@ function diffUpsert(existingRecords, newRecords, keyFn, isEqualFn) {
     if (isEqualFn(existing, record)) {
       unchangedKeys.push(key);
     } else {
-      toUpdate.push({ key: key, record: record });
+      toUpdate.push({ key: key, record: record, previous: existing });
     }
   });
 

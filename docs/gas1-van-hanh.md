@@ -164,9 +164,27 @@ Dừng ngay ở tầng đầu tiên có kết quả.
 | `src/logic/copyrightResolver.js` | Logic 4 tầng bản quyền | Cả 2 |
 | `src/logic/upsert.js` | Diff cũ/mới + đánh số ổn định | Cả 2 |
 | `src/logic/copyrightHistory.js` | Dịch chuyển lịch sử CopyRight過去1-10 | Cả 2 |
+| `src/logic/changeDetail.js` | Tính diff field-by-field cho log audit | Cả 2 |
 | `src/io/sheetIO.js` | Đọc/ghi 2 sheet output thật | **Chỉ Apps Script** |
 | `src/io/slack.js` | Gửi cảnh báo Slack | **Chỉ Apps Script** |
-| `src/io/logSheet.js` | Ghi log GAS1ログ | **Chỉ Apps Script** |
+| `src/io/logSheet.js` | Ghi log GAS1ログ + GAS1変更詳細 | **Chỉ Apps Script** |
 | `src/main.js` | Điều phối toàn bộ + trigger + hàm probe debug | **Chỉ Apps Script** |
 
 "Cả 2" nghĩa là hàm thuần JS, không đụng `SpreadsheetApp`/`UrlFetchApp`/`PropertiesService` — về mặt kỹ thuật chạy được cả trong Node lẫn Apps Script, dù project này hiện không có bộ test Node (đã bỏ theo yêu cầu, chỉ debug tay trong Apps Script editor).
+
+## 5. 2 sheet log — dùng khi nào
+
+Mỗi lần `runGas1()` chạy, GAS❶ ghi vào **2 tab riêng biệt** trong spreadsheet `顧客作品マスタ` (tự tạo nếu chưa có):
+
+| Sheet | 1 dòng = | Dùng để |
+|---|---|---|
+| `GAS1ログ` | 1 LẦN CHẠY | Biết NHANH lần chạy nào thành công/thất bại, tổng số dòng thêm/sửa, có tác phẩm cá biệt không |
+| `GAS1変更詳細` | 1 FIELD của 1 tác phẩm đã đổi | BACKUP/AUDIT — tra ngược lại khi phát hiện vấn đề: field nào, tác phẩm nào, đổi từ giá trị gì sang giá trị gì, lúc nào |
+
+`GAS1変更詳細` chỉ ghi field mà GAS❶ **đang thực sự theo dõi**:
+- 顧客作品マスタ: 作家名, ジャンル, 出版社, ③シーモアロゴ判定, 備考, コピーライト
+- コピーライトマスタ: 正規コピーライト
+
+**Chưa gồm** ①広告出稿ポリシー（出稿NG）/②一般面出稿NG（アダルト作品扱い） — 2 cột này hiện ngoài phạm vi 顧客作品マスタ (GAS❶ chỉ lấy ③シーモアロゴ判定 từ `作品レギュレーション判定`, theo đúng info.md/spec ban đầu). Nếu sau này cần theo dõi cả 2 cột đó, cần: (1) parse thêm 2 cột này ở `sources/regulationSource.js`, (2) quyết định có thêm cột mới vào `顧客作品マスタ` hay chỉ dùng để log/cảnh báo mà không lưu vào master.
+
+Slack (`notifySlack()`) KHÔNG gửi chi tiết field-by-field này — chỉ báo tổng số tác phẩm cá biệt (tầng 4) hoặc lỗi runtime, để tránh tin nhắn quá dài. Muốn xem chi tiết từng field đổi, mở sheet `GAS1変更詳細`.
