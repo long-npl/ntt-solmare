@@ -47,11 +47,13 @@ function parseNgTitles(rawRows) {
  * Build bảng tra "khoá tác phẩm" -> nội dung 備考 cảnh báo.
  *
  * Key ưu tiên titleId nếu có (ép String để so khớp nhất quán); nếu dòng đó
- * không có titleId (chỉ có titleName), dùng titleName đã trim làm key thay
- * thế — đây là lý do buildCustomerWorkRows() tra lookup này bằng titleId
- * TRƯỚC, và có thể cần bổ sung logic tra theo tên nếu muốn bắt cả những dòng
- * chỉ ghi theo tên (hiện tại buildCustomerWorkRows chỉ tra theo titleId, xem
- * comment trong logic/customerWorkMaster.js).
+ * không có titleId (chỉ có titleName), dùng titleName đã chuẩn hoá qua
+ * normalizeJapaneseText() (logic/upsert.js) làm key thay thế — nhất quán với
+ * cách các lookup theo titleName khác trong codebase xử lý (xem
+ * sources/copyrightRules.js). buildCustomerWorkRows() hiện CHỈ tra lookup
+ * này bằng titleId (xem comment trong logic/customerWorkMaster.js), nên
+ * chuẩn hoá key titleName ở đây chưa đổi hành vi hiện tại — chỉ giữ map này
+ * nhất quán, sẵn sàng cho khi có logic tra theo tên được thêm vào sau.
  *
  * @param {Array<object>} records - Kết quả từ parseNgTitles()
  * @returns {Map<string, string>} Map key (titleId hoặc titleName) -> remark
@@ -59,7 +61,7 @@ function parseNgTitles(rawRows) {
 function buildNgTitleLookup(records) {
   var lookup = new Map();
   records.forEach(function (record) {
-    var key = record.titleId ? String(record.titleId) : String(record.titleName || '').trim();
+    var key = record.titleId ? String(record.titleId) : normalizeJapaneseText(record.titleName);
     if (!key) return;
     lookup.set(key, record.remark);
   });
