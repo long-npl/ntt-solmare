@@ -129,6 +129,27 @@ Vì nhiều tác phẩm khác nhau cùng rơi vào 1 khoá (`"null"` hoặc `"�
 
 **Ý nghĩa cho việc đọc code:** bất cứ khi nào thấy 1 cột được chọn làm "khoá" (key) để so khớp dữ liệu cũ/mới, hãy tự hỏi "cột này có thể trống hoặc trùng giữa các bản ghi khác nhau không?" trước khi tin tưởng nó.
 
+## 3b. Bài học thứ 2: cùng 1 nguyên tắc, nhưng NGƯỢC HƯỚNG (join 3 tầng ở 作品レギュレーション判定)
+
+Sau khi fix xong khoá upsert, kiểm tra tiếp việc **join** dữ liệu (không phải upsert) giữa `顧客作品マスタ` và sheet `作品レギュレーション判定` (nguồn cung cấp cột ③シーモアロゴ判定) thì phát hiện vấn đề NGƯỢC LẠI với bài học ở mục 3:
+
+| Sheet | CMSID trống | タイトルID trống |
+|---|---|---|
+| 先行タイトル情報(CMS) | 0% | ~3.5% |
+| 作品レギュレーション判定 | **53.6%** (2765/5158 dòng 判定済み) | 15.7% |
+
+Lý do: quy trình phán定 quy định (regulation) nhiều khi được làm dựa trên タイトルID **trước khi** tác phẩm được đăng ký CMS và có CMSID — tức CMSID "đến sau" タイトルID ở sheet này. Bản code đầu tiên chỉ `regulationLookup.get(String(cmsId))` — tra CMS ID duy nhất — nên **bỏ sót âm thầm hơn một nửa** kết quả ③シーモアロゴ判定 (không lỗi, chỉ đơn giản trả về `undefined`).
+
+**Fix:** `regulationSource.js` giờ build 3 map (`byCmsIdAndTitleId`, `byCmsId`, `byTitleId`) và `lookupRegulation()` thử theo đúng thứ tự ưu tiên:
+
+1. Khớp **cả CMS ID lẫn タイトルID cùng lúc** — chắc chắn nhất (2 ID cùng trỏ về đúng 1 bản ghi regulation).
+2. Chỉ khớp CMS ID.
+3. Chỉ khớp タイトルID.
+
+Dừng ngay ở tầng đầu tiên có kết quả.
+
+**Ý nghĩa cho việc đọc code:** không có "ID chuẩn duy nhất" áp dụng chung cho mọi sheet nguồn — mỗi sheet có đặc điểm trống/trùng khác nhau tuỳ vào quy trình nghiệp vụ tạo ra nó (sheet nào được điền TRƯỚC khi CMS đăng ký sẽ thiếu CMSID; sheet CMS tự nó thì luôn có CMSID). Luôn kiểm tra dữ liệu thật (`example/*.xlsx`) trước khi quyết định khoá join, thay vì giả định.
+
 ## 4. Bảng tra nhanh: file nào làm việc gì
 
 | File | Vai trò | Chạy được ở đâu |

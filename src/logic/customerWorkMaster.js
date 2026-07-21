@@ -12,8 +12,15 @@
  * - cmsRecords quyết định DANH SÁCH tác phẩm nào tồn tại (nếu CMS không có
  *   tác phẩm nào, tác phẩm đó sẽ không xuất hiện trong 顧客作品マスタ dù có ở
  *   nguồn khác).
- * - regulationLookup chỉ bổ sung 1 trường (logoJudgement) cho tác phẩm ĐÃ có
- *   trong CMS — tra theo cmsId.
+ * - regulationLookup bổ sung 1 trường (logoJudgement) cho tác phẩm ĐÃ có
+ *   trong CMS — tra theo 3 TẦNG ưu tiên qua lookupRegulation()
+ *   (regulationSource.js): (1) khớp CẢ CMS ID lẫn タイトルID cùng lúc —
+ *   chắc chắn nhất, (2) chỉ CMS ID, (3) chỉ タイトルID. Bắt buộc phải có tầng
+ *   タイトルID: dữ liệu thật cho thấy 53.6% dòng 判定済み trong 作品レギュ
+ *   レーション判定 KHÔNG CÓ CMSID (quy trình phán定 logo nhiều khi làm trước
+ *   khi tác phẩm được đăng ký CMS, tức CMSID "đến sau" タイトルID) — nếu chỉ
+ *   tra theo CMS ID sẽ bỏ sót phần lớn kết quả một cách âm thầm (logoJudgement
+ *   luôn undefined, không có lỗi nào để nhận ra).
  * - ngTitleLookup bổ sung 備考 cảnh báo "cấm xuất bản ngoài" — tra theo
  *   titleId. LƯU Ý: vì タイトルID có thể trống/dùng chung placeholder "ー" ở
  *   một số dòng CMS (xem cmsSource.js), việc tra remark theo titleId ở đây có
@@ -26,7 +33,8 @@
  * runGas1() trong main.js để biết thứ tự chính xác và lý do).
  *
  * @param {Array<object>} cmsRecords - Kết quả cmsSource.parseCmsRows()
- * @param {Map<string, string>} regulationLookup - Kết quả regulationSource.buildRegulationLookup()
+ * @param {{byCmsIdAndTitleId: Map, byCmsId: Map<string,string>, byTitleId: Map<string,string>}} regulationLookup
+ *   Kết quả regulationSource.buildRegulationLookup()
  * @param {Map<string, string>} ngTitleLookup - Kết quả ngTitleSource.buildNgTitleLookup()
  * @returns {Array<{
  *   cmsId: *, titleId: *, titleName: string, author: string, genre: string,
@@ -51,7 +59,7 @@ function buildCustomerWorkRows(cmsRecords, regulationLookup, ngTitleLookup) {
       publisher: cms.publisher,
       preStart: cms.preStart,
       preEnd: cms.preEnd,
-      logoJudgement: regulationLookup.get(String(cms.cmsId)),
+      logoJudgement: lookupRegulation(cms, regulationLookup),
       remark: ngTitleLookup.get(titleIdKey) || null,
       distributionNgFlag: '', // ngoài phạm vi GAS❶ (spec §3.4) — luôn để trống
     };
