@@ -33,6 +33,29 @@
  * SÁNH — giá trị thật sự GHI vào sheet vẫn giữ nguyên ký hiệu gốc từ nguồn,
  * không bị đổi.
  *
+ * Tương tự cho 2 nhóm ký tự tiếng Nhật hay bị lẫn lộn khác:
+ *
+ * 1. `〜` (WAVE DASH, U+301C) và `～` (FULLWIDTH TILDE, U+FF5E) — 2 ký tự
+ *    trông GIỐNG HỆT NHAU trong hầu hết font, cực kỳ phổ biến trong タイトル名
+ *    (vd "～隣人後輩くんの…"), nhưng Unicode KHÔNG coi 2 ký tự này tương đương
+ *    (kể cả sau NFKC normalize) — đây là 1 điểm bất nhất nổi tiếng giữa cách
+ *    Windows và macOS gõ dấu ngã tiếng Nhật. Phải tự map thủ công, không có
+ *    chuẩn Unicode nào lo sẵn việc này.
+ * 2. Full-width vs half-width (Ａ-Ｚ/０-９/khoảng trắng　 vs A-Z/0-9/khoảng
+ *    trắng thường), và half-width katakana vs full-width katakana (vd cách
+ *    viết dấu chấm giữa ｶﾞ vs ガ) — nhóm này CÓ chuẩn: `String.prototype
+ *    .normalize('NFKC')` xử lý đúng theo đặc tả Unicode.
+ *
+ * THỨ TỰ QUAN TRỌNG: phải chuẩn hoá ký hiệu © TRƯỚC khi gọi NFKC — vì NFKC tự
+ * nó phân rã `Ⓒ`/`ⓒ` (circled Latin letter C) thành chữ "C" trần trụi (không
+ * phải "©" hay "(C)"), làm mất luôn dấu hiệu để regex ©-family nhận diện được
+ * nếu gọi sau. Gọi NFKC sau cùng, khi © đã ổn định, không ảnh hưởng gì thêm.
+ *
+ * KHÔNG chuẩn hoá: các ký tự rõ ràng là lỗi gõ (vd gặp "┴" — ký tự vẽ khung
+ * bảng — dùng thay cho dấu chấm giữa "・" ở 1 vài tên tác giả thật) — đây là
+ * lỗi nhập liệu cần con người sửa ở nguồn, không nên GAS âm thầm coi là tương
+ * đương (có thể che mất lỗi thật cần sửa).
+ *
  * @param {*} value
  * @returns {string}
  */
@@ -41,7 +64,9 @@ function normalizeForCompare(value) {
   return String(value)
     .trim()
     .replace(/\(c\)/gi, '©') // (C) hoặc (c) -> ©
-    .replace(/[©Ⓒⓒ]/g, '©'); // Ⓒ/ⓒ (circled Latin letter C) -> © (ký hiệu chuẩn)
+    .replace(/[©Ⓒⓒ]/g, '©') // Ⓒ/ⓒ (circled Latin letter C) -> © (ký hiệu chuẩn)
+    .replace(/[〜～]/g, '～') // wave dash (U+301C) vs fullwidth tilde (U+FF5E) -> 1 dạng
+    .normalize('NFKC'); // full-width/half-width Latin+số+khoảng trắng, half-width katakana, v.v.
 }
 
 /**
