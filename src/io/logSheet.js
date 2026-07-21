@@ -4,11 +4,17 @@
 //   - "GAS1ログ": 1 dòng = 1 LẦN CHẠY, chỉ có số lượng tổng hợp (thêm/sửa bao
 //     nhiêu, có lỗi không) — dùng để biết NHANH lần chạy nào đó thành công
 //     hay thất bại.
-//   - "GAS1変更詳細": 1 dòng = 1 FIELD của 1 tác phẩm đã đổi (giá trị cũ ->
-//     mới) — dùng để BACKUP/AUDIT: khi phát hiện có vấn đề (vd giá trị nào
-//     đó bị sai), tra ngược lại sheet này để biết chính xác nó đã đổi lúc
-//     nào, từ giá trị gì sang giá trị gì (xem logic/changeDetail.js để biết
-//     cách các dòng này được tính ra).
+//   - "GAS1変更詳細": 1 dòng = 1 FIELD của 1 tác phẩm ĐÃ TỒN TẠI vừa đổi giá
+//     trị (cũ -> mới) — dùng để BACKUP/AUDIT khi phát hiện có vấn đề, tra
+//     ngược lại chính xác field nào đổi lúc nào, từ giá trị gì sang giá trị
+//     gì (xem logic/changeDetail.js để biết cách các dòng này được tính ra).
+//
+// KHÔNG có sheet riêng cho "tác phẩm mới thêm": khác với "thay đổi" (giá trị
+// CŨ sẽ mất đi vĩnh viễn ngay khi bị ghi đè, nên phải lưu lại mới có cái mà
+// tra cứu), tác phẩm mới thêm vẫn còn nguyên trong chính 顧客作品マスタ —
+// không có gì bị mất nếu không log riêng, chỉ cần lọc theo タイトルNo lớn
+// nhất là thấy ngay. Số lượng thêm mới mỗi lần chạy vẫn có ở addedCount
+// trong GAS1ログ.
 
 var LOG_SHEET_NAME = 'GAS1ログ';
 var LOG_HEADER = ['開始日時', '終了日時', '追加件数', '更新件数', '個別対応タイトル', 'エラー'];
