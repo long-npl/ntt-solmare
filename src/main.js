@@ -140,16 +140,45 @@ function runGas1() {
     });
 
     // ---- Bước 2-5: 顧客作品マスタ ----
-    // Key theo CMSID, KHÔNG theo タイトルID: dữ liệu thật cho thấy ~3.5% dòng
-    // 先行タイトル情報(CMS) có タイトルID trống, và nhiều tác phẩm khác nhau dùng
-    // chung giá trị placeholder "ー" làm タイトルID — key theo タイトルID khiến các
-    // tác phẩm đó bị gộp chung 1 khoá, không so khớp đúng được với dòng đã ghi ở
-    // lần chạy trước, nên bị thêm lặp lại mỗi lần runGas1() chạy. CMSID luôn có
-    // giá trị (0 dòng trống trong 5649 dòng kiểm tra thực tế) nên đáng tin cậy hơn.
-    var customerKeyFn = function (r) { return String(r.cmsId); };
+    // Key theo CMSID + タイトルID (composite), KHÔNG theo タイトルID đơn lẻ:
+    // dữ liệu thật cho thấy ~3.5% dòng 先行タイトル情報(CMS) có タイトルID trống,
+    // và nhiều tác phẩm khác nhau dùng chung giá trị placeholder "ー" làm
+    // タイトルID — key theo タイトルID đơn lẻ khiến các tác phẩm đó bị gộp chung
+    // 1 khoá, không so khớp đúng được với dòng đã ghi ở lần chạy trước, nên bị
+    // thêm lặp lại mỗi lần runGas1() chạy (đã fix bằng cách đổi sang CMSID).
+    //
+    // NHƯNG CMSID đơn lẻ CŨNG không an toàn 100%: đã phát hiện qua debug thật
+    // — vài CMSID (hiếm, nhưng có thật) bị dùng chung cho 2 TÁC PHẨM KHÁC NHAU
+    // (vd 神様の花嫁 phiên bản フルカラー và タテヨミ cùng chung 1 CMSID nhưng
+    // タイトルID khác nhau). Nếu chỉ key theo CMSID, 2 tác phẩm này collision
+    // vào 1 khoá, khiến diffUpsert/resolveNumbers "nhớ" ngẫu nhiên 1 trong 2,
+    // gây ra hiện tượng dữ liệu nhảy qua nhảy lại giữa 2 tác phẩm ở mỗi lần
+    // chạy (field lúc thì của tác phẩm A, lúc thì của tác phẩm B — đã quan sát
+    // được đúng 3 trường hợp này trong GAS1変更詳細 thực tế). Ghép thêm タイトルID
+    // vào khoá (composite key) để tách 2 tác phẩm đó ra thành 2 khoá riêng biệt,
+    // ổn định — miễn là タイトルID của chúng KHÁC NHAU (nếu CMSID VÀ タイトルID
+    // cùng trùng lặp thật sự, đó là lỗi dữ liệu nguồn cần con người sửa, xem
+    // detectDuplicateCmsIds() bên dưới).
+    var customerKeyFn = function (r) { return String(r.cmsId) + '|' + String(r.titleId || r.titleName || ''); };
     var existingCustomerRows = readCustomerWorkMaster();
 
     var builtCustomerRows = buildCustomerWorkRows(cmsRecords, regulationLookup, ngTitleLookup);
+
+    // Cảnh báo nếu 1 CMSID vẫn ứng với NHIỀU tác phẩm khác nhau (kể cả sau khi
+    // ghép thêm タイトルID vào khoá) — đây LÀ lỗi dữ liệu nguồn thật sự (2 dòng
+    // 先行タイトル情報(CMS) dùng chung CMSID), cần con người vào sheet nguồn
+    // kiểm tra/sửa lại, GAS không tự quyết định được cái nào đúng.
+    var titleNamesByCmsId = new Map();
+    builtCustomerRows.forEach(function (work) {
+      var cmsIdKey = String(work.cmsId);
+      if (!titleNamesByCmsId.has(cmsIdKey)) titleNamesByCmsId.set(cmsIdKey, new Set());
+      titleNamesByCmsId.get(cmsIdKey).add(work.titleId + ' ' + work.titleName);
+    });
+    titleNamesByCmsId.forEach(function (titleSet, cmsIdKey) {
+      if (titleSet.size > 1) {
+        Logger.log('警告: CMSID ' + cmsIdKey + ' が複数の異なるタイトルに使われています -> ' + Array.from(titleSet).join(' / '));
+      }
+    });
 
     // Tính bản quyền TRƯỚC khi diff/đánh số 顧客作品マスタ: cột コピーライト của
     // 顧客作品マスタ phản ánh giá trị đã resolve, và コピーライトマスタ không có
