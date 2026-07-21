@@ -34,8 +34,9 @@ var BASIC_NOTATION_REQUIRED_HEADERS = ['事前確認', '©表記記載有無', '
  * GIỮA label và "事前確認", offset -2 này cần được cập nhật lại thủ công.
  *
  * @param {Array<Array<*>>} rawRows - Kết quả sheet.getDataRange().getValues()
- * @returns {Map<string, string>} Map tên NXB/レーベル (đã trim) -> chuỗi công
- *   thức bản quyền thô (vd "©著者名/A-KAGURA", còn chứa placeholder text cần
+ * @returns {Map<string, string>} Map tên NXB/レーベル (đã chuẩn hoá qua
+ *   normalizeJapaneseText() — xem logic/upsert.js) -> chuỗi công thức bản
+ *   quyền thô (vd "©著者名/A-KAGURA", còn chứa placeholder text cần
  *   applyBasicNotationTemplate() thay thế sau)
  */
 function parseBasicNotation(rawRows) {
@@ -49,7 +50,7 @@ function parseBasicNotation(rawRows) {
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
     if (!row || !row[colLabel]) continue;
-    var label = String(row[colLabel]).trim();
+    var label = normalizeJapaneseText(row[colLabel]);
     var rule = row[colRule];
     if (rule) map.set(label, rule);
   }
@@ -64,7 +65,7 @@ var LINE_REQUIRED_HEADERS = ['タイトル', '著者', '備考'];
  * Không có cột タイトルID trên sheet này, nên chỉ có thể tra theo tên tác phẩm.
  *
  * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map tên tác phẩm (đã trim) -> bản quyền (©欧文表記 1)
+ * @returns {Map<string, string>} Map tên tác phẩm (đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền (©欧文表記 1)
  */
 function parseLineSheet(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, LINE_REQUIRED_HEADERS);
@@ -76,7 +77,7 @@ function parseLineSheet(rawRows) {
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
     if (!row || !row[colTitle]) continue;
-    var titleName = String(row[colTitle]).trim();
+    var titleName = normalizeJapaneseText(row[colTitle]);
     var copyright = row[colCopyright];
     if (copyright) map.set(titleName, copyright);
   }
@@ -96,7 +97,7 @@ var SQEX_REQUIRED_HEADERS = ['タイトル名', '著者名', 'コピーライト
  * là 2 tên khác nhau sau normalize nên col() sẽ không nhầm lẫn giữa 2 cột này.
  *
  * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map tên tác phẩm (đã trim) -> bản quyền dạng đầy đủ
+ * @returns {Map<string, string>} Map tên tác phẩm (đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền dạng đầy đủ
  */
 function parseSquareEnixSheet(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, SQEX_REQUIRED_HEADERS);
@@ -109,7 +110,7 @@ function parseSquareEnixSheet(rawRows) {
     var row = rawRows[i];
     if (!row || !row[colTitle]) continue;
     var copyright = row[colCopyright];
-    if (copyright) map.set(String(row[colTitle]).trim(), copyright);
+    if (copyright) map.set(normalizeJapaneseText(row[colTitle]), copyright);
   }
   return map;
 }
@@ -125,8 +126,9 @@ var LIBRE_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピー�
  *
  * @param {Array<Array<*>>} rawRows
  * @returns {Map<string, string>} Map key (titleId dạng String, hoặc titleName
- *   đã trim) -> bản quyền. Cùng 1 tác phẩm có thể xuất hiện 2 lần trong map
- *   (1 lần theo ID, 1 lần theo tên) trỏ tới cùng giá trị bản quyền.
+ *   đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền. Cùng 1 tác phẩm
+ *   có thể xuất hiện 2 lần trong map (1 lần theo ID, 1 lần theo tên) trỏ tới
+ *   cùng giá trị bản quyền.
  */
 function parseLibreSheet(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, LIBRE_REQUIRED_HEADERS);
@@ -141,7 +143,7 @@ function parseLibreSheet(rawRows) {
     if (!row || !row[colCopyright]) continue;
     var copyright = row[colCopyright];
     if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
+    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
   }
   return map;
 }
@@ -155,7 +157,7 @@ var OVERLAP_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピー
  * vị trí hàng/cột khác — resolveHeaderIndex() tự xử lý khác biệt này.
  *
  * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map key (titleId hoặc titleName đã trim) -> bản quyền
+ * @returns {Map<string, string>} Map key (titleId hoặc titleName đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền
  */
 function parseOverlapSheet(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, OVERLAP_REQUIRED_HEADERS);
@@ -170,7 +172,7 @@ function parseOverlapSheet(rawRows) {
     if (!row || !row[colCopyright]) continue;
     var copyright = row[colCopyright];
     if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
+    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
   }
   return map;
 }
@@ -184,7 +186,7 @@ var HEROES_REQUIRED_HEADERS = ['タイトル名', 'TID', 'COPYRIGHT'];
  * sheet khác — vẫn tra bằng tên như bình thường, chỉ khác chuỗi truyền vào col().
  *
  * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map key (titleId hoặc titleName đã trim) -> bản quyền
+ * @returns {Map<string, string>} Map key (titleId hoặc titleName đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền
  */
 function parseHeroesSheet(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, HEROES_REQUIRED_HEADERS);
@@ -199,7 +201,7 @@ function parseHeroesSheet(rawRows) {
     if (!row || !row[colCopyright]) continue;
     var copyright = row[colCopyright];
     if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
+    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
   }
   return map;
 }
@@ -242,10 +244,11 @@ var PUBLISHER_SHEET_PARSERS = [
  */
 function resolvePublisherAliasMatch(publisherName, registry) {
   if (!publisherName) return null;
+  var normalizedPublisherName = normalizeJapaneseText(publisherName);
   for (var i = 0; i < registry.length; i++) {
     var entry = registry[i];
     for (var j = 0; j < entry.publisherAliases.length; j++) {
-      if (publisherName.indexOf(entry.publisherAliases[j]) !== -1) return entry;
+      if (normalizedPublisherName.indexOf(normalizeJapaneseText(entry.publisherAliases[j])) !== -1) return entry;
     }
   }
   return null;

@@ -80,7 +80,7 @@ function resolveCopyright(work, cmsCopyrightLookup, publisherRegistry, publisher
     var map = publisherMaps[registryEntry.key];
     if (map) {
       var byId = work.titleId !== undefined ? map.get(String(work.titleId)) : undefined;
-      var byName = work.titleName ? map.get(String(work.titleName).trim()) : undefined;
+      var byName = work.titleName ? map.get(normalizeJapaneseText(work.titleName)) : undefined;
       var tier2Value = byId || byName;
       if (tier2Value) return { value: tier2Value, tier: 2 };
     }
@@ -88,7 +88,7 @@ function resolveCopyright(work, cmsCopyrightLookup, publisherRegistry, publisher
 
   // Tầng 3: 基本のC表記 tự sinh — tra công thức chung theo NXB, điền giá trị
   // thật của tác phẩm vào chỗ placeholder.
-  var template = work.publisher ? basicNotationMap.get(String(work.publisher).trim()) : undefined;
+  var template = work.publisher ? basicNotationMap.get(normalizeJapaneseText(work.publisher)) : undefined;
   if (template) return { value: applyBasicNotationTemplate(template, work), tier: 3 };
 
   // Tầng 4: cá biệt — không tầng nào khớp. CỐ TÌNH trả về null thay vì tự bịa
