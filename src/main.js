@@ -159,9 +159,15 @@ function runGas1() {
     // isEqualFn quyết định "coi là không đổi" -> KHÔNG ghi lại dòng đó (spec
     // §7). So sánh đủ các field hiển thị trên 顧客作品マスタ, kể cả copyright
     // (vì cột コピーライト của master này cũng đổi theo nếu tầng resolve đổi).
+    // Dùng sameValue() (logic/upsert.js) thay vì `===` trực tiếp: giá trị vừa
+    // build lại có thể là `undefined` (vd logoJudgement/remark không match gì),
+    // trong khi giá trị đọc lại từ sheet cho cùng "không có gì" đó là chuỗi
+    // rỗng `''` — so `===` trực tiếp sẽ coi là "đã đổi" và ghi đè lại GẦN NHƯ
+    // TOÀN BỘ sheet ở mỗi lần chạy (đã kiểm chứng qua dữ liệu thật: ~99% dòng
+    // bị đánh dấu update sai do đúng lỗi này).
     var customerIsEqualFn = function (a, b) {
-      return a.author === b.author && a.genre === b.genre && a.publisher === b.publisher
-        && a.logoJudgement === b.logoJudgement && a.remark === b.remark && a.copyright === b.copyright;
+      return sameValue(a.author, b.author) && sameValue(a.genre, b.genre) && sameValue(a.publisher, b.publisher)
+        && sameValue(a.logoJudgement, b.logoJudgement) && sameValue(a.remark, b.remark) && sameValue(a.copyright, b.copyright);
     };
     var customerDiff = diffUpsert(existingCustomerRows, numberedCustomerRows, customerKeyFn, customerIsEqualFn);
     attachRowOffsets(customerDiff, existingCustomerRows, customerKeyFn);
@@ -192,7 +198,7 @@ function runGas1() {
     });
 
     var copyrightIsEqualFn = function (a, b) {
-      return a.copyrightCurrent === b.copyrightCurrent && a.author === b.author && a.publisher === b.publisher;
+      return sameValue(a.copyrightCurrent, b.copyrightCurrent) && sameValue(a.author, b.author) && sameValue(a.publisher, b.publisher);
     };
     var copyrightDiff = diffUpsert(existingCopyrightRows, newCopyrightRows, copyrightKeyFn, copyrightIsEqualFn);
     attachRowOffsets(copyrightDiff, existingCopyrightRows, copyrightKeyFn);

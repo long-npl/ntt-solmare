@@ -5,6 +5,46 @@
 // keyFn/isEqualFn khác nhau — xem runGas1() trong main.js).
 
 /**
+ * Chuẩn hoá 1 giá trị field để SO SÁNH (không dùng để lưu/ghi) — coi
+ * `undefined`, `null`, chuỗi rỗng, và chuỗi chỉ có khoảng trắng là CÙNG MỘT
+ * GIÁ TRỊ "không có gì". Cũng trim khoảng trắng đầu/cuối trước khi so sánh.
+ *
+ * TẠI SAO CẦN HÀM NÀY: khi 1 record vừa build lại từ nguồn không match được
+ * gì (vd lookupRegulation() trả về `undefined` vì tác phẩm chưa có phán定),
+ * giá trị field đó là `undefined`. Nhưng khi GHI `undefined` vào 1 ô Google
+ * Sheets rồi ĐỌC LẠI ở lần chạy sau, Sheets trả về CHUỖI RỖNG `''`, không
+ * phải `undefined`. So sánh trực tiếp bằng `===` sẽ thấy `undefined !== ''`
+ * và coi đó là "đã đổi" — dù cả 2 đều thực chất là "không có gì". Đã kiểm
+ * chứng bug này gây ra ~99% số dòng bị đánh dấu update SAI ở mỗi lần chạy
+ * (xem GAS1変更詳細 thực tế: 5639+3022 dòng log có cả 変更前/変更後 đều trống).
+ *
+ * Tương tự, khoảng trắng thừa ở đầu/cuối 1 giá trị (vd do copy-paste từ
+ * nguồn) không phải là thay đổi có ý nghĩa nghiệp vụ, nên cũng được trim
+ * trước khi so sánh.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function normalizeForCompare(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+/**
+ * So sánh 2 giá trị field SAU KHI đã chuẩn hoá (xem normalizeForCompare()).
+ * Dùng cho MỌI so sánh field-by-field trong customerIsEqualFn/
+ * copyrightIsEqualFn (main.js) và buildChangeDetailRows() (logic/changeDetail.js)
+ * — không dùng `===` trực tiếp ở những nơi đó nữa.
+ *
+ * @param {*} a
+ * @param {*} b
+ * @returns {boolean}
+ */
+function sameValue(a, b) {
+  return normalizeForCompare(a) === normalizeForCompare(b);
+}
+
+/**
  * So sánh existingRecords (đang có trên sheet output, đọc lúc ĐẦU lần chạy)
  * với newRecords (vừa build lại từ nguồn, PHẢI đã được resolveNumbers() gán
  * số trước khi gọi hàm này) theo keyFn, để biết dòng nào cần update, dòng nào

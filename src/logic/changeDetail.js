@@ -15,6 +15,14 @@
  * (không gộp chung 1 dòng nhiều field), để mỗi dòng log là 1 sự kiện đơn giản,
  * dễ lọc/tìm kiếm sau này trên sheet.
  *
+ * So sánh bằng sameValue() (logic/upsert.js), KHÔNG dùng `===` trực tiếp —
+ * cùng lý do với customerIsEqualFn/copyrightIsEqualFn (main.js): oldValue đọc
+ * từ sheet có thể là `''`, còn newValue vừa tính lại có thể là `undefined`,
+ * dù cả 2 đều là "không có gì". Nếu dùng `===`, 1 tác phẩm dù CHỈ đổi đúng 1
+ * field thật cũng sẽ bị log thêm các field khác "trống -> trống" một cách
+ * sai lệch (đã kiểm chứng qua dữ liệu thật: 备考/③シーモアロゴ判定 chiếm ~97%
+ * số dòng log, toàn bộ đều trống cả 2 phía).
+ *
  * @param {string} masterLabel - Tên master để phân biệt khi 2 master cùng ghi
  *   chung 1 sheet log chi tiết (vd '顧客作品マスタ' hoặc 'コピーライトマスタ')
  * @param {Array<{key: string, record: object, previous: object}>} toUpdateItems
@@ -36,7 +44,7 @@ function buildChangeDetailRows(masterLabel, toUpdateItems, fieldDefs, runAt) {
     fieldDefs.forEach(function (fieldDef) {
       var oldValue = item.previous[fieldDef.key];
       var newValue = item.record[fieldDef.key];
-      if (oldValue === newValue) return;
+      if (sameValue(oldValue, newValue)) return;
       rows.push({
         runAt: runAt,
         master: masterLabel,

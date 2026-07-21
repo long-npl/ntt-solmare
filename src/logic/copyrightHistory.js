@@ -21,6 +21,15 @@
  * "thay đổi cần lưu lịch sử" — không có gì để đẩy vào 過去1 cả (nếu không có
  * check này, lần đầu tiên có giá trị sẽ tạo ra 1 mục lịch sử rỗng vô nghĩa).
  *
+ * So sánh bằng sameValue() (logic/upsert.js), KHÔNG dùng `===` trực tiếp:
+ * newValue có thể là `undefined` (resolveCopyright() không thay đổi placeholder
+ * cho tier 4), còn currentValue đọc lại từ sheet sau khi đã ghi 1 giá trị
+ * rỗng trước đó sẽ là chuỗi `''`, không phải `undefined`/`null` — so sánh
+ * `===` trực tiếp sẽ coi đây là "đã đổi" và dịch chuyển lịch sử một cách sai
+ * lệch ở MỌI lần chạy cho các tác phẩm cá biệt (đã kiểm chứng bug này qua dữ
+ * liệu thật, cùng gốc với bug tương tự ở customerIsEqualFn/copyrightIsEqualFn
+ * trong main.js).
+ *
  * @param {{copyrightCurrent: string|null, copyrightHistory: Array<string>}} existingRecord
  *   Bản ghi コピーライトマスタ hiện tại của tác phẩm này (đọc từ sheet, hoặc
  *   {copyrightCurrent: null, copyrightHistory: []} nếu tác phẩm chưa từng có dòng)
@@ -34,7 +43,7 @@ function shiftCopyrightHistory(existingRecord, newValue, maxSlots) {
   var currentValue = existingRecord.copyrightCurrent || null;
   var history = existingRecord.copyrightHistory ? existingRecord.copyrightHistory.slice() : [];
 
-  if (newValue === currentValue) {
+  if (sameValue(newValue, currentValue)) {
     return { copyrightCurrent: currentValue, copyrightHistory: history };
   }
 
