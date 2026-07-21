@@ -112,7 +112,15 @@ function runGas1() {
 
     var cmsRecords = parseCmsRows(cmsRaw);
     var cmsCopyrightLookup = buildCmsCopyrightLookup(cmsRecords);
-    Logger.log('先行タイトル情報(CMS): ' + cmsRecords.length + ' 件読み込み完了（コピーライトU列あり: ' + cmsCopyrightLookup.size + ' 件）');
+    // cmsRaw.length - 1 = tổng số dòng data thô (trừ header). Số dòng KHÔNG
+    // được đưa vào cmsRecords là dòng CMSID trống (bị parseCmsRows loại) hoặc
+    // dòng trống thật sự cuối sheet — CỐ TÌNH log ra con số này để dòng dữ
+    // liệu bị loại không biến mất trong im lặng (đã gặp trường hợp thật: file
+    // nguồn bị lệch cột ở hàng loạt dòng khiến CMSID trống, nếu không log sẽ
+    // không ai biết các tác phẩm đó bị bỏ qua).
+    var cmsSkippedCount = (cmsRaw.length - 1) - cmsRecords.length;
+    Logger.log('先行タイトル情報(CMS): ' + cmsRecords.length + ' 件読み込み完了（コピーライトU列あり: ' + cmsCopyrightLookup.size + ' 件、'
+      + 'CMSID欠落等でスキップ: ' + cmsSkippedCount + ' 件）');
 
     var ngTitleRecords = parseNgTitles(ngTitleRaw);
     var ngTitleLookup = buildNgTitleLookup(ngTitleRecords);
