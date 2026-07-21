@@ -1,5 +1,7 @@
 // io/sheetIO.js — đọc/ghi Google Sheets thật qua SpreadsheetApp (chỉ chạy được
-// trong Apps Script, không chạy được ở máy local)
+// trong Apps Script, không chạy được ở máy local). Cột được tra theo TÊN
+// header thật của sheet, không hardcode số cột — nếu ai đó chèn/xoá/đổi thứ
+// tự cột trên 2 file output, code vẫn đọc/ghi đúng chỗ.
 
 function readSheetValues(spreadsheetId, sheetName) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
@@ -7,57 +9,85 @@ function readSheetValues(spreadsheetId, sheetName) {
   return sheet.getDataRange().getValues();
 }
 
-// 顧客作品マスタ columns (spec §4.1):
-// タイトルNo, CMS ID, タイトルID, タイトル名, 作家名, ジャンル, 出版社, 先行開始日, 先行終了日,
-// コピーライト, ③シーモアロゴ判定, 備考, 配信NGフラグ
-var CUSTOMER_MASTER_COL = {
-  TITLE_NO: 0, CMS_ID: 1, TITLE_ID: 2, TITLE_NAME: 3, AUTHOR: 4, GENRE: 5,
-  PUBLISHER: 6, PRE_START: 7, PRE_END: 8, COPYRIGHT: 9, LOGO_JUDGEMENT: 10,
-  REMARK: 11, DISTRIBUTION_NG_FLAG: 12,
-};
-var CUSTOMER_MASTER_COL_COUNT = 13;
+// Đọc hàng 1 của sheet làm header, build map tên -> cột, và kiểm tra đủ các
+// cột bắt buộc (throw sớm nếu thiếu, thay vì âm thầm ghi sai chỗ).
+function resolveMasterHeader(spreadsheetId, sheetName, requiredHeaders) {
+  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var sheet = ss.getSheetByName(sheetName);
+  var columnCount = Math.max(sheet.getLastColumn(), 1);
+  var headerRow = sheet.getRange(1, 1, 1, columnCount).getValues()[0];
+  var headerIndex = buildHeaderIndex(headerRow);
+  requiredHeaders.forEach(function (name) { col(headerIndex, name); });
+  return { sheet: sheet, headerIndex: headerIndex, columnCount: columnCount };
+}
+
+// ==================== 顧客作品マスタ (spec §4.1) ====================
+
+var CUSTOMER_REQUIRED_HEADERS = [
+  'タイトルNo', 'CMS ID', 'タイトルID', 'タイトル名', '作家名', 'ジャンル',
+  '出版社', '先行開始日', '先行終了日', 'コピーライト', '③シーモアロゴ判定', '備考',
+];
+// 配信NGフラグ: cột mới đề xuất (spec §4.1, §9.2) — có thể CHƯA tồn tại trên
+// sheet thật, nên tra bằng tryCol() (không throw) thay vì col().
 
 function readCustomerWorkMaster() {
   var cfg = CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER;
-  var rows = readSheetValues(cfg.spreadsheetId, cfg.sheetName);
+  var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, CUSTOMER_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitleNo = col(idx, 'タイトルNo');
+  var colCmsId = col(idx, 'CMS ID');
+  var colTitleId = col(idx, 'タイトルID');
+  var colTitleName = col(idx, 'タイトル名');
+  var colAuthor = col(idx, '作家名');
+  var colGenre = col(idx, 'ジャンル');
+  var colPublisher = col(idx, '出版社');
+  var colPreStart = col(idx, '先行開始日');
+  var colPreEnd = col(idx, '先行終了日');
+  var colCopyright = col(idx, 'コピーライト');
+  var colLogo = col(idx, '③シーモアロゴ判定');
+  var colRemark = col(idx, '備考');
+  var colDistributionNg = tryCol(idx, '配信NGフラグ');
+
+  var rows = resolved.sheet.getDataRange().getValues();
   var records = [];
   for (var i = 1; i < rows.length; i++) {
     var row = rows[i];
-    if (!row[CUSTOMER_MASTER_COL.TITLE_ID]) continue;
+    if (!row[colTitleId]) continue;
     records.push({
-      titleNo: row[CUSTOMER_MASTER_COL.TITLE_NO],
-      cmsId: row[CUSTOMER_MASTER_COL.CMS_ID],
-      titleId: row[CUSTOMER_MASTER_COL.TITLE_ID],
-      titleName: row[CUSTOMER_MASTER_COL.TITLE_NAME],
-      author: row[CUSTOMER_MASTER_COL.AUTHOR],
-      genre: row[CUSTOMER_MASTER_COL.GENRE],
-      publisher: row[CUSTOMER_MASTER_COL.PUBLISHER],
-      preStart: row[CUSTOMER_MASTER_COL.PRE_START],
-      preEnd: row[CUSTOMER_MASTER_COL.PRE_END],
-      copyright: row[CUSTOMER_MASTER_COL.COPYRIGHT],
-      logoJudgement: row[CUSTOMER_MASTER_COL.LOGO_JUDGEMENT],
-      remark: row[CUSTOMER_MASTER_COL.REMARK],
-      distributionNgFlag: row[CUSTOMER_MASTER_COL.DISTRIBUTION_NG_FLAG],
+      titleNo: row[colTitleNo],
+      cmsId: row[colCmsId],
+      titleId: row[colTitleId],
+      titleName: row[colTitleName],
+      author: row[colAuthor],
+      genre: row[colGenre],
+      publisher: row[colPublisher],
+      preStart: row[colPreStart],
+      preEnd: row[colPreEnd],
+      copyright: row[colCopyright],
+      logoJudgement: row[colLogo],
+      remark: row[colRemark],
+      distributionNgFlag: colDistributionNg !== undefined ? row[colDistributionNg] : '',
     });
   }
   return records;
 }
 
-function customerRecordToRow(record) {
-  var row = [];
-  row[CUSTOMER_MASTER_COL.TITLE_NO] = record.titleNo;
-  row[CUSTOMER_MASTER_COL.CMS_ID] = record.cmsId;
-  row[CUSTOMER_MASTER_COL.TITLE_ID] = record.titleId;
-  row[CUSTOMER_MASTER_COL.TITLE_NAME] = record.titleName;
-  row[CUSTOMER_MASTER_COL.AUTHOR] = record.author;
-  row[CUSTOMER_MASTER_COL.GENRE] = record.genre;
-  row[CUSTOMER_MASTER_COL.PUBLISHER] = record.publisher;
-  row[CUSTOMER_MASTER_COL.PRE_START] = record.preStart;
-  row[CUSTOMER_MASTER_COL.PRE_END] = record.preEnd;
-  row[CUSTOMER_MASTER_COL.COPYRIGHT] = record.copyright || '';
-  row[CUSTOMER_MASTER_COL.LOGO_JUDGEMENT] = record.logoJudgement;
-  row[CUSTOMER_MASTER_COL.REMARK] = record.remark;
-  row[CUSTOMER_MASTER_COL.DISTRIBUTION_NG_FLAG] = record.distributionNgFlag || '';
+function customerRecordToRow(record, headerIndex, columnCount) {
+  var row = new Array(columnCount).fill('');
+  row[col(headerIndex, 'タイトルNo')] = record.titleNo;
+  row[col(headerIndex, 'CMS ID')] = record.cmsId;
+  row[col(headerIndex, 'タイトルID')] = record.titleId;
+  row[col(headerIndex, 'タイトル名')] = record.titleName;
+  row[col(headerIndex, '作家名')] = record.author;
+  row[col(headerIndex, 'ジャンル')] = record.genre;
+  row[col(headerIndex, '出版社')] = record.publisher;
+  row[col(headerIndex, '先行開始日')] = record.preStart;
+  row[col(headerIndex, '先行終了日')] = record.preEnd;
+  row[col(headerIndex, 'コピーライト')] = record.copyright || '';
+  row[col(headerIndex, '③シーモアロゴ判定')] = record.logoJudgement;
+  row[col(headerIndex, '備考')] = record.remark;
+  var colDistributionNg = tryCol(headerIndex, '配信NGフラグ');
+  if (colDistributionNg !== undefined) row[colDistributionNg] = record.distributionNgFlag || '';
   return row;
 }
 
@@ -65,81 +95,99 @@ function customerRecordToRow(record) {
 // gán ở main.js bằng attachRowOffsets) để biết ghi đè đúng dòng nào trên sheet thật.
 function writeCustomerWorkMaster(diffResult) {
   var cfg = CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER;
-  var sheet = SpreadsheetApp.openById(cfg.spreadsheetId).getSheetByName(cfg.sheetName);
-  var headerRowCount = 1;
+  var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, CUSTOMER_REQUIRED_HEADERS);
+  var sheet = resolved.sheet;
+  var headerIndex = resolved.headerIndex;
+  var columnCount = resolved.columnCount;
 
   diffResult.toUpdate.forEach(function (item) {
-    var sheetRowIndex = headerRowCount + item.rowOffset + 1; // 1-based sheet row
-    sheet.getRange(sheetRowIndex, 1, 1, CUSTOMER_MASTER_COL_COUNT).setValues([customerRecordToRow(item.record)]);
+    var sheetRowIndex = 1 + item.rowOffset + 1; // +1 header, +1 chuyển 0-based -> 1-based
+    sheet.getRange(sheetRowIndex, 1, 1, columnCount).setValues([customerRecordToRow(item.record, headerIndex, columnCount)]);
   });
 
   if (diffResult.toAdd.length > 0) {
     var startRow = sheet.getLastRow() + 1;
-    var values = diffResult.toAdd.map(customerRecordToRow);
-    sheet.getRange(startRow, 1, values.length, CUSTOMER_MASTER_COL_COUNT).setValues(values);
+    var values = diffResult.toAdd.map(function (record) { return customerRecordToRow(record, headerIndex, columnCount); });
+    sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
   }
 }
 
-// コピーライトマスタ columns (spec §4.2):
-// タイトルNo, タイトル名, 著者名, 出版社(雑誌名/レーベル), 正規コピーライト,
-// CopyRight(個別ルールの場合), CopyRight自動生成, CopyRight過去1..10
-var COPYRIGHT_MASTER_COL = {
-  TITLE_NO: 0, TITLE_NAME: 1, AUTHOR: 2, PUBLISHER: 3, CURRENT: 4,
-  INDIVIDUAL_RULE: 5, AUTO_GENERATED: 6, HISTORY_START: 7, HISTORY_SLOTS: 10,
-};
-var COPYRIGHT_MASTER_COL_COUNT = COPYRIGHT_MASTER_COL.HISTORY_START + COPYRIGHT_MASTER_COL.HISTORY_SLOTS;
+// ==================== コピーライトマスタ (spec §4.2) ====================
+
+var COPYRIGHT_REQUIRED_HEADERS = [
+  'タイトルNo', 'タイトル名', '著者名', '出版社(雑誌名/レーベル)',
+  '正規コピーライト', 'CopyRight(個別ルールの場合)', 'CopyRight自動生成',
+];
+
+function copyrightHistoryHeaderName(slot) {
+  return 'CopyRight過去' + slot;
+}
 
 function readCopyrightMaster() {
   var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
-  var rows = readSheetValues(cfg.spreadsheetId, cfg.sheetName);
+  var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, COPYRIGHT_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitleNo = col(idx, 'タイトルNo');
+  var colTitleName = col(idx, 'タイトル名');
+  var colAuthor = col(idx, '著者名');
+  var colPublisher = col(idx, '出版社(雑誌名/レーベル)');
+  var colCurrent = col(idx, '正規コピーライト');
+  var historyCols = [];
+  for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
+    historyCols.push(col(idx, copyrightHistoryHeaderName(h)));
+  }
+
+  var rows = resolved.sheet.getDataRange().getValues();
   var records = [];
   for (var i = 1; i < rows.length; i++) {
     var row = rows[i];
-    if (!row[COPYRIGHT_MASTER_COL.TITLE_NO]) continue;
+    if (!row[colTitleNo]) continue;
     var history = [];
-    for (var h = 0; h < COPYRIGHT_MASTER_COL.HISTORY_SLOTS; h++) {
-      var value = row[COPYRIGHT_MASTER_COL.HISTORY_START + h];
-      if (value) history.push(value);
-    }
+    historyCols.forEach(function (c) {
+      if (row[c]) history.push(row[c]);
+    });
     records.push({
-      titleNo: row[COPYRIGHT_MASTER_COL.TITLE_NO],
-      titleName: row[COPYRIGHT_MASTER_COL.TITLE_NAME],
-      author: row[COPYRIGHT_MASTER_COL.AUTHOR],
-      publisher: row[COPYRIGHT_MASTER_COL.PUBLISHER],
-      copyrightCurrent: row[COPYRIGHT_MASTER_COL.CURRENT],
+      titleNo: row[colTitleNo],
+      titleName: row[colTitleName],
+      author: row[colAuthor],
+      publisher: row[colPublisher],
+      copyrightCurrent: row[colCurrent],
       copyrightHistory: history,
     });
   }
   return records;
 }
 
-function copyrightRecordToRow(record) {
-  var row = [];
-  row[COPYRIGHT_MASTER_COL.TITLE_NO] = record.titleNo;
-  row[COPYRIGHT_MASTER_COL.TITLE_NAME] = record.titleName;
-  row[COPYRIGHT_MASTER_COL.AUTHOR] = record.author;
-  row[COPYRIGHT_MASTER_COL.PUBLISHER] = record.publisher;
-  row[COPYRIGHT_MASTER_COL.CURRENT] = record.copyrightCurrent || '';
-  row[COPYRIGHT_MASTER_COL.INDIVIDUAL_RULE] = record.tier === 2 ? record.copyrightCurrent : '';
-  row[COPYRIGHT_MASTER_COL.AUTO_GENERATED] = record.tier === 3 ? record.copyrightCurrent : '';
-  for (var h = 0; h < COPYRIGHT_MASTER_COL.HISTORY_SLOTS; h++) {
-    row[COPYRIGHT_MASTER_COL.HISTORY_START + h] = record.copyrightHistory[h] || '';
+function copyrightRecordToRow(record, headerIndex, columnCount) {
+  var row = new Array(columnCount).fill('');
+  row[col(headerIndex, 'タイトルNo')] = record.titleNo;
+  row[col(headerIndex, 'タイトル名')] = record.titleName;
+  row[col(headerIndex, '著者名')] = record.author;
+  row[col(headerIndex, '出版社(雑誌名/レーベル)')] = record.publisher;
+  row[col(headerIndex, '正規コピーライト')] = record.copyrightCurrent || '';
+  row[col(headerIndex, 'CopyRight(個別ルールの場合)')] = record.tier === 2 ? record.copyrightCurrent : '';
+  row[col(headerIndex, 'CopyRight自動生成')] = record.tier === 3 ? record.copyrightCurrent : '';
+  for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
+    row[col(headerIndex, copyrightHistoryHeaderName(h))] = record.copyrightHistory[h - 1] || '';
   }
   return row;
 }
 
 function writeCopyrightMaster(diffResult) {
   var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
-  var sheet = SpreadsheetApp.openById(cfg.spreadsheetId).getSheetByName(cfg.sheetName);
+  var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, COPYRIGHT_REQUIRED_HEADERS);
+  var sheet = resolved.sheet;
+  var headerIndex = resolved.headerIndex;
+  var columnCount = resolved.columnCount;
 
   diffResult.toUpdate.forEach(function (item) {
     var sheetRowIndex = 1 + item.rowOffset + 1;
-    sheet.getRange(sheetRowIndex, 1, 1, COPYRIGHT_MASTER_COL_COUNT).setValues([copyrightRecordToRow(item.record)]);
+    sheet.getRange(sheetRowIndex, 1, 1, columnCount).setValues([copyrightRecordToRow(item.record, headerIndex, columnCount)]);
   });
 
   if (diffResult.toAdd.length > 0) {
     var startRow = sheet.getLastRow() + 1;
-    var values = diffResult.toAdd.map(copyrightRecordToRow);
-    sheet.getRange(startRow, 1, values.length, COPYRIGHT_MASTER_COL_COUNT).setValues(values);
+    var values = diffResult.toAdd.map(function (record) { return copyrightRecordToRow(record, headerIndex, columnCount); });
+    sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
   }
 }

@@ -1,21 +1,26 @@
 // sources/ngTitleSource.js — parse 外部出稿用NGタイトル
 // (nằm trong file 出版社からの追記ルールと外部出稿NGタイトル)
 //
-// Header ở hàng 2 (index 1), data từ hàng 3 (index 2).
-// Cột: 出版社(0), 記入日(1), 更新日(2), タイトルID(3), タイトル名(4), 作家名(5), ジャンル(6), 備考(7)
+// Header ở hàng 2, một số ô header có khoảng trắng full-width ở đầu
+// (vd "　出版社") — normalizeHeaderText tự bỏ, nên tra bằng tên gốc vẫn khớp.
 
-var NG_COL = { PUBLISHER: 0, TITLE_ID: 3, TITLE_NAME: 4, REMARK: 7 };
-var NG_HEADER_ROW_COUNT = 2;
+var NG_REQUIRED_HEADERS = ['出版社', 'タイトルID', 'タイトル名', '備考'];
 
 function parseNgTitles(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, NG_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitleId = col(idx, 'タイトルID');
+  var colTitleName = col(idx, 'タイトル名');
+  var colRemark = col(idx, '備考');
+
   var records = [];
-  for (var i = NG_HEADER_ROW_COUNT; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || (!row[NG_COL.TITLE_ID] && !row[NG_COL.TITLE_NAME])) continue;
+    if (!row || (!row[colTitleId] && !row[colTitleName])) continue;
     records.push({
-      titleId: row[NG_COL.TITLE_ID],
-      titleName: row[NG_COL.TITLE_NAME],
-      remark: row[NG_COL.REMARK],
+      titleId: row[colTitleId],
+      titleName: row[colTitleName],
+      remark: row[colRemark],
     });
   }
   return records;

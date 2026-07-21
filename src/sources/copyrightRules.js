@@ -1,83 +1,132 @@
 // sources/copyrightRules.js — 基本のC表記 + 5 sheet quy tắc riêng theo NXB
 // (tất cả nằm trong file 出版社からの追記ルールと外部出稿NGタイトル)
+//
+// Tất cả các cột đều tra theo TÊN header (tự dò cả vị trí hàng header, vì mỗi
+// sheet header nằm ở hàng khác nhau), ngoại trừ 1 ngoại lệ đã biết ở
+// parseBasicNotation (xem comment bên trong).
 
-// 基本のC表記: header hàng 1 (index 0). LƯU Ý QUAN TRỌNG: nhãn cột
-// "雑誌・レーベル" hiển thị ở cột B (index 1) nhưng dữ liệu tên NXB/レーベル thật
-// lại nằm ở cột A (index 0) — cột B luôn trống. Các cột còn lại (事前確認,
-// ©表記ルール...) thẳng hàng bình thường với header của chúng.
+var BASIC_NOTATION_REQUIRED_HEADERS = ['事前確認', '©表記記載有無', '©表記ルール'];
+
 function parseBasicNotation(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, BASIC_NOTATION_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colRule = col(idx, '©表記ルール');
+  var colPreCheck = col(idx, '事前確認');
+
+  // NGOẠI LỆ DUY NHẤT không tra được bằng tên: trong sheet này, header
+  // "雑誌・レーベル" hiển thị lệch 1 cột so với dữ liệu NXB/レーベル thật (cột ngay
+  // dưới header đó luôn trống, dữ liệu nằm ở cột bên trái nó) — đã xác minh thủ
+  // công (không phải merged cell, không phải bug đọc file). Cột dữ liệu label
+  // vì vậy không có header text riêng để tra theo tên; định vị bằng offset
+  // tương đối 2 cột về bên trái của "事前確認" (label | <cột luôn trống> | 事前確認).
+  // Nếu ai đó chèn thêm cột giữa "雑誌・レーベル"/label và "事前確認", offset này
+  // cần được cập nhật lại thủ công.
+  var colLabel = colPreCheck - 2;
+
   var map = new Map();
-  for (var i = 1; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[0]) continue;
-    var label = String(row[0]).trim();
-    var rule = row[6]; // ©表記ルール
+    if (!row || !row[colLabel]) continue;
+    var label = String(row[colLabel]).trim();
+    var rule = row[colRule];
     if (rule) map.set(label, rule);
   }
   return map;
 }
 
-// LINEコピーライト一覧: header hàng 2 (index 1), không có cột タイトルID -> key theo tên
+// LINEコピーライト一覧: không có cột タイトルID riêng -> key theo tên tác phẩm
+var LINE_REQUIRED_HEADERS = ['タイトル', '著者', '備考'];
 function parseLineSheet(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, LINE_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitle = col(idx, 'タイトル');
+  var colCopyright = col(idx, '©欧文表記 1');
+
   var map = new Map();
-  for (var i = 2; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[0]) continue;
-    var titleName = String(row[0]).trim();
-    var copyright = row[2]; // ©欧文表記 1
+    if (!row || !row[colTitle]) continue;
+    var titleName = String(row[colTitle]).trim();
+    var copyright = row[colCopyright];
     if (copyright) map.set(titleName, copyright);
   }
   return map;
 }
 
-// スクエニコピーライト一覧: header thật ở hàng 10 (index 9), data từ hàng 11 (index 10)
+// スクエニコピーライト一覧: header thật nằm sau vài dòng ghi chú -> tự dò vị trí hàng
+var SQEX_REQUIRED_HEADERS = ['タイトル名', '著者名', 'コピーライト'];
 function parseSquareEnixSheet(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, SQEX_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitle = col(idx, 'タイトル名');
+  var colCopyright = col(idx, 'コピーライト'); // dạng đầy đủ, không phải "コピーライト(省略)"
+
   var map = new Map();
-  for (var i = 10; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[3]) continue;
-    var titleName = String(row[3]).trim();
-    var copyright = row[5]; // コピーライト (dạng đầy đủ)
-    if (copyright) map.set(titleName, copyright);
+    if (!row || !row[colTitle]) continue;
+    var copyright = row[colCopyright];
+    if (copyright) map.set(String(row[colTitle]).trim(), copyright);
   }
   return map;
 }
 
-// リブレコピーライト: header hàng 2 (index 1): タイトルＩＤ, タイトル, コピーライト
+// リブレコピーライト: có cả タイトルＩＤ và タイトル -> key theo cả 2
+var LIBRE_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピーライト'];
 function parseLibreSheet(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, LIBRE_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colId = col(idx, 'タイトルＩＤ');
+  var colTitle = col(idx, 'タイトル');
+  var colCopyright = col(idx, 'コピーライト');
+
   var map = new Map();
-  for (var i = 2; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[2]) continue;
-    var copyright = row[2];
-    if (row[0]) map.set(String(row[0]), copyright);
-    if (row[1]) map.set(String(row[1]).trim(), copyright);
+    if (!row || !row[colCopyright]) continue;
+    var copyright = row[colCopyright];
+    if (row[colId]) map.set(String(row[colId]), copyright);
+    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
   }
   return map;
 }
 
-// オーバーラップ_コピーライト一覧: header hàng 3 (index 2), cột lệch sang B-E
+// オーバーラップ_コピーライト一覧: header lệch sang cột B trở đi, cột A luôn trống
+var OVERLAP_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピーライト'];
 function parseOverlapSheet(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, OVERLAP_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colId = col(idx, 'タイトルＩＤ');
+  var colTitle = col(idx, 'タイトル');
+  var colCopyright = col(idx, 'コピーライト');
+
   var map = new Map();
-  for (var i = 3; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[3]) continue;
-    var copyright = row[3];
-    if (row[1]) map.set(String(row[1]), copyright);
-    if (row[2]) map.set(String(row[2]).trim(), copyright);
+    if (!row || !row[colCopyright]) continue;
+    var copyright = row[colCopyright];
+    if (row[colId]) map.set(String(row[colId]), copyright);
+    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
   }
   return map;
 }
 
-// ヒーローズコピーライト一覧: header hàng 1 (index 0): タイトル名, TID, COPYRIGHT
+// ヒーローズコピーライト一覧: header ở hàng đầu tiên
+var HEROES_REQUIRED_HEADERS = ['タイトル名', 'TID', 'COPYRIGHT'];
 function parseHeroesSheet(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, HEROES_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colTitle = col(idx, 'タイトル名');
+  var colId = col(idx, 'TID');
+  var colCopyright = col(idx, 'COPYRIGHT');
+
   var map = new Map();
-  for (var i = 1; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[2]) continue;
-    var copyright = row[2];
-    if (row[1]) map.set(String(row[1]), copyright);
-    if (row[0]) map.set(String(row[0]).trim(), copyright);
+    if (!row || !row[colCopyright]) continue;
+    var copyright = row[colCopyright];
+    if (row[colId]) map.set(String(row[colId]), copyright);
+    if (row[colTitle]) map.set(String(row[colTitle]).trim(), copyright);
   }
   return map;
 }

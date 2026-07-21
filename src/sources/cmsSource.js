@@ -1,38 +1,42 @@
 // sources/cmsSource.js — parse 【マスタ】先行タイトル情報（CMS）_代理店共通
 //
-// Sheet ★列追加の場合は増渕まで★: header ở hàng 1 (index 0), data từ hàng 2
-// (index 1). Cột U (index 20) = コピーライト — nguồn ưu tiên tầng 1 cho
-// コピーライトマスタ (spec §3.2, §6).
+// Header ở hàng 1, tự dò bằng tên cột (trước đây "cột U" là コピーライト —
+// giờ tra theo tên "コピーライト" nên vẫn đúng dù cột đó có bị dịch chuyển).
 
-var CMS_COL = {
-  CMS_ID: 0,
-  TITLE_ID: 4,
-  TITLE_NAME: 5,
-  AUTHOR: 7,
-  GENRE: 8,
-  LABEL: 10,
-  PUBLISHER: 11,
-  PRE_START: 12,
-  PRE_END: 13,
-  COPYRIGHT_U: 20, // column U
-};
+var CMS_REQUIRED_HEADERS = [
+  'CMSID', 'タイトルID', 'タイトル名', '作家名', 'ジャンル', 'レーベル名',
+  '出版社', '先行開始日', '先行終了日', 'コピーライト',
+];
 
 function parseCmsRows(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, CMS_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var colCmsId = col(idx, 'CMSID');
+  var colTitleId = col(idx, 'タイトルID');
+  var colTitleName = col(idx, 'タイトル名');
+  var colAuthor = col(idx, '作家名');
+  var colGenre = col(idx, 'ジャンル');
+  var colLabel = col(idx, 'レーベル名');
+  var colPublisher = col(idx, '出版社');
+  var colPreStart = col(idx, '先行開始日');
+  var colPreEnd = col(idx, '先行終了日');
+  var colCopyright = col(idx, 'コピーライト');
+
   var records = [];
-  for (var i = 1; i < rawRows.length; i++) {
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || row[CMS_COL.CMS_ID] === null || row[CMS_COL.CMS_ID] === undefined || row[CMS_COL.CMS_ID] === '') continue;
+    if (!row || row[colCmsId] === null || row[colCmsId] === undefined || row[colCmsId] === '') continue;
     records.push({
-      cmsId: row[CMS_COL.CMS_ID],
-      titleId: row[CMS_COL.TITLE_ID],
-      titleName: row[CMS_COL.TITLE_NAME],
-      author: row[CMS_COL.AUTHOR],
-      genre: row[CMS_COL.GENRE],
-      label: row[CMS_COL.LABEL],
-      publisher: row[CMS_COL.PUBLISHER],
-      preStart: row[CMS_COL.PRE_START],
-      preEnd: row[CMS_COL.PRE_END],
-      copyrightU: row[CMS_COL.COPYRIGHT_U],
+      cmsId: row[colCmsId],
+      titleId: row[colTitleId],
+      titleName: row[colTitleName],
+      author: row[colAuthor],
+      genre: row[colGenre],
+      label: row[colLabel],
+      publisher: row[colPublisher],
+      preStart: row[colPreStart],
+      preEnd: row[colPreEnd],
+      copyrightU: row[colCopyright],
     });
   }
   return records;
