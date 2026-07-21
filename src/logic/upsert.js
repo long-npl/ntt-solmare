@@ -5,68 +5,87 @@
 // keyFn/isEqualFn khác nhau — xem runGas1() trong main.js).
 
 /**
- * Chuẩn hoá 1 giá trị field để SO SÁNH (không dùng để lưu/ghi) — coi
- * `undefined`, `null`, chuỗi rỗng, và chuỗi chỉ có khoảng trắng là CÙNG MỘT
- * GIÁ TRỊ "không có gì". Cũng trim khoảng trắng đầu/cuối trước khi so sánh.
+ * Chuẩn hoá 1 giá trị TIẾNG NHẬT chung (KHÔNG gồm ký hiệu bản quyền — xem
+ * normalizeForCompare() bên dưới cho phần đó) để SO SÁNH/TRA CỨU — dùng cho
+ * title/tên tác giả/tên NXB ở bất kỳ đâu cần so khớp dù có biến thể Unicode
+ * cosmetic. KHÔNG dùng để lưu/ghi.
  *
- * TẠI SAO CẦN HÀM NÀY: khi 1 record vừa build lại từ nguồn không match được
- * gì (vd lookupRegulation() trả về `undefined` vì tác phẩm chưa có phán定),
- * giá trị field đó là `undefined`. Nhưng khi GHI `undefined` vào 1 ô Google
- * Sheets rồi ĐỌC LẠI ở lần chạy sau, Sheets trả về CHUỖI RỖNG `''`, không
- * phải `undefined`. So sánh trực tiếp bằng `===` sẽ thấy `undefined !== ''`
- * và coi đó là "đã đổi" — dù cả 2 đều thực chất là "không có gì". Đã kiểm
- * chứng bug này gây ra ~99% số dòng bị đánh dấu update SAI ở mỗi lần chạy
- * (xem GAS1変更詳細 thực tế: 5639+3022 dòng log có cả 変更前/変更後 đều trống).
+ * Coi `undefined`/`null`/chuỗi rỗng/chuỗi chỉ có khoảng trắng là CÙNG 1 giá
+ * trị "không có gì" (trim trước). Chuẩn hoá 2 nhóm ký tự tiếng Nhật hay bị
+ * lẫn lộn:
  *
- * Tương tự, khoảng trắng thừa ở đầu/cuối 1 giá trị (vd do copy-paste từ
- * nguồn) không phải là thay đổi có ý nghĩa nghiệp vụ, nên cũng được trim
- * trước khi so sánh.
- *
- * Cũng chuẩn hoá các BIẾN THỂ UNICODE của ký hiệu bản quyền "©" về cùng 1
- * dạng trước khi so sánh — dữ liệu thật cho thấy các NXB khác nhau dùng lẫn
- * lộn: `©` (U+00A9, ký hiệu chuẩn), `Ⓒ`/`ⓒ` (U+24B8/U+24D2, "circled Latin
- * letter C" trong khối Enclosed Alphanumerics), và `(C)`/`(c)` (3 ký tự ASCII
- * viết tay). Về ý nghĩa, tất cả đều là "bản quyền" — nhưng so sánh `===` trực
- * tiếp sẽ coi 2 chuỗi chỉ khác nhau đúng 1 ký hiệu này là "đã đổi", gây log
- * audit sai lệch và dịch chuyển lịch sử CopyRight過去1-10 một cách không cần
- * thiết (cùng loại vấn đề với bug ở undefined/null/''). CHỈ chuẩn hoá để SO
- * SÁNH — giá trị thật sự GHI vào sheet vẫn giữ nguyên ký hiệu gốc từ nguồn,
- * không bị đổi.
- *
- * Tương tự cho 2 nhóm ký tự tiếng Nhật hay bị lẫn lộn khác:
- *
- * 1. `〜` (WAVE DASH, U+301C) và `～` (FULLWIDTH TILDE, U+FF5E) — 2 ký tự
- *    trông GIỐNG HỆT NHAU trong hầu hết font, cực kỳ phổ biến trong タイトル名
- *    (vd "～隣人後輩くんの…"), nhưng Unicode KHÔNG coi 2 ký tự này tương đương
- *    (kể cả sau NFKC normalize) — đây là 1 điểm bất nhất nổi tiếng giữa cách
- *    Windows và macOS gõ dấu ngã tiếng Nhật. Phải tự map thủ công, không có
- *    chuẩn Unicode nào lo sẵn việc này.
+ * 1. `〜` (WAVE DASH, U+301C) và `～` (FULLWIDTH TILDE, U+FF5E) — trông GIỐNG
+ *    HỆT NHAU trong hầu hết font, cực kỳ phổ biến trong タイトル名, nhưng
+ *    Unicode KHÔNG coi 2 ký tự này tương đương (kể cả sau NFKC) — phải tự map
+ *    thủ công. (Lưu ý: `.normalize('NFKC')` ở bước sau CÒN tiếp tục phân rã
+ *    FULLWIDTH TILDE thành dấu ngã ASCII nửa-rộng `~` — nghĩa là kết quả cuối
+ *    cùng thực chất là `~`, không phải `～`; vẫn đúng cho mục đích SO SÁNH vì
+ *    áp dụng nhất quán cho cả 2 vế, chỉ không nên dùng hàm này để hiển thị.)
  * 2. Full-width vs half-width (Ａ-Ｚ/０-９/khoảng trắng　 vs A-Z/0-9/khoảng
- *    trắng thường), và half-width katakana vs full-width katakana (vd cách
- *    viết dấu chấm giữa ｶﾞ vs ガ) — nhóm này CÓ chuẩn: `String.prototype
- *    .normalize('NFKC')` xử lý đúng theo đặc tả Unicode.
+ *    trắng thường), half-width vs full-width katakana — dùng
+ *    `String.prototype.normalize('NFKC')`, đúng chuẩn Unicode. NFKC còn có
+ *    tác dụng phụ RỘNG HƠN những gì liệt kê ở đây (vd gộp dấu ba chấm "…"
+ *    thành "..." ASCII) — chấp nhận được vì mục đích của hàm này vốn là nới
+ *    lỏng so sánh, không phải giữ nguyên văn.
  *
- * THỨ TỰ QUAN TRỌNG: phải chuẩn hoá ký hiệu © TRƯỚC khi gọi NFKC — vì NFKC tự
- * nó phân rã `Ⓒ`/`ⓒ` (circled Latin letter C) thành chữ "C" trần trụi (không
- * phải "©" hay "(C)"), làm mất luôn dấu hiệu để regex ©-family nhận diện được
- * nếu gọi sau. Gọi NFKC sau cùng, khi © đã ổn định, không ảnh hưởng gì thêm.
- *
- * KHÔNG chuẩn hoá: các ký tự rõ ràng là lỗi gõ (vd gặp "┴" — ký tự vẽ khung
- * bảng — dùng thay cho dấu chấm giữa "・" ở 1 vài tên tác giả thật) — đây là
- * lỗi nhập liệu cần con người sửa ở nguồn, không nên GAS âm thầm coi là tương
+ * CỐ TÌNH KHÔNG chuẩn hoá: ký tự rõ ràng là lỗi gõ (vd "┴" — ký tự vẽ khung
+ * bảng — dùng nhầm thay cho dấu chấm giữa "・" ở 1 vài tên tác giả thật) —
+ * lỗi nhập liệu cần con người sửa ở nguồn, GAS không nên âm thầm coi tương
  * đương (có thể che mất lỗi thật cần sửa).
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function normalizeJapaneseText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value)
+    .trim()
+    .replace(/[〜～]/g, '～') // wave dash (U+301C) vs fullwidth tilde (U+FF5E) -> 1 dạng
+    .normalize('NFKC'); // full-width/half-width Latin+số+khoảng trắng, half-width katakana, v.v.
+}
+
+/**
+ * Chuẩn hoá 1 giá trị field BẢN QUYỀN để SO SÁNH (không dùng để lưu/ghi) —
+ * gồm normalizeJapaneseText() ở trên CỘNG THÊM chuẩn hoá các BIẾN THỂ
+ * UNICODE của ký hiệu bản quyền "©": `©` (U+00A9, chuẩn), `Ⓒ`/`ⓒ`
+ * (U+24B8/U+24D2, "circled Latin letter C"), và `(C)`/`(c)`/`（Ｃ）`/`（ｃ）`
+ * (dạng ASCII lẫn full-width, có/không dấu ngoặc). Về ý nghĩa, tất cả đều là
+ * "bản quyền" — nhưng so sánh `===` trực tiếp sẽ coi 2 chuỗi chỉ khác nhau
+ * đúng 1 ký hiệu này là "đã đổi", gây log audit sai lệch và dịch chuyển lịch
+ * sử CopyRight過去1-10 một cách không cần thiết. CHỈ chuẩn hoá để SO SÁNH —
+ * giá trị thật sự GHI vào sheet vẫn giữ nguyên ký hiệu gốc từ nguồn.
+ *
+ * TẠI SAO CẦN HÀM NÀY (lịch sử): khi 1 record vừa build lại từ nguồn không
+ * match được gì (vd `lookupRegulation()` trả về `undefined`), giá trị đó là
+ * `undefined` trong JS. Nhưng khi GHI `undefined` vào 1 ô Google Sheets rồi
+ * ĐỌC LẠI ở lần chạy sau, Sheets trả về CHUỖI RỖNG `''`, không phải
+ * `undefined`. So sánh trực tiếp bằng `===` sẽ thấy `undefined !== ''` và
+ * coi đó là "đã đổi" — dù cả 2 đều thực chất là "không có gì". Đã kiểm chứng
+ * bug này gây ra ~99% số dòng bị đánh dấu update SAI ở mỗi lần chạy (xem
+ * GAS1変更詳細 thực tế: 5639+3022 dòng log có cả 変更前/変更後 đều trống).
+ * `normalizeJapaneseText()` (không nhận `undefined`/`null`) xử lý phần này.
+ *
+ * THỨ TỰ QUAN TRỌNG: phải chuẩn hoá ký hiệu © TRƯỚC khi gọi normalizeJapaneseText()
+ * (tức trước NFKC) — vì NFKC tự nó phân rã `Ⓒ`/`ⓒ` (circled Latin letter C)
+ * thành chữ "C" trần trụi (không phải "©" hay "(C)"), làm mất luôn dấu hiệu
+ * để regex ©-family nhận diện được nếu gọi sau.
+ *
+ * Regex `[（(][CcＣｃ][）)]/g` xử lý CẢ full-width lẫn half-width ngoặc quanh
+ * C — nếu chỉ dùng `\(c\)` (ASCII only) như bản trước, `（Ｃ）` (ngoặc +
+ * chữ C đều full-width, kiểu gõ IME tiếng Nhật rất phổ biến) sẽ KHÔNG được
+ * nhận diện tương đương với `©`/`(C)`, vì NFKC (bước fold full-width sang
+ * half-width) chạy SAU quy tắc ©-family này, quá muộn để quy tắc đó bắt lại.
  *
  * @param {*} value
  * @returns {string}
  */
 function normalizeForCompare(value) {
   if (value === undefined || value === null) return '';
-  return String(value)
+  var withCopyrightFolded = String(value)
     .trim()
-    .replace(/\(c\)/gi, '©') // (C) hoặc (c) -> ©
-    .replace(/[©Ⓒⓒ]/g, '©') // Ⓒ/ⓒ (circled Latin letter C) -> © (ký hiệu chuẩn)
-    .replace(/[〜～]/g, '～') // wave dash (U+301C) vs fullwidth tilde (U+FF5E) -> 1 dạng
-    .normalize('NFKC'); // full-width/half-width Latin+số+khoảng trắng, half-width katakana, v.v.
+    .replace(/[（(][CcＣｃ][）)]/g, '©') // (C)/(c)/（Ｃ）/（ｃ） -> ©
+    .replace(/[©Ⓒⓒ]/g, '©'); // Ⓒ/ⓒ (circled Latin letter C) -> © (ký hiệu chuẩn)
+  return normalizeJapaneseText(withCopyrightFolded);
 }
 
 /**
