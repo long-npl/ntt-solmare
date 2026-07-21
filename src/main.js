@@ -97,6 +97,8 @@ function runGas1() {
   var errors = [];
   var irregularTitles = [];
 
+  Logger.log('GAS❶ 開始: ' + startedAt.toISOString());
+
   try {
     // ---- Bước 1: đọc thô + parse 3 nguồn ----
     var regulationRaw = readSheetValues(CONFIG.SOURCES.REGULATION.spreadsheetId, CONFIG.SOURCES.REGULATION.sheetName);
@@ -106,14 +108,18 @@ function runGas1() {
 
     var regulationRecords = parseRegulationRows(regulationRaw);
     var regulationLookup = buildRegulationLookup(regulationRecords);
+    Logger.log('作品レギュレーション判定: ' + regulationRecords.length + ' 件（判定済み）読み込み完了');
 
     var cmsRecords = parseCmsRows(cmsRaw);
     var cmsCopyrightLookup = buildCmsCopyrightLookup(cmsRecords);
+    Logger.log('先行タイトル情報(CMS): ' + cmsRecords.length + ' 件読み込み完了（コピーライトU列あり: ' + cmsCopyrightLookup.size + ' 件）');
 
     var ngTitleRecords = parseNgTitles(ngTitleRaw);
     var ngTitleLookup = buildNgTitleLookup(ngTitleRecords);
+    Logger.log('外部出稿用NGタイトル: ' + ngTitleRecords.length + ' 件読み込み完了');
 
     var basicNotationMap = parseBasicNotation(basicNotationRaw);
+    Logger.log('基本のC表記: ' + basicNotationMap.size + ' レーベル読み込み完了');
 
     // Đọc + parse cả 5 sheet quy tắc riêng NXB (LINE/スクエニ/リブレ/オーバー
     // ラップ/ヒーローズ) theo registry — thêm NXB mới chỉ cần sửa
@@ -122,6 +128,7 @@ function runGas1() {
     PUBLISHER_SHEET_PARSERS.forEach(function (entry) {
       var rawRows = readSheetValues(CONFIG.SOURCES.PUBLISHER_RULES.spreadsheetId, entry.sheetName);
       publisherMaps[entry.key] = entry.parse(rawRows);
+      Logger.log(entry.key + ' (' + entry.sheetName + '): ' + publisherMaps[entry.key].size + ' 件読み込み完了');
     });
 
     // ---- Bước 2-5: 顧客作品マスタ ----
@@ -158,6 +165,8 @@ function runGas1() {
     };
     var customerDiff = diffUpsert(existingCustomerRows, numberedCustomerRows, customerKeyFn, customerIsEqualFn);
     attachRowOffsets(customerDiff, existingCustomerRows, customerKeyFn);
+    Logger.log('顧客作品マスタ 集計: 追加 ' + customerDiff.toAdd.length + ' 件 / 更新 ' + customerDiff.toUpdate.length
+      + ' 件 / 変化なし ' + customerDiff.unchangedKeys.length + ' 件（既存 ' + existingCustomerRows.length + ' 件）');
 
     // ---- Bước 6-7: コピーライトマスタ (key theo タイトルNo, dùng lại số vừa gán ở trên) ----
     var copyrightKeyFn = function (r) { return String(r.titleNo); };
@@ -187,10 +196,16 @@ function runGas1() {
     };
     var copyrightDiff = diffUpsert(existingCopyrightRows, newCopyrightRows, copyrightKeyFn, copyrightIsEqualFn);
     attachRowOffsets(copyrightDiff, existingCopyrightRows, copyrightKeyFn);
+    Logger.log('コピーライトマスタ 集計: 追加 ' + copyrightDiff.toAdd.length + ' 件 / 更新 ' + copyrightDiff.toUpdate.length
+      + ' 件 / 変化なし ' + copyrightDiff.unchangedKeys.length + ' 件（既存 ' + existingCopyrightRows.length + ' 件）');
+    if (irregularTitles.length > 0) {
+      Logger.log('個別対応（コピーライト特定不可）: ' + irregularTitles.length + ' 件 -> ' + irregularTitles.join(' / '));
+    }
 
     // ---- Bước 5b/7b: ghi thật lên 2 sheet output ----
     writeCustomerWorkMaster(customerDiff);
     writeCopyrightMaster(copyrightDiff);
+    Logger.log('顧客作品マスタ・コピーライトマスタへの書き込み完了');
 
     // ---- Bước 8: log audit chi tiết (backup từng field đã đổi, để tra
     // ngược lại nếu sau này phát hiện giá trị nào đó bị sai — xem
@@ -209,24 +224,29 @@ function runGas1() {
     var copyrightChangeRows = buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate, [
       { key: 'copyrightCurrent', label: '正規コピーライト' },
     ], runAt);
-    appendChangeDetailRows(customerChangeRows.concat(copyrightChangeRows));
+    var allChangeRows = customerChangeRows.concat(copyrightChangeRows);
+    appendChangeDetailRows(allChangeRows);
+    Logger.log('GAS1変更詳細 記録: ' + allChangeRows.length + ' フィールド分');
 
     // ---- Bước 9-10: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {
       notifySlack('GAS❶: ' + irregularTitles.length + '件のタイトルが個別対応(コピーライト特定不可)になりました:\n' + irregularTitles.join('\n'));
     }
 
+    var finishedAt = new Date();
     appendLogEntry({
       startedAt: startedAt,
-      finishedAt: new Date(),
+      finishedAt: finishedAt,
       addedCount: customerDiff.toAdd.length,
       updatedCount: customerDiff.toUpdate.length,
       irregularTitles: irregularTitles,
       errors: errors,
     });
+    Logger.log('GAS❶ 完了: ' + finishedAt.toISOString() + '（所要 ' + Math.round((finishedAt - startedAt) / 1000) + '秒）');
   } catch (error) {
     // Lỗi giữa chừng: log + báo Slack, rồi re-throw để Apps Script/trigger
     // hiển thị đúng lần chạy này là THẤT BẠI, không âm thầm coi là thành công.
+    Logger.log('GAS❶ エラーで中断: ' + String(error));
     errors.push(String(error));
     notifySlack('GAS❶ 実行エラー: ' + String(error));
     appendLogEntry({
