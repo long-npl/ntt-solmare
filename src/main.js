@@ -47,7 +47,13 @@ function runGas1() {
     });
 
     // ---- 顧客作品マスタ ----
-    var customerKeyFn = function (r) { return String(r.titleId); };
+    // Key theo CMSID, KHÔNG theo タイトルID: dữ liệu thật cho thấy ~3.5% dòng
+    // 先行タイトル情報(CMS) có タイトルID trống, và nhiều tác phẩm khác nhau dùng
+    // chung giá trị placeholder "ー" làm タイトルID — key theo タイトルID khiến các
+    // tác phẩm đó bị gộp chung 1 khoá, không so khớp đúng được với dòng đã ghi ở
+    // lần chạy trước, nên bị thêm lặp lại mỗi lần runGas1() chạy. CMSID luôn có
+    // giá trị (0 dòng trống trong 5649 dòng kiểm tra thực tế) nên đáng tin cậy hơn.
+    var customerKeyFn = function (r) { return String(r.cmsId); };
     var existingCustomerRows = readCustomerWorkMaster();
 
     var builtCustomerRows = buildCustomerWorkRows(cmsRecords, regulationLookup, ngTitleLookup);
