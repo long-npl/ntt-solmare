@@ -137,7 +137,33 @@ Chuẩn hoá mạnh không dùng được vì phần bị cắt lại mang phán
 - `ひとつ屋根の下、幼馴染はふしだらに。【棒消し修正版】` = **アダルトジャンル**
 - `先輩たちに求められすぎて困っています…(フルカラー)` (CMSID 1601) và `…【タテヨミ】` (CMSID 1602) là **2 tác phẩm CMS khác nhau**
 
-### 4.4 Hệ quả đã biết và được user chấp nhận
+### 4.4 Chuẩn hoá CHỈ để so khớp — ghi ra luôn là giá trị gốc
+
+`normalizeJapaneseText()` chỉ được dùng để **dựng khoá và so sánh**. Không có giá trị nào đã chuẩn hoá được ghi vào sheet.
+
+Sau khi khớp, mỗi cột lấy giá trị gốc từ **đúng nguồn sở hữu cột đó** theo ghi chú ô B9 của ガワ (`CMS＞C~K列`, `レギュレーション＞N~Q列`):
+
+| Cột ghi ra | Giá trị gốc lấy từ |
+|---|---|
+| C `CMS ID`, D `タイトルID`, **E `タイトル名`**, F→K | **CMS**, nguyên văn |
+| **N `①広告出稿ポリシー`**, **O `②一般面出稿NG`**, **P `③シーモアロゴ判定`** | **レギュレーション**, nguyên văn |
+
+Ví dụ cụ thể — tác phẩm khớp nhau nhờ NFKC nhưng hai bảng viết khác nhau:
+
+```
+CMS         : 落城の美姫〜堅物皇子の甘い執着〜      (U+301C)
+レギュレーション : 落城の美姫～堅物皇子の甘い執着～      (U+FF5E)
+khoá khớp    : 落城の美姫～堅物皇子の甘い執着～      (sau NFKC, chỉ tồn tại trong bộ nhớ)
+
+-> cột E ghi : 落城の美姫〜堅物皇子の甘い執着〜      (gốc CMS, U+301C — KHÔNG phải khoá)
+-> cột N/O/P : giá trị gốc của dòng レギュレーション đã khớp
+```
+
+Áp dụng cho cả cascade khoá upsert ở mục 5: so khớp bằng giá trị đã chuẩn hoá, nhưng cột D `タイトルID` ghi **nguyên văn CMS** — kể cả khi giá trị đó là `ー` hay `※既に配信済みのためCMS削除`, giữ y nguyên cho tới khi CMS cấp số thật.
+
+Hệ quả cần biết: `タイトル名` trên master sẽ theo cách viết của **CMS**, nên nếu đối chiếu mắt thường giữa master và レギュレーション vẫn sẽ thấy chênh nhau ở mấy ký tự vô hình — đó là đúng thiết kế, không phải lỗi.
+
+### 4.5 Hệ quả đã biết và được user chấp nhận
 
 **73 tác phẩm アダルト sẽ vào master** vì tên hai bên viết khác nhau. Chúng tra ra được nếu dùng `タイトルID`/`CMSID` nhưng không tra ra bằng tên. Đây là quyết định của user sau khi được trình bày số liệu 2 lần. Mẫu:
 
