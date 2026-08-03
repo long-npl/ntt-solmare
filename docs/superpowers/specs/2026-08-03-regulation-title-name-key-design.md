@@ -26,7 +26,8 @@ Ba thay đổi đến cùng lúc, và chúng liên quan tới nhau nên phải t
 
 **Ngoài phạm vi (nêu rõ để không bị hiểu là bỏ sót):**
 - Cột **L `大量無料開始日`** / **M `大量無料終了日`** — nguồn `大量無料希望作品リスト_CA様` chưa có file, chưa có ID. Để trống.
-- Cột **Q `掲載停止日付`** — ghi chú trên sheet nói lấy từ レギュレーション (ô B9: `③【社外用】作品レギュレーション判定＞N~Q列`) nhưng bản レギュレーション ta đang có **không có cột nào** mang nghĩa này. Để trống, cần xác nhận với 池永.
+- Cột **Q `掲載停止日付`** — ghi chú trên sheet nói lấy từ レギュレーション (ô B9: `③【社外用】作品レギュレーション判定＞N~Q列`) nhưng bản レギュレーション ta đang có **không có cột nào** mang nghĩa này. **Đã chốt: tạm skip, để trống** (mục 10d).
+- Cột `備考` không còn tồn tại trên ガワ mới. Nguồn `外部出稿用NGタイトル` chuyển từ "điền cột 備考" thành "cảnh báo trong `GAS1ログ`" — **đã chốt**, xem mục 10a.
 - `旧情報アーカイブ` — ô B8 của ガワ mới nói `毎日 9時、17時にGASで更新＋旧情報アーカイブ`. Chức năng archive bản cũ chưa tồn tại trong code, không làm ở lần này.
 - Slack notification (vẫn như spec gốc: chỉ ghi log sheet).
 
@@ -255,6 +256,7 @@ Hôm nay đã có **4 dòng nguy hiểm** trong 1.730: 3 dòng trùng `タイト
 | **照合注意** | Khớp ở **tầng 2 hoặc 3** | Một trong hai trường định danh vừa đổi. Không phải lỗi, nhưng phải nhìn thấy được (110 ca trong mô phỏng lần 3) |
 | **照合曖昧** | Ở tầng thắng có **>1 dòng ứng viên** chưa bị chiếm | Cảnh báo thật. GAS chọn theo thứ tự cố định (dòng có `タイトルNo` nhỏ nhất) rồi báo, để người kiểm |
 | **孤立行** | Dòng master **không record nào chiếm** trong lần chạy | Tác phẩm đổi tên (dòng cũ mồ côi), hoặc bị rút phán định. Rule 2 cấm xoá → chỉ báo |
+| **外部出稿NG注意** | Tác phẩm khớp `外部出稿用NGタイトル` và dòng đó có `備考` | Thay cho cột `備考` đã bị bỏ khỏi ガワ (mục 10a). Ghi kèm tên tác phẩm + nội dung `備考`. Hôm nay: **10 tác phẩm** |
 
 Ghi vào `GAS1ログ` (sheet của chính GAS❶, không phải ガワ của 池永 nên không cần xin phép). Nếu muốn thấy cảnh báo trên **từng dòng master** thì phải thêm cột vào ガワ — cần 池永 đồng ý, chưa làm ở lần này.
 
@@ -286,7 +288,7 @@ File: `example/【池永社内】顧客作品マスタ0803.xlsx`, sheet `顧客�
 | N | `①広告出稿ポリシー` | レギュレーション | ✅ **mới** |
 | O | `②一般面出稿NG` | レギュレーション | ✅ **mới** |
 | P | `③シーモアロゴ判定` | レギュレーション | ✅ (chuyển từ cột K cũ) |
-| Q | `掲載停止日付` | ? | ❌ cần xác nhận (mục 2) |
+| Q | `掲載停止日付` | ? | ❌ tạm skip (mục 10d) |
 
 ### 7.1 Thay đổi bắt buộc ở sheetIO
 
@@ -301,7 +303,7 @@ var headerRow = sheet.getRange(1, 1, 1, columnCount).getValues()[0];
 ### 7.2 Hai cột bị bỏ khỏi master này
 
 - **`コピーライト`** — vẫn tính bình thường (`resolveCopyright`, 4 tầng, không đổi) để đổ sang コピーライトマスタ. Chỉ là không còn ghi vào 顧客作品マスタ.
-- **`備考`** — cảnh báo `外部出稿NGタイトル` **mất chỗ chứa hoàn toàn**. Nguồn `ngTitleSource` không còn cột output nào ở master này. → **Mục cần xác nhận, xem mục 10.**
+- **`備考`** — cảnh báo `外部出稿NGタイトル` không còn cột output nào ở master này. Nguồn `ngTitleSource` chuyển thành nguồn **cảnh báo trong `GAS1ログ`**, ảnh hưởng 10 tác phẩm. Chi tiết + số liệu ở **mục 10a**.
 
 ## 8. Thứ tự thực thi trong `runGas1()`
 
@@ -319,7 +321,7 @@ var headerRow = sheet.getRange(1, 1, 1, columnCount).getValues()[0];
 7. diffUpsert()      (cùng cascade)
 8. Ghi 顧客作品マスタ
 9. Build + ghi コピーライトマスタ từ CHÍNH danh sách đã lọc ở bước 5
-10. Ghi GAS1ログ (kèm 3 cảnh báo + 2 số đếm ở mục 6)
+10. Ghi GAS1ログ (kèm 4 cảnh báo + 2 số đếm ở mục 6)
 ```
 
 Bước 5 phải đặt **trước** bước 6, vì:
@@ -328,6 +330,8 @@ Bước 5 phải đặt **trước** bước 6, vì:
 
 Bước 4 phải đặt **trước** bước 5, vì rule 2 cần biết "đã có trên sheet chưa".
 
+**Lần chạy đầu tiên** (mục 10b): bước 4 đọc về mảng rỗng, nên mọi tác phẩm đều rơi vào nhánh "chưa có trong master" — rule 2 không bảo vệ ai, 595 tác phẩm NG bị loại thẳng. Từ lần chạy thứ hai rule 2 mới có tác dụng. コピーライトマスタ cũng phải được xoá sạch trước lần chạy đầu, vì `タイトルNo` được cấp lại từ 1 và số cũ sẽ trỏ sai tác phẩm.
+
 ## 9. Ranh giới module
 
 Giữ nguyên nguyên tắc của spec gốc: `sources/*` chỉ parse, `logic/*` là hàm pure không đụng `SpreadsheetApp`, `io/*` là chỗ duy nhất nói chuyện với Google Sheets.
@@ -335,10 +339,11 @@ Giữ nguyên nguyên tắc của spec gốc: `sources/*` chỉ parse, `logic/*`
 | File | Thay đổi |
 |---|---|
 | [src/sources/regulationSource.js](../../../src/sources/regulationSource.js) | **Viết lại**. Bỏ `compositeKey()`, bỏ 3 map theo ID, bỏ `lookupRegulation()`. Thêm parse cột ①②, thêm `isRegulationNg()`, lookup 1 map theo tên với quy tắc NG-thắng |
-| [src/logic/customerWorkMaster.js](../../../src/logic/customerWorkMaster.js) | Gắn `policy`/`general`/`logo`/`isNg` + `label`. Bỏ `remark` (mất cột 備考) |
+| [src/logic/customerWorkMaster.js](../../../src/logic/customerWorkMaster.js) | Gắn `policy`/`general`/`logo`/`isNg` + `label` + `copyrightU`. Bỏ field `remark` (mục 10a) |
 | [src/logic/upsert.js](../../../src/logic/upsert.js) | Thêm `matchExisting()` cascade 3 tầng + ràng buộc chiếm-một-lần. `diffUpsert()`/`resolveNumbers()` nhận hàm match thay vì `keyFn` |
 | [src/io/sheetIO.js](../../../src/io/sheetIO.js) | `resolveMasterHeader()` dò hàng header. Đổi map cột sang B→Q. Đổi bộ lọc dòng trống sang `タイトル名` |
-| [src/io/logSheet.js](../../../src/io/logSheet.js) | Thêm 3 cảnh báo + 2 số đếm |
+| [src/io/logSheet.js](../../../src/io/logSheet.js) | Thêm 4 cảnh báo + 2 số đếm (mục 6) |
+| [src/sources/ngTitleSource.js](../../../src/sources/ngTitleSource.js) | Không đổi phần parse. Đổi *chỗ tiêu thụ*: từ điền cột `備考` sang cảnh báo `外部出稿NG注意` trong log |
 | [src/sources/cmsSource.js](../../../src/sources/cmsSource.js) | Bộ lọc dòng trống theo `タイトル名`. **Xoá** `buildCmsCopyrightLookup()` — xem 9.1 |
 | [src/main.js](../../../src/main.js) | Chèn bước lọc, đổi thứ tự, đổi `keyFn` |
 | [src/config.js](../../../src/config.js) | `TRIGGER_HOURS: [9, 17]` (xem mục 10c) |
@@ -359,15 +364,56 @@ var cmsValue = cmsCopyrightLookup.get(String(work.cmsId));
 
 Kết quả: ít một hàm, ít một lần tra cứu, và tầng 1 không còn phụ thuộc bất kỳ khoá nào. Tầng 2/3/4 của `resolveCopyright()` **không đổi** (vốn đã tra theo `titleId`/`titleName`/`publisher`).
 
-## 10. Mục cần xác nhận với 池永/営業 (chưa chặn việc code)
+## 10. Bốn mục đã chốt (2026-08-03)
 
-**(a) `備考` mất chỗ chứa.** ガワ mới không có cột nào cho cảnh báo `外部出稿NGタイトル`. Nguồn này sẽ chuyển sang master khác, hay bỏ khỏi GAS❶, hay cần thêm cột? Trong lúc chờ: vẫn đọc nguồn, không ghi ra đâu cả.
+### (a) `備考` — bỏ khỏi master, chuyển thành cảnh báo trong log
 
-**(b) Lần chạy đầu trên ガワ mới.** Sheet `顧客作品マスタ` mới đang **trống 0 dòng**; dữ liệu cũ ở `顧客作品マスタ_元`. Nghĩa là lần chạy đầu mọi tác phẩm đều "chưa có trong master" → rule 2 không bảo vệ ai → **toàn bộ 595 tác phẩm NG bị loại thẳng**, kể cả những cái đang có trong bảng cũ. Chạy sạch từ đầu như vậy, hay cần seed từ `顧客作品マスタ_元` trước lần chạy đầu?
+ガワ mới không có cột nào cho nội dung `備考` của nguồn `外部出稿用NGタイトル`. Đo mức ảnh hưởng thật:
 
-**(c) Giờ chạy.** Ô B8 của ガワ mới ghi **9時・17時**, [src/config.js:66](../../../src/config.js#L66) đang **9時・18時**. Spec này giả định đổi theo sheet (9/17).
+| | Số |
+|---|---|
+| Dòng trong sheet `外部出稿用NGタイトル` | 671 (644 khoá tra) |
+| **Tác phẩm CMS thật sự đang nhận được `備考`** | **10 / 5.649** |
 
-**(d) Cột Q `掲載停止日付`.** Ghi chú nói lấy từ レギュレーション nhưng bản レギュレーション hiện có không có cột tương ứng.
+Chỉ 10, vì phần lớn dòng NG **không có `タイトルID`** — chúng là quy tắc theo nhà xuất bản hoặc theo điều kiện chứ không theo tác phẩm cụ thể (`すべての作品`, `基本すべての作品`, `ロゴ判定リストで、シーモアロゴ「×」になっているタイトル`), nên `buildNgTitleLookup()` không tạo được khoá tra tới tác phẩm nào.
+
+Phần lớn nội dung 10 cái đó **trùng ý nghĩa với 2 cột N–O mới** — đây có lẽ là lý do 池永 bỏ cột `備考`, vì phán định đã được cấu trúc hoá:
+
+| Tác phẩm | `備考` | Tương ứng cột mới |
+|---|---|---|
+| `MY SWEET BUNNY CAGE` | `一般面での出稿ＮＧ（アダルト面での出稿はＯＫ）` | = `②一般面出稿NG` |
+| `ヒグマグマ` | `熊被害が発生しているため出稿NG` | = `①広告出稿ポリシー` (レギュレーション đánh `問題あり`) |
+| `華嫁（はなよめ）～…` | `諸般の事情により、広告出稿ＮＧ` | = `①広告出稿ポリシー` |
+
+Nhưng **không trùng hết** — mấy dòng dưới đây là thông tin *dừng phân phối*, N–O không diễn đạt được, đúng ra thuộc cột **Q `掲載停止日付`** (xem mục d):
+
+```
+隙あらば…カレシが泣くまでいじめたい！   作家様都合で配信停止
+ヤバい人に沼りました…                 2025/2/8（土）～：出版社都合により配信停止
+心音【電子単話版】                    作家先生都合
+```
+
+**Quyết định:** bỏ cột `備考` khỏi 顧客作品マスタ theo đúng ガワ, nhưng **vẫn đọc nguồn** `外部出稿用NGタイトル` và ghi các tác phẩm có `備考` vào `GAS1ログ` dưới dạng cảnh báo **`外部出稿NG注意`** (kèm tên tác phẩm + nội dung `備考`). Không mất thông tin im lặng, không cần xin thêm cột.
+
+→ `buildCustomerWorkRows()` bỏ field `remark`; `ngTitleLookup` chuyển từ "nguồn điền cột" thành "nguồn cảnh báo" (xem mục 6).
+
+### (b) Lần chạy đầu — KHÔNG seed, chạy sạch từ đầu
+
+Sheet `顧客作品マスタ` mới đang trống 0 dòng, dữ liệu cũ để lại ở `顧客作品マスタ_元`. **Không seed từ sheet cũ.**
+
+Hệ quả cần nắm: lần chạy đầu mọi tác phẩm đều "chưa có trong master" → rule 2 (mục 3.4) không bảo vệ ai → **toàn bộ 595 tác phẩm NG bị loại thẳng**, kể cả những cái đang tồn tại trong `顧客作品マスタ_元`. Rule 2 chỉ bắt đầu có tác dụng **từ lần chạy thứ hai trở đi**.
+
+`タイトルNo` cũng được cấp lại từ 1 — số cũ trong `顧客作品マスタ_元` không được kế thừa. コピーライトマスタ dùng `タイトルNo` làm khoá nên cũng phải được dựng lại từ đầu cùng lúc, **không được giữ dữ liệu cũ** (nếu không, `タイトルNo` mới sẽ trỏ sai tác phẩm).
+
+### (c) Giờ chạy — 9時・17時
+
+Đổi [src/config.js:66](../../../src/config.js#L66) `TRIGGER_HOURS` từ `[9, 18]` sang **`[9, 17]`** theo ô B8 của ガワ. Trigger cũ phải xoá và cài lại (`createGas1Trigger()`).
+
+### (d) Cột Q `掲載停止日付` — tạm skip
+
+Ghi chú ô B9 nói lấy từ レギュレーション (`N~Q列`) nhưng bản レギュレーション hiện có không có cột mang nghĩa này. **Để trống, không xử lý ở lần này.**
+
+Lưu ý cho lần sau: một phần nội dung cột này đang nằm rải trong `備考` của `外部出稿用NGタイトル` (xem mục a) và trong nguồn `配信停止一覧` (ngoài phạm vi từ spec gốc). Khi làm cột Q, xem lại cả hai chỗ đó.
 
 ## 11. Kiểm chứng
 
