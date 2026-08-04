@@ -247,7 +247,7 @@ Cascade còn **tốt hơn** khoá theo tên đơn thuần: giữ đủ 1.730 dò
   - [src/io/sheetIO.js:108](../../../src/io/sheetIO.js#L108)
   - Lý do: `タイトル名` có **0 dòng trống** trong 5.649 dòng CMS — an toàn nhất trong 3 trường.
 
-## 6. Ba loại cảnh báo mới → `GAS1ログ`
+## 6. Năm loại cảnh báo mới → tab `GAS1警告`
 
 Hôm nay đã có **4 dòng nguy hiểm** trong 1.730: 3 dòng trùng `タイトル名` với dòng khác, 1 dòng trùng `タイトルID` số. Với những dòng này, khi tầng 1 trượt thì tầng 2/3 có thể bắt sang dòng láng giềng sai.
 
@@ -257,38 +257,61 @@ Hôm nay đã có **4 dòng nguy hiểm** trong 1.730: 3 dòng trùng `タイト
 | **照合曖昧** | Ở tầng thắng có **>1 dòng ứng viên** chưa bị chiếm | Cảnh báo thật. GAS chọn theo thứ tự cố định (dòng có `タイトルNo` nhỏ nhất) rồi báo, để người kiểm |
 | **孤立行** | Dòng master **không record nào chiếm** trong lần chạy | Tác phẩm đổi tên (dòng cũ mồ côi), hoặc bị rút phán định. Rule 2 cấm xoá → chỉ báo |
 | **外部出稿NG注意** | Tác phẩm khớp `外部出稿用NGタイトル` và dòng đó có `備考` | Thay cho cột `備考` đã bị bỏ khỏi ガワ (mục 10a). Ghi kèm tên tác phẩm + nội dung `備考`. Hôm nay: **10 tác phẩm** |
+| **掲載停止注意** | Không tìm thấy file TSV, HOẶC nhiều tác phẩm dùng chung 1 `タイトルID` có ngày dừng | Nguồn cột I (mục 10d). Cùng 1 `タイトルID` nghĩa là cả nhóm nhận cùng một ngày — có thể đúng, có thể sai, người phải xem |
 
-Ghi vào `GAS1ログ` (sheet của chính GAS❶, không phải ガワ của 池永 nên không cần xin phép). Nếu muốn thấy cảnh báo trên **từng dòng master** thì phải thêm cột vào ガワ — cần 池永 đồng ý, chưa làm ở lần này.
+### 6.1 Ghi thành DÒNG ở tab riêng `GAS1警告`, không nhồi vào 1 ô của `GAS1ログ`
 
-Cũng ghi thêm 2 số đếm mỗi lần chạy, vì giờ tác phẩm biến mất khỏi master một cách im lặng:
-- **除外_NG件数** (hôm nay: 595)
-- **除外_未判定件数** (hôm nay: 3.324)
+Spec bản đầu viết "ghi vào `GAS1ログ`" mà không nói hình dạng. Khi triển khai đã chốt: **tab riêng, 1 dòng = 1 cảnh báo**, cột `実行日時 / 種別 / タイトルNo / タイトルID / タイトル名 / 詳細`.
+
+Lý do: mô phỏng mục 5.4 lần 3 cho **110 ca `照合注意` trong MỘT lần chạy**. Nhồi 110 tên tác phẩm vào một ô thì không ai đọc được và sẽ đụng giới hạn 50.000 ký tự/ô khi dữ liệu lớn hơn. 1 dòng = 1 cảnh báo thì lọc/sort/tìm được như dữ liệu bình thường — cùng lý do vì sao `GAS1変更詳細` là tab riêng. Vẫn đúng tinh thần "ghi vào log của chính GAS❶, không cần xin cột trên ガワ của 池永".
+
+### 6.2 Bảy số đếm mới trong `GAS1ログ`
+
+`GAS1ログ` (1 dòng = 1 lần chạy) nhận thêm 7 cột, để nhìn 1 dòng là biết lần chạy đó có gì lạ mà không cần mở `GAS1警告`:
+
+- **除外_NG件数** (hôm nay: 595) và **除外_未判定件数** (hôm nay: 3.353) — 2 con số quan trọng nhất của bộ lọc mới, vì giờ tác phẩm biến mất khỏi master một cách im lặng.
+- **照合注意件数 / 照合曖昧件数 / 孤立行件数 / 外部出稿NG注意件数 / 掲載停止注意件数** — số dòng của từng loại cảnh báo.
+
+Tab `GAS1ログ` đã tồn tại với 6 cột từ bản trước; `ensureLogHeaderRow()` tự nâng cấp hàng header khi thấy khác, không đụng dòng dữ liệu cũ.
+
+Nếu muốn thấy cảnh báo trên **từng dòng master** thì phải thêm cột vào ガワ — cần 池永 đồng ý, chưa làm ở lần này.
 
 ## 7. ガワ mới của 顧客作品マスタ
 
+> ⚠️ **ガワ đã đổi 2 lần trong ngày 2026-08-03.** Bảng dưới đây là **bản thứ hai**, đã xác minh trên CẢ `example/【池永社内】顧客作品マスタ0803.xlsx` (bản user cập nhật buổi chiều) và sheet `顧客作品マスタ` của `example/【ソル】タイトルマスタ　ガワ作成 0803 .xlsx` — hai file khớp nhau. Bản đầu tiên (B→Q, có cột `コピーライト`, chưa có `タイトル区分`/`LP制作`/`先行終了日（延長）`) KHÔNG còn hiệu lực.
+
 File: `example/【池永社内】顧客作品マスタ0803.xlsx`, sheet `顧客作品マスタ`. Dữ liệu cũ được 池永 giữ ở sheet `顧客作品マスタ_元`.
 
-**Header ở hàng 15, dữ liệu từ hàng 16, cột A là cột đệm trống:**
+**Header ở hàng 15, dữ liệu từ hàng 16, cột A là cột đệm trống, dữ liệu B→U:**
 
-| Cột | Header | Nguồn | Trong phạm vi lần này |
-|---|---|---|---|
-| A | *(trống)* | — | Cột đệm, luôn để trống |
-| B | `タイトルNo` | GAS tự cấp | ✅ |
-| C | `CMS ID` | CMS | ✅ (chỉ ghi, không dùng logic) |
-| D | `タイトルID` | CMS | ✅ |
-| E | `タイトル名` | CMS | ✅ |
-| F | `作家名` | CMS | ✅ |
-| G | `ジャンル` | CMS | ✅ |
-| H | `出版社` | CMS | ✅ |
-| I | `レーベル名` | CMS | ✅ **mới** — code đã parse sẵn `label`, hiện bỏ không dùng |
-| J | `先行開始日` | CMS | ✅ |
-| K | `先行終了日` | CMS | ✅ |
-| L | `大量無料開始日` | `大量無料希望作品リスト_CA様` | ❌ chưa có nguồn |
-| M | `大量無料終了日` | `大量無料希望作品リスト_CA様` | ❌ chưa có nguồn |
-| N | `①広告出稿ポリシー` | レギュレーション | ✅ **mới** |
-| O | `②一般面出稿NG` | レギュレーション | ✅ **mới** |
-| P | `③シーモアロゴ判定` | レギュレーション | ✅ (chuyển từ cột K cũ) |
-| Q | `掲載停止日付` | ? | ❌ tạm skip (mục 10d) |
+| Cột | idx | Header | Hàng 13 ghi `自動入力/GAS`? | GAS❶ ghi? |
+|---|---|---|---|---|
+| A | 0 | *(trống)* | — | Không (cột đệm) |
+| B | 1 | `タイトルNo` | ✅ | ✅ GAS tự cấp |
+| C | 2 | `CMS ID` | ✅ | ✅ (chỉ ghi, không dùng logic — mục 5.5) |
+| D | 3 | `タイトルID` | ✅ | ✅ |
+| E | 4 | `タイトル区分` | ✅ | ❌ **giữ nguyên** — nguồn `出稿コミット管理表` (安蒜社内) chưa có file (mục 13) |
+| F | 5 | `①広告出稿ポリシー` | ✅ | ✅ **mới** |
+| G | 6 | `②一般面出稿NG` | ✅ | ✅ **mới** |
+| H | 7 | `③シーモアロゴ判定` | ✅ | ✅ |
+| I | 8 | `掲載停止日付` | ✅ | ✅ **ghi một lần** — nguồn TSV trên Drive, join theo `タイトルID` (mục 10d) |
+| J | 9 | `LP制作` | ❌ | ❌ **giữ nguyên** (mục 13) |
+| K | 10 | `タイトル名` | ✅ | ✅ |
+| L | 11 | `作家名` | ✅ | ✅ |
+| M | 12 | `ジャンル` | ✅ | ✅ |
+| N | 13 | `出版社` | ✅ | ✅ |
+| O | 14 | `レーベル名` | ✅ | ✅ **mới** (code đã parse sẵn `label`, trước đây bỏ không dùng) |
+| P | 15 | `先行開始日` | ✅ | ✅ |
+| Q | 16 | `先行終了日` | ✅ | ✅ |
+| R | 17 | `先行終了日（延長）` | ❌ | ❌ **giữ nguyên** (mục 13) |
+| S | 18 | `先行終了日（最終確定）` | ❌ | ❌ **giữ nguyên** (mục 13) |
+| T | 19 | `大量無料開始日` | ✅ | ❌ **giữ nguyên** — nguồn `大量無料希望作品リスト_CA様` chưa có file |
+| U | 20 | `大量無料終了日` | ✅ | ❌ **giữ nguyên** — cùng lý do |
+
+Hai điều quan trọng rút ra:
+
+1. **Thứ tự cột đổi hoàn toàn nhưng code gần như không cần biết** — `io/sheetIO.js` tra cột theo TÊN header, nên việc `タイトル名` nhảy từ cột E sang cột K không tốn dòng code nào. Chỉ 3 thứ thật sự phải sửa: hàng header (1 → tự dò), danh sách header bắt buộc, và cách bảo toàn cột không sở hữu.
+2. **6 cột GAS không ghi + 1 cột ghi-một-lần.** Cách ghi cũ (`new Array(columnCount).fill('')` rồi `setValues` cả dòng) sẽ **xoá trắng** những cột này mỗi lần dòng bị update — bug thật sẽ xảy ra ngay khi có người điền tay. Đã sửa: dòng ghi được dựng **từ bản copy của dòng cũ**, chỉ ghi đè cột GAS sở hữu (xem `customerRecordToRow()`).
 
 ### 7.1 Thay đổi bắt buộc ở sheetIO
 
@@ -308,45 +331,58 @@ var headerRow = sheet.getRange(1, 1, 1, columnCount).getValues()[0];
 ## 8. Thứ tự thực thi trong `runGas1()`
 
 ```
-1. Đọc 3 nguồn (レギュレーション, CMS, 出版社ルール)
-2. buildRegulationLookup()  -> Map<normalize(タイトル名), {policy, general, logo, isNg}>
-                               chỉ dòng ステータス=判定済み, tên trùng thì NG thắng
-3. buildCustomerWorkRows()  -> gắn N/O/P + isNg cho từng tác phẩm CMS
-4. Đọc 顧客作品マスタ hiện có -> existingRows
-5. LỌC:
-     - có 判定済み && !isNg                      -> giữ
-     - (isNg || 未判定) && đã có trong master     -> giữ  (rule 2, mục 3.4)
-     - (isNg || 未判定) && chưa có trong master   -> BỎ   (rule 1, mục 3.3)
-6. resolveNumbers()  (cascade 3 tầng + chiếm-một-lần)
-7. diffUpsert()      (cùng cascade)
-8. Ghi 顧客作品マスタ
-9. Build + ghi コピーライトマスタ từ CHÍNH danh sách đã lọc ở bước 5
-10. Ghi GAS1ログ (kèm 4 cảnh báo + 2 số đếm ở mục 6)
+ 1. Đọc các nguồn (レギュレーション, CMS, 出版社ルール, + TSV 掲載停止日付 trên Drive)
+ 2. buildRegulationLookup()  -> Map<normalize(タイトル名), {policy, general, logo, isNg}>
+                                chỉ dòng ステータス=判定済み, tên trùng thì NG thắng
+ 3. buildCustomerWorkRows()  -> gắn ①②③ + judged/isNg cho từng tác phẩm CMS (CHƯA lọc)
+ 4. readCustomerWorkMaster() -> existingRows (kèm sheetRow + rawRow mỗi dòng)
+ 5. filterAndMatchWorks()    -> LỌC (rule 1 + rule 2) VÀ khớp dòng master (cascade 3
+                                tầng + chiếm-một-lần) trong CÙNG MỘT LƯỢT, 2 phase:
+                                  Phase A: tác phẩm 判定済み && !isNg chiếm dòng TRƯỚC
+                                  Phase B: NG/未判定 chỉ giữ nếu còn dòng chưa bị chiếm
+ 6. resolveCopyright() + lookupSuspensionDate(), CHỈ cho tác phẩm được giữ
+ 7. resolveNumbersFromMatches()  -> cấp/dùng lại タイトルNo
+ 8. diffUpsertFromMatches() -> writeCustomerWorkMaster()
+ 9. Build + ghi コピーライトマスタ từ CHÍNH danh sách đã lọc ở bước 5
+10. Ghi GAS1変更詳細
+11. Ghi GAS1警告 (5 loại cảnh báo, mục 6)
+12. Slack (nếu có tầng 4) + GAS1ログ (kèm 7 số đếm, mục 6.2)
 ```
 
-Bước 5 phải đặt **trước** bước 6, vì:
-- Tác phẩm bị loại không được chiếm `タイトルNo`.
-- コピーライトマスタ dùng lại chính `タイトルNo` do bước 6 cấp làm khoá riêng của nó.
+### 8.1 Vì sao lọc và khớp dòng là MỘT LƯỢT (khác bản đầu của spec này)
 
-Bước 4 phải đặt **trước** bước 5, vì rule 2 cần biết "đã có trên sheet chưa".
+Bản đầu tách bước 5 (lọc) và bước 6/7 (đánh số + diff) thành 2 lượt riêng. Khi triển khai phát hiện điều đó **tự tạo lại đúng lỗi trùng dòng mà cả thiết kế này sinh ra để chống**:
 
-**Lần chạy đầu tiên** (mục 10b): bước 4 đọc về mảng rỗng, nên mọi tác phẩm đều rơi vào nhánh "chưa có trong master" — rule 2 không bảo vệ ai, 595 tác phẩm NG bị loại thẳng. Từ lần chạy thứ hai rule 2 mới có tác dụng. コピーライトマスタ cũng phải được xoá sạch trước lần chạy đầu, vì `タイトルNo` được cấp lại từ 1 và số cũ sẽ trỏ sai tác phẩm.
+Lọc cần trả lời "tác phẩm này đã có trên master chưa" (rule 2), mà câu trả lời đó chính là kết quả khớp dòng. Tách 2 lượt thì lượt 1 và lượt 2 chiếm dòng theo **thứ tự khác nhau** → một tác phẩm NG có thể chiếm dòng của một tác phẩm hợp lệ ở lượt 1 rồi mất dòng đó ở lượt 2 → tác phẩm hợp lệ bị **append thành dòng MỚI**.
+
+Giải pháp: 1 index dùng chung, 2 phase như mô tả ở bước 5. Tác phẩm chắc chắn được ghi có quyền ưu tiên chiếm dòng. Đã có test cho đúng ca này (`tools/verify/tests.js`, hàm `test_filter`: "phase A: tác phẩm hợp lệ chiếm dòng trước").
+
+### 8.2 Các ràng buộc thứ tự khác
+
+- Bước 4 phải **trước** bước 5, vì rule 2 cần biết "đã có trên sheet chưa".
+- Bước 5 phải **trước** bước 7, vì tác phẩm bị loại không được chiếm `タイトルNo`.
+- Bước 7 phải **trước** bước 9, vì `コピーライトマスタ` dùng lại chính `タイトルNo` đó làm khoá riêng của nó.
+- Bước 6 chỉ chạy cho tác phẩm được giữ: tính bản quyền cho 3.948 tác phẩm bị loại là vô nghĩa và tốn thời gian thực thi.
+
+**Lần chạy đầu tiên** (mục 10b): bước 4 đọc về mảng rỗng, nên mọi tác phẩm đều rơi vào nhánh "chưa có trong master" — rule 2 không bảo vệ ai, 595 tác phẩm NG bị loại thẳng. Từ lần chạy thứ hai rule 2 mới có tác dụng. `コピーライトマスタ` cũng phải được xoá sạch trước lần chạy đầu, vì `タイトルNo` được cấp lại từ 1 và số cũ sẽ trỏ sai tác phẩm.
 
 ## 9. Ranh giới module
 
-Giữ nguyên nguyên tắc của spec gốc: `sources/*` chỉ parse, `logic/*` là hàm pure không đụng `SpreadsheetApp`, `io/*` là chỗ duy nhất nói chuyện với Google Sheets.
+Spec bản đầu giữ nguyên cấu trúc 4 thư mục của spec gốc (`sources/` chỉ parse, `logic/` pure, `io/` nói chuyện với Google). Khi triển khai xong, **cấu trúc đã được gom lại thành 7 file chia theo VẤN ĐỀ** (2026-08-04, từ 19 file) vì 19 file nhỏ quá khó quản lý. Nguyên tắc quan trọng vẫn được giữ nguyên và còn rõ hơn:
 
-| File | Thay đổi |
-|---|---|
-| [src/sources/regulationSource.js](../../../src/sources/regulationSource.js) | **Viết lại**. Bỏ `compositeKey()`, bỏ 3 map theo ID, bỏ `lookupRegulation()`. Thêm parse cột ①②, thêm `isRegulationNg()`, lookup 1 map theo tên với quy tắc NG-thắng |
-| [src/logic/customerWorkMaster.js](../../../src/logic/customerWorkMaster.js) | Gắn `policy`/`general`/`logo`/`isNg` + `label` + `copyrightU`. Bỏ field `remark` (mục 10a) |
-| [src/logic/upsert.js](../../../src/logic/upsert.js) | Thêm `matchExisting()` cascade 3 tầng + ràng buộc chiếm-một-lần. `diffUpsert()`/`resolveNumbers()` nhận hàm match thay vì `keyFn` |
-| [src/io/sheetIO.js](../../../src/io/sheetIO.js) | `resolveMasterHeader()` dò hàng header. Đổi map cột sang B→Q. Đổi bộ lọc dòng trống sang `タイトル名` |
-| [src/io/logSheet.js](../../../src/io/logSheet.js) | Thêm 4 cảnh báo + 2 số đếm (mục 6) |
-| [src/sources/ngTitleSource.js](../../../src/sources/ngTitleSource.js) | Không đổi phần parse. Đổi *chỗ tiêu thụ*: từ điền cột `備考` sang cảnh báo `外部出稿NG注意` trong log |
-| [src/sources/cmsSource.js](../../../src/sources/cmsSource.js) | Bộ lọc dòng trống theo `タイトル名`. **Xoá** `buildCmsCopyrightLookup()` — xem 9.1 |
-| [src/main.js](../../../src/main.js) | Chèn bước lọc, đổi thứ tự, đổi `keyFn` |
-| [src/config.js](../../../src/config.js) | `TRIGGER_HOURS: [9, 17]` (xem mục 10c) |
+> Ranh giới có ý nghĩa nhất KHÔNG phải `sources` vs `logic`, mà là **test được vs không test được**. `io.js` và `main.js` dùng `SpreadsheetApp`/`DriveApp` nên không test được bằng Node; 4 file còn lại (`common.js`, `sources.js`, `master.js`, `copyright.js`) là hàm pure và **được test đầy đủ** (mục 11). Mọi logic nghiệp vụ mới PHẢI nằm ở nhóm test được — logic đặt trong `main.js` là logic không thể kiểm chứng.
+
+| File mới | Gộp từ | Thay đổi của lần này |
+|---|---|---|
+| `src/common.js` | `util/headerMap.js` + phần chuẩn hoá/so sánh của `logic/upsert.js` | **+ `colByPrefix()`** (header cột ①/② của レギュレーション có hậu tố ghi chú trong chính ô: `'①広告出稿ポリシー
+（出稿NG）'`). **+ `isDigits()`, `toDateKey()`, `sameDateValue()`, `sameWriteOnceValue()`** |
+| `src/sources.js` | `regulationSource` + `cmsSource` + `ngTitleSource` + `suspensionSource` | レギュレーション **viết lại** (bỏ `compositeKey`/3 map theo ID/`lookupRegulation`, thêm parse ①②, `isRegulationNg()`, lookup theo tên NG-thắng). CMS lọc dòng theo `タイトル名`, **xoá `buildCmsCopyrightLookup()`** (mục 9.1). NG title đổi *chỗ tiêu thụ* sang cảnh báo. **suspensionSource MỚI** (mục 10d) |
+| `src/master.js` | `customerWorkMaster` + `regulationFilter` (mới) + phần cascade/diff của `upsert` + `warnings` (mới) + `changeDetail` | **`filterAndMatchWorks()` MỚI** — lọc + khớp dòng một lượt 2 phase (mục 8.1). **Cascade 3 tầng + chiếm-một-lần MỚI**. **5 hàm cảnh báo MỚI** (mục 6). `diffUpsert()`/`resolveNumbers()` cũ giữ nguyên cho コピーライトマスタ. `changeDetail` fieldDef nhận `compare` tuỳ chọn |
+| `src/copyright.js` | `copyrightRules` + `copyrightResolver` + `copyrightHistory` | Tầng 1 đọc `work.copyrightU`, bỏ tham số `cmsCopyrightLookup` (mục 9.1). Tầng 2/3/4 không đổi |
+| `src/io.js` | `sheetIO` + `driveTsv` (mới) + `logSheet` + `slack` | `resolveMasterHeader()` **tự dò hàng header** + trả `values`. Map cột sang **B→U**. Ghi theo `sheetRow`. **Dựng dòng ghi từ bản copy dòng cũ** để giữ 6 cột GAS không sở hữu. **`driveTsv` MỚI** — file duy nhất dùng `DriveApp`. **+ tab `GAS1警告`** + 7 số đếm + `ensureLogHeaderRow()` |
+| `src/main.js` | (giữ) | Thứ tự bước mới (mục 8), bỏ CMSID khỏi logic, ghi cảnh báo, **+ 3 probe mới**: `probe_readCustomerMasterHeader()`, `probe_dryRunFilter()`, `probe_dumpSuspensionTsv()` |
+| `src/config.js` | (giữ) | `TRIGGER_HOURS: [9, 17]` (mục 10c) + `SOURCES.SUSPENSION` (mục 10d) |
+| `tools/verify/**` | — | **MỚI**: harness Node không cần `npm install` + 124 test (mục 11), gồm `run.js`, `tests.js`, `exportFixtures.py` |
 
 ### 9.1 Tầng 1 của bản quyền: xoá lookup thay vì đổi khoá
 
@@ -409,40 +445,78 @@ Hệ quả cần nắm: lần chạy đầu mọi tác phẩm đều "chưa có 
 
 Đổi [src/config.js:66](../../../src/config.js#L66) `TRIGGER_HOURS` từ `[9, 18]` sang **`[9, 17]`** theo ô B8 của ガワ. Trigger cũ phải xoá và cài lại (`createGas1Trigger()`).
 
-### (d) Cột Q `掲載停止日付` — tạm skip
+### (d) Cột I `掲載停止日付` — ĐÃ CÓ NGUỒN (cập nhật 2026-08-03)
 
-Ghi chú ô B9 nói lấy từ レギュレーション (`N~Q列`) nhưng bản レギュレーション hiện có không có cột mang nghĩa này. **Để trống, không xử lý ở lần này.**
+Bản đầu của mục này viết "tạm skip, để trống" vì bản レギュレーション ta có không có cột nào mang nghĩa này. User đã cung cấp nguồn thật:
 
-Lưu ý cho lần sau: một phần nội dung cột này đang nằm rải trong `備考` của `外部出稿用NGタイトル` (xem mục a) và trong nguồn `配信停止一覧` (ngoài phạm vi từ spec gốc). Khi làm cột Q, xem lại cả hai chỗ đó.
+- **Folder Drive:** `1nv1ivJBdMGe7LOdHfAqX30AIZY55ge6a`
+- **File:** `multi_title_yyyyMMdd.tsv` — nhiều file theo ngày; GAS lấy file có `yyyyMMdd` **lớn nhất mà không vượt ngày chạy**. Không tìm được file nào → ghi cảnh báo `掲載停止注意` rồi chạy tiếp bình thường, cột I không bị đụng tới.
+- **Khoá join:** `タイトルID` (KHÔNG phải `タイトル名`), so khớp sau `normalizeJapaneseText` và **chỉ khi cả hai vế là số thật** — cùng lý do với tầng 2 của cascade (mục 5.2).
+- **GHI MỘT LẦN, KHÔNG BAO GIỜ GHI ĐÈ:** ô nào đang có giá trị thì GAS không đụng tới, dù TSV nói khác, dù tác phẩm đã bị gỡ khỏi TSV. GAS chỉ điền vào ô đang trống.
+
+**Vì sao ghi một lần chứ không "TSV là nguồn chân lý":** quyết định của user, và nó còn loại bỏ luôn một cái bẫy — TSV cho ra chuỗi `2025/2/8`, nhưng Google Sheets tự chuyển thành `Date` khi ghi vào ô, nên so sánh 2 thứ đó sẽ thấy "đã đổi" ở **mọi** lần chạy và ghi lại cả sheet mỗi ngày. Với ghi-một-lần thì không thể xảy ra (`sameWriteOnceValue`).
+
+**Hai hệ quả đã biết**, cả hai đều được ghi cảnh báo chứ không im lặng:
+
+- **~6% dòng master không bao giờ nhận được ngày dừng** vì `タイトルID` trống/không phải số (104 dòng trên 1.730).
+- **2 tác phẩm dùng chung một `タイトルID` sẽ cùng nhận một ngày** — có thật: `冬すぎて桜` và `冬すぎて桜【タテヨミ】` cùng 266030.
+
+**Định vị cột theo VỊ TRÍ, không theo tên header** (xác nhận trên file thật 2026-08-04): cột **A** = `タイトルID`, cột **D** = `掲載停止日付`. Đây là ngoại lệ duy nhất trong codebase — mọi nguồn Google Sheet khác đều tra cột theo TÊN (bền với việc chèn/xoá/đổi thứ tự cột). Lý do: TSV do hệ thống khác xuất ra, hàng đầu không phải hàng header đáng tin.
+
+Nhờ ràng buộc "`タイトルID` phải là số thật", hàm parse **không cần biết file có hàng header hay không**: nếu có, hàng đó cho ra `titleId = 'TitleID'` và bị `buildSuspensionLookup()` bỏ đi. An toàn với cả 2 dạng file, không phải đoán.
+
+**Còn treo:** `encoding` chưa được xác nhận bằng mắt trên file thật (đang để `UTF-8`). Sai encoding **không** làm sai việc so khớp vì khoá là số `タイトルID`, chỉ làm giá trị ngày bị mojibake NẾU ngày có kèm chữ Nhật (vd `2025/2/8（土）`). Chạy `probe_dumpSuspensionTsv()` để so 2 encoding rồi đổi nếu cần.
+
+Lưu ý cho lần sau: một phần thông tin dừng phân phối cũng đang nằm rải trong `備考` của `外部出稿用NGタイトル` (mục a) và trong nguồn `配信停止一覧` (ngoài phạm vi). Khi có thời gian, đối chiếu 3 nguồn này với nhau.
 
 ## 11. Kiểm chứng
 
-Không có test framework trong repo (GAS + clasp, hàm global). Hai script Python đã dùng để đo và kiểm chứng thiết kế này, chạy offline trên bản copy trong `example/`:
+Kiểm chứng đã được đưa vào repo (thay cho 2 script Python nằm ở scratchpad, vốn đã mất cùng session):
 
-| Script | Kiểm chứng |
+| Đường | Kiểm chứng gì |
 |---|---|
-| `scratchpad/preview_filter.py` | Áp quy tắc lọc, xuất ra 顧客作品マスタ dự kiến + danh sách bị loại. Kết quả: [顧客作品マスタ_プレビュー_0803.xlsx](../../../顧客作品マスタ_プレビュー_0803.xlsx) |
-| `scratchpad/sim_cascade.py` | Chạy 4 lần liên tiếp, khẳng định 0 dòng trùng và cascade ổn định (mục 5.4) |
+| `node tools/verify/run.js` | Test đơn vị tầng pure: định nghĩa NG (mục 3.2), lookup theo tên + NG-thắng (4.1), cascade 3 tầng + chiếm-một-lần (5.2/5.3), rule 2 (3.4), 5 loại cảnh báo (6), nguồn `掲載停止日付` (10d). Không cần dữ liệu thật, chạy ~1 giây. **Hiện 124 test, tất cả pass.** |
+| `python tools/verify/exportFixtures.py` rồi `node tools/verify/run.js --data` | Đối chiếu lại từng con số ở mục 12 trên dữ liệu thật trong `example/`, và mô phỏng lại 4 lần chạy liên tiếp của mục 5.4 (khẳng định 0 dòng trùng). |
+| `tools/verify/liveCheck.gs` | Đo trên sheet LIVE (chỉ đọc) — dùng khi cần biết dữ liệu live có khác bản export không. |
+| `probe_dryRunFilter()` (trong `src/main.js`) | Chạy trong Apps Script editor, chỉ ĐỌC: in ra số vào master / bị loại / phân bố tầng khớp trên dữ liệu live **trước khi chạy thật**. |
+| `probe_readCustomerMasterHeader()` | Xác nhận GAS dò đúng hàng header 15 của ガワ mới trước lần chạy đầu. |
 
-**Đề nghị:** chuyển 2 script này vào repo (`tools/verify/`) khi implement, để mỗi lần sửa logic lọc/khoá còn chạy lại đối chiếu được với con số trong spec này. Hiện chúng nằm ở scratchpad của session nên sẽ mất.
+`tools/verify/run.js` nạp 4 file pure của `src/` vào 1 `vm` context rồi đọc hàm ra từ global object — nhờ vậy không phải sửa `src/` chỉ để test được (các file trong `src/` không có `module.exports` vì Apps Script share 1 global scope). `tools/**` đã bị `.claspignore` loại nên không bị đẩy lên project GAS❶.
 
-## 12. Số liệu tham chiếu (đo ngày 2026-08-03)
+## 12. Số liệu tham chiếu
 
 Nguồn: `example/【池永社内】【マスタ】先行タイトル情報（CMS）_代理店共通_DX_debug.xlsx`, `example/【池永社内】【社外用】作品レギュレーション判定.xlsx`
 
-| Chỉ số | Số |
-|---|---|
-| CMS 先行タイトル tổng | 5.649 |
-| レギュレーション tổng số dòng | 5.356 |
-| ┗ `ステータス = 判定済み` | 5.158 |
-| ┗ trạng thái khác (bỏ qua) | `削除` 145, `Wチェック完了` 16, `Wチェック待ち` 11, `担当者依頼中` 9, `再判定依頼` 6, `依頼中` 1, trống 10 |
-| Tên duy nhất trong 判定済み | 5.144 (14 tên trùng) |
-| Tác phẩm CMS tra ra tên 完全一致 | **2.325 (41,2%)** |
-| **→ Vào 顧客作品マスタ** | **1.730 (30,6%)** |
-| → Loại vì NG | **595 (10,5%)** — アダルト作品扱い 374, アダルトジャンル 221, 問題あり 0 |
-| → Loại vì 未判定 | **3.324 (58,8%)** |
-| Dòng NG nếu có fallback ID (không dùng) | 668 → chênh **73 tác phẩm アダルト** |
-| `タイトルID` trống trong 1.730 dòng | 104 (6,0%) |
-| Dòng có khoá sẽ đổi giá trị: `タイトルID` | 108 (6,2%) |
-| Dòng có khoá sẽ đổi giá trị: `タイトル名` | 2 (0,1%) |
-| Dòng nguy hiểm cho cascade | 4 (3 trùng tên + 1 trùng ID số) |
+Toàn bộ bảng này được **kiểm chứng lại tự động** mỗi lần chạy `node tools/verify/run.js --data` (xem hàm `test_dataset` trong `tools/verify/tests.js`).
+
+| Chỉ số | Số | Ghi chú |
+|---|---|---|
+| CMS: dòng có `タイトル名` | **5.678** | Đo lại 2026-08-04 sau khi đổi bộ lọc sang `タイトル名`. Bản đo 2026-08-03 (lọc theo CMSID) ra 5.649 |
+| ┗ trong đó, dòng **không có CMSID** | **29** | **Dòng LỆCH CỘT** trong file nguồn (ô `タイトルID` chứa chuỗi copyright, ô `タイトル名` chứa あらすじ). Bộ lọc CMSID cũ vô tình chặn được; cả 29 đều `未判定` nên không vào master. `main.js` log riêng con số này |
+| レギュレーション tổng số dòng | 5.356 | |
+| ┗ `ステータス = 判定済み` | **5.158** | |
+| ┗ trạng thái khác (bỏ qua) | 198 | `削除` 145, `Wチェック完了` 16, `Wチェック待ち` 11, `担当者依頼中` 9, `再判定依頼` 6, `依頼中` 1, trống 10 |
+| Tên duy nhất trong 判定済み | **5.144** | 14 tên trùng |
+| Tác phẩm CMS tra ra tên 完全一致 | **2.325 (40,9%)** | |
+| **→ Vào 顧客作品マスタ** | **1.730 (30,5%)** | Khớp chính xác bản đo 2026-08-03 |
+| → Loại vì NG | **595 (10,5%)** | アダルト作品扱い 374, アダルトジャンル 221, 問題あり **0** |
+| → Loại vì 未判定 | **3.353 (59,1%)** | = 3.324 (bản 08-03) + 29 dòng lệch cột |
+| Dòng NG nếu có fallback ID (không dùng) | 668 | → chênh **73 tác phẩm アダルト**, mục 4.5 |
+| `タイトルID` trống trong 1.730 dòng | 104 (6,0%) | Đây cũng là ~6% dòng không bao giờ nhận được `掲載停止日付` (mục 10d) |
+| Dòng có khoá sẽ đổi giá trị: `タイトルID` | **108 (6,2%)** | Kiểm chứng tự động: mô phỏng lần 3 khớp đúng 108 dòng ở tầng 3 |
+| Dòng có khoá sẽ đổi giá trị: `タイトル名` | **2 (0,1%)** | Kiểm chứng tự động: khớp đúng 2 dòng ở tầng 2 |
+| Dòng nguy hiểm cho cascade | 4 | 3 trùng tên + 1 trùng ID số |
+
+**Vì sao quy tắc ① `問題あり` loại được 0 dòng** (mục 4.5): レギュレーション có 20 dòng `問題あり` nhưng 19 dòng không tồn tại trong danh sách 先行タイトル của CMS, dòng thứ 20 (`ヒグマグマ【単話版】`) thì tên không khớp. Đây là đặc điểm dữ liệu, không phải lỗi logic — nhưng nghĩa là nhánh ① chỉ được kiểm chứng bằng test đơn vị, chưa có ca thật nào.
+
+## 13. Ba cột mới của ガワ (bản chiều 2026-08-03) — CHƯA thiết kế, chờ user
+
+Ba cột dưới đây xuất hiện ở bản ガワ thứ hai và **không** nằm trong phạm vi lần triển khai này. Cần user trả lời trước khi làm:
+
+| Cột | Ghi chú trên sheet | Vướng ở đâu |
+|---|---|---|
+| E `タイトル区分` | `┗コミットフラグ：2.先行配信（出稿コミット）` / `┗独占フラグ：先行タイトル一覧からコミットフラグが入ってないもの全て` | Cần file `【安蒜社内】出稿コミット管理表（新作・既存・キャン強化）` — **chưa có file, chưa có ID**. Có dấu `自動入力/GAS` nên đúng là việc của GAS |
+| J `LP制作` | `ジャンル＋ロゴ有無で管理` / `・ロゴなし作品→K列が「ロゴなし」の場合` / `・TL→P列が「TL」の場合` / `・BL→P列が「BL」の場合` | `K列` khớp với `③シーモアロゴ判定` của sheet レギュレーション. Nhưng `P列` **không** khớp cột nào mang giá trị TL/BL ở cả 2 nguồn (レギュレーション có TL/BL ở cột `G ジャンル`, CMS có ở `J R18フラグ(TL、BL)`). Ô này lại **KHÔNG** có dấu `自動入力/GAS` → có thể là cột người điền. Cần user xác nhận: GAS làm hay người làm, và `P列` là cột nào |
+| R/S `先行終了日（延長）` / `（最終確定）` | `→【先行作品】独占期間の延長（代理店共有）から反映` / `・W列記載無し→V列反映` / `・W列記載あり→W列反映` | Nguồn `【安蒜社内】【先行作品】独占期間の延長（代理店共有）` chưa có. Cũng không có dấu `自動入力/GAS` |
+
+Ngoài ra, `コピーライトマスタ` cũng đã có ガワ mới trong workbook `【ソル】タイトルマスタ　ガワ作成 0803` (header hàng 15, cột B→P, tách `正規コピーライト` thành `タイトル個別コピーライト(あれば優先使用)` + `出版社コピーライト`, thêm `CMS ID`/`タイトルID`/`ジャンル`/`レーベル名`, lịch sử giảm **10 → 5** slot với ghi chú `旧コピーライトは5つまで保存(6つ以前はマスタから削除)`, và nguồn mới `出版社別コピーライトマスタ` thay `基本のC表記`) — **cần spec riêng**, không gộp vào lần này. Spreadsheet live của nó hiện vẫn layout cũ, và code lần này giữ đường ghi `コピーライトマスタ` không đổi.

@@ -1,0 +1,3 @@
+# Fixtures duoc sinh ra tu example/*.xlsx (ban tai ve, khong commit) —
+# chay lai bang: python tools/verify/exportFixtures.py
+tools/verify/fixtures/
