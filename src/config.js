@@ -33,8 +33,8 @@ var CONFIG = {
       sheetName: "シート1",
     },
     CMS: {
-      // spreadsheetId: '1vU82_heOwwcYlJr9kv9VEqJVKu3kUPz9gh9R5_ycR0k',
-      spreadsheetId: "1Kxb4YNV1dUFkoAbUEnMPFXnXg3AZCi7zdos3SFmBTQU", //DEMO
+      spreadsheetId: '1vU82_heOwwcYlJr9kv9VEqJVKu3kUPz9gh9R5_ycR0k',
+      // spreadsheetId: "1Kxb4YNV1dUFkoAbUEnMPFXnXg3AZCi7zdos3SFmBTQU", //DEMO
       sheetName: "★列追加の場合は増渕まで★",
     },
     // Chỉ còn dùng 1 sheet của file này: 外部出稿用NGタイトル (nguồn cảnh báo).
@@ -47,14 +47,14 @@ var CONFIG = {
         NG_TITLES: "外部出稿用NGタイトル",
       },
     },
-    // Nguồn DUY NHẤT của quy tắc sinh 出版社コピーライト (cột K của コピーライトマスタ).
-    // Hiện sheet này nằm trong file thiết kế 【ソル】タイトルマスタ　ガワ作成 0803.
+    // Nguồn DUY NHẤT của quy tắc sinh 出版社コピーライト (cột K của コピーライトマスタ) —
+    // thay hoàn toàn 基本のC表記 + 5 sheet riêng NXB. Xem comment đầu copyright.js.
     //
-    // ⚠️ spreadsheetId CHƯA có — cần ID của spreadsheet thật nơi sheet này sẽ sống.
-    // Để trống có chủ đích: readSheetValues() sẽ throw ngay thay vì chạy tiếp và
-    // để trống toàn bộ cột K một cách im lặng cho 1.730 tác phẩm.
+    // Đây là nguồn PHỤ: không đọc được thì cột K được GIỮ NGUYÊN giá trị đang có và
+    // lần chạy vẫn tiếp tục (xem try/catch trong runGas1). Cột K được tính lại mỗi
+    // lần chạy, nên thêm/sửa quy tắc trong sheet này là lần chạy sau tự cập nhật.
     PUBLISHER_COPYRIGHT: {
-      spreadsheetId: "",
+      spreadsheetId: "1FmW8IrpUQKDEdjsWvlLSPDvTKhWwdbEUf_HLWOgHuFM",
       sheetName: "出版社別コピーライトマスタ",
     },
     // Nguồn cột I 掲載停止日付 của 顧客作品マスタ (user cung cấp 2026-08-03).
@@ -80,13 +80,13 @@ var CONFIG = {
   },
   OUTPUTS: {
     CUSTOMER_WORK_MASTER: {
-      // spreadsheetId: '1ILmNpxlDIa-J0XiNnRprsdYVcUUiIEt59Miwey214hU',
-      spreadsheetId: "1rekXT213A6Cv0kKDZwzRzHerxl710DAqDvABpTPbQyE", //DEMO
+      spreadsheetId: '1ILmNpxlDIa-J0XiNnRprsdYVcUUiIEt59Miwey214hU',
+      // spreadsheetId: "1rekXT213A6Cv0kKDZwzRzHerxl710DAqDvABpTPbQyE", //DEMO
       sheetName: "顧客作品マスタ",
     },
     COPYRIGHT_MASTER: {
-      // spreadsheetId: '1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc',
-      spreadsheetId: "1MSDCBYjQ--1qKju6liPbsufsNz47AhYrOTVwOm31QkI", //DEMO
+      spreadsheetId: '1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc',
+      // spreadsheetId: "1MSDCBYjQ--1qKju6liPbsufsNz47AhYrOTVwOm31QkI", //DEMO
       sheetName: "コピーライトマスタ",
     },
   },
