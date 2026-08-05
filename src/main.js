@@ -567,6 +567,175 @@ function probe_resolvePublisherCopyrightForOneWork() {
   Logger.log('有効なコピーライト (J優先, なければK): 「' + effectiveCopyright(work) + '」');
 }
 
+/**
+ * Chạy thử CHỈ ĐỌC: xem sheet 顧客作品マスタ hiện có layout nào, và GAS❶ có dò được
+ * hàng header hay không. CHẠY HÀM NÀY TRƯỚC khi chạy runGas1() lần đầu sau khi đổi
+ * ガワ, và chạy lại mỗi khi runGas1() báo 'Không tìm thấy dòng header'.
+ *
+ * Kỳ vọng với ガワ 2026-08-03: 'ヘッダー行: 15 行目 / 列数: 21'.
+ *
+ * CỐ TÌNH KHÔNG để hàm này throw khi thiếu cột: nó là công cụ CHẨN ĐOÁN đúng lỗi
+ * đó, nên nếu nó chết cùng cách với runGas1() thì vô dụng đúng lúc cần nhất. Thay
+ * vào đó, nó tìm hàng GIỐNG header nhất, in ra cột nào có / cột nào thiếu, và in
+ * luôn 25 hàng đầu để mắt người đối chiếu.
+ */
+function probe_readCustomerMasterHeader() {
+  var cfg = CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER;
+  probeMasterHeader('顧客作品マスタ', cfg, CUSTOMER_REQUIRED_HEADERS);
+}
+
+/**
+ * Giống probe_readCustomerMasterHeader() nhưng cho コピーライトマスタ (ガワ mới:
+ * header hàng 15, cột B→P). Kỳ vọng: 'ヘッダー行: 15 行目 / 列数: 16'.
+ */
+function probe_readCopyrightMasterHeader() {
+  var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
+  var required = COPYRIGHT_REQUIRED_HEADERS.slice();
+  for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) required.push(copyrightHistoryHeaderName(h));
+  probeMasterHeader('コピーライトマスタ', cfg, required);
+}
+
+/**
+ * Ruột dùng chung của 2 probe header ở trên — 1 chỗ duy nhất để sửa nếu cần đổi
+ * cách chẩn đoán.
+ *
+ * @param {string} label - Tên master, chỉ để in ra log
+ * @param {{spreadsheetId: string, sheetName: string}} cfg
+ * @param {Array<string>} requiredHeaders
+ * @returns {void}
+ */
+function probeMasterHeader(label, cfg, requiredHeaders) {
+  var ss = SpreadsheetApp.openById(cfg.spreadsheetId);
+  var sheet = ss.getSheetByName(cfg.sheetName);
+  if (!sheet) {
+    Logger.log('KHÔNG tìm thấy sheet "' + cfg.sheetName + '" trong spreadsheet ' + cfg.spreadsheetId);
+    Logger.log('Các sheet đang có: ' + ss.getSheets().map(function (s) { return s.getName(); }).join(' / '));
+    return;
+  }
+  var values = sheet.getDataRange().getValues();
+  Logger.log('[' + label + '] ' + ss.getName() + ' / sheet: ' + cfg.sheetName
+    + ' / ' + values.length + ' hàng x ' + sheet.getLastColumn() + ' cột');
+
+  // Tìm hàng chứa NHIỀU cột bắt buộc nhất (không cần đủ) — hàng đó gần như chắc
+  // chắn là hàng header thật, kể cả khi sheet đang ở layout cũ.
+  var best = { rowIndex: -1, found: [], missing: requiredHeaders };
+  for (var i = 0; i < values.length; i++) {
+    var normalizedRow = values[i].map(normalizeHeaderText);
+    var found = requiredHeaders.filter(function (name) {
+      return normalizedRow.indexOf(normalizeHeaderText(name)) !== -1;
+    });
+    if (found.length > best.found.length) {
+      best = {
+        rowIndex: i,
+        found: found,
+        missing: requiredHeaders.filter(function (name) {
+          return normalizedRow.indexOf(normalizeHeaderText(name)) === -1;
+        }),
+      };
+    }
+  }
+
+  if (best.rowIndex === -1) {
+    Logger.log('KHÔNG hàng nào chứa dù chỉ 1 cột bắt buộc — sheet này có đúng là ' + label + ' không?');
+  } else if (best.missing.length === 0) {
+    Logger.log('OK — ヘッダー行: ' + (best.rowIndex + 1) + ' 行目, đủ ' + best.found.length + '/'
+      + requiredHeaders.length + ' cột bắt buộc. runGas1() sẽ đọc/ghi được.');
+  } else {
+    Logger.log('THIẾU CỘT — hàng giống header nhất là hàng ' + (best.rowIndex + 1) + ', có '
+      + best.found.length + '/' + requiredHeaders.length + ' cột bắt buộc.');
+    Logger.log('  Thiếu ' + best.missing.length + ' cột: ' + best.missing.join(' , '));
+    Logger.log('  -> Sheet đang ở layout CŨ. Phải cập nhật sheet sang ガワ mới, KHÔNG sửa danh'
+      + ' sách cột bắt buộc trong code cho khớp layout cũ: làm vậy là để GAS ghi dữ liệu vào cột sai.');
+  }
+
+  // In 25 hàng đầu, chỉ ô có giá trị, kèm chữ cái cột — để đối chiếu bằng mắt.
+  Logger.log('--- 25 hàng đầu (chỉ ô có giá trị) ---');
+  for (var r = 0; r < Math.min(values.length, 25); r++) {
+    var cells = [];
+    for (var c = 0; c < values[r].length; c++) {
+      var value = values[r][c];
+      if (value === '' || value === null || value === undefined) continue;
+      cells.push(columnIndexToLetter(c) + '=' + String(value).slice(0, 28));
+    }
+    if (cells.length > 0) Logger.log('hàng ' + (r + 1) + ': ' + cells.join(' | '));
+  }
+}
+
+/**
+ * Chạy thử CHỈ ĐỌC toàn bộ luồng lọc + khớp dòng, KHÔNG ghi gì lên sheet nào.
+ *
+ * Đây là hàm cần chạy trước lần runGas1() đầu tiên: nó in ra đúng những con số mà
+ * spec §12 đã đo (đối tượng vào master / bị loại NG / bị loại 未判定) để đối chiếu,
+ * cộng thêm phân bố tầng khớp và số ca nhập nhằng — nhìn là biết ngay lần chạy thật
+ * sẽ làm gì.
+ *
+ * Kỳ vọng khi master còn trống (dữ liệu 2026-08-04):
+ *   CMS 全: 5678 / 対象: 1730（新規 1730）/ 除外: NG 595、未判定 3353
+ */
+function probe_dryRunFilter() {
+  var regulationRaw = readSheetValues(CONFIG.SOURCES.REGULATION.spreadsheetId, CONFIG.SOURCES.REGULATION.sheetName);
+  var cmsRaw = readSheetValues(CONFIG.SOURCES.CMS.spreadsheetId, CONFIG.SOURCES.CMS.sheetName);
+
+  var regulationLookup = buildRegulationLookup(parseRegulationRows(regulationRaw));
+  var works = buildCustomerWorkRows(parseCmsRows(cmsRaw), regulationLookup);
+  var existingRows = readCustomerWorkMaster();
+  var filtered = filterAndMatchWorks(works, existingRows);
+
+  var tiers = [0, 0, 0, 0];
+  var ambiguous = 0;
+  filtered.matches.forEach(function (match) {
+    tiers[match.tier] += 1;
+    if (match.ambiguous) ambiguous += 1;
+  });
+
+  Logger.log('CMS 全: ' + works.length + ' 件 / 既存マスタ: ' + existingRows.length + ' 行');
+  Logger.log('対象: ' + filtered.matches.length + ' 件（新規 ' + tiers[0] + ' / 第1層 ' + tiers[1]
+    + ' / 第2層 ' + tiers[2] + ' / 第3層 ' + tiers[3] + '）');
+  Logger.log('除外: NG ' + filtered.excludedNg.length + ' 件、未判定 ' + filtered.excludedUnjudged.length + ' 件');
+  Logger.log('照合曖昧: ' + ambiguous + ' 件 / 孤立行: ' + filtered.orphanOffsets.length + ' 行');
+  Logger.log('除外(NG) の先頭5件: ' + filtered.excludedNg.slice(0, 5).map(function (w) {
+    return w.titleName + '【' + w.policy + '/' + w.general + '】';
+  }).join(' | '));
+}
+
+/**
+ * Chạy thử CHỈ ĐỌC: tìm file multi_title_yyyyMMdd.tsv mới nhất và in ra 3 dòng đầu
+ * theo CẢ 2 encoding.
+ *
+ * Dùng khi cần kiểm lại 2 thứ: (1) encoding nào cho ra tiếng Nhật đọc được, và
+ * (2) cột A/D có đúng là タイトルID/掲載停止日付 hay nguồn đã dịch cột — 2 giá trị đó
+ * nằm ở CONFIG.SOURCES.SUSPENSION.titleIdColumn / suspensionDateColumn.
+ *
+ * Lần đầu chạy, Google sẽ hỏi cấp quyền Drive (Review permissions -> Allow) vì đây
+ * là hàm đầu tiên trong project dùng DriveApp.
+ */
+function probe_dumpSuspensionTsv() {
+  var config = CONFIG.SOURCES.SUSPENSION;
+  var found = findLatestSuspensionFile(config, new Date());
+  if (found === null) {
+    Logger.log('Không tìm thấy file nào khớp ' + config.filePattern + ' trong folder ' + config.folderId);
+    return;
+  }
+  Logger.log('File: ' + found.file.getName() + ' (' + found.dateKey + '), '
+    + found.file.getSize() + ' bytes, updated ' + found.file.getLastUpdated());
+  Logger.log('CONFIG đang đọc: タイトルID = cột ' + config.titleIdColumn
+    + ', 掲載停止日付 = cột ' + config.suspensionDateColumn + ', encoding = ' + config.encoding);
+
+  ['UTF-8', 'Shift_JIS'].forEach(function (encoding) {
+    Logger.log('===== ' + encoding + ' =====');
+    try {
+      var rows = readTsvRows(found.file, encoding);
+      Logger.log('Số dòng: ' + rows.length + ' / số cột dòng đầu: ' + rows[0].length);
+      rows.slice(0, 3).forEach(function (row, i) {
+        var cells = row.map(function (cell, c) { return columnIndexToLetter(c) + '=' + String(cell).slice(0, 24); });
+        Logger.log('[' + i + '] ' + cells.join(' | '));
+      });
+    } catch (error) {
+      Logger.log('Lỗi đọc với ' + encoding + ': ' + String(error));
+    }
+  });
+}
+
 /** Chạy thử notifySlack() khi CHƯA cấu hình Script Properties — phải thấy log "bỏ qua Slack", không được lỗi. */
 function probe_notifySlackNoop() {
   notifySlack('test message, không nên thực sự gửi nếu chưa cấu hình Script Properties');

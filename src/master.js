@@ -710,8 +710,8 @@ function buildCopyrightWarningRows(entries, runAt, errorMessage) {
       + errorMessage));
   }
   entries.forEach(function (entry) {
-    var key = normalizeJapaneseText(entry.record.publisher) + ' '
-      + normalizeJapaneseText(entry.record.label) + ' ' + entry.copyrightReason;
+    var key = normalizeJapaneseText(entry.record.publisher) + '\u0000'
+      + normalizeJapaneseText(entry.record.label) + '\u0000' + entry.copyrightReason;
     if (!groups.has(key)) {
       groups.set(key, {
         publisher: entry.record.publisher,
