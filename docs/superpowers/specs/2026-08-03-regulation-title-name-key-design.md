@@ -519,4 +519,59 @@ Ba cột dưới đây xuất hiện ở bản ガワ thứ hai và **không** n
 | J `LP制作` | `ジャンル＋ロゴ有無で管理` / `・ロゴなし作品→K列が「ロゴなし」の場合` / `・TL→P列が「TL」の場合` / `・BL→P列が「BL」の場合` | `K列` khớp với `③シーモアロゴ判定` của sheet レギュレーション. Nhưng `P列` **không** khớp cột nào mang giá trị TL/BL ở cả 2 nguồn (レギュレーション có TL/BL ở cột `G ジャンル`, CMS có ở `J R18フラグ(TL、BL)`). Ô này lại **KHÔNG** có dấu `自動入力/GAS` → có thể là cột người điền. Cần user xác nhận: GAS làm hay người làm, và `P列` là cột nào |
 | R/S `先行終了日（延長）` / `（最終確定）` | `→【先行作品】独占期間の延長（代理店共有）から反映` / `・W列記載無し→V列反映` / `・W列記載あり→W列反映` | Nguồn `【安蒜社内】【先行作品】独占期間の延長（代理店共有）` chưa có. Cũng không có dấu `自動入力/GAS` |
 
-Ngoài ra, `コピーライトマスタ` cũng đã có ガワ mới trong workbook `【ソル】タイトルマスタ　ガワ作成 0803` (header hàng 15, cột B→P, tách `正規コピーライト` thành `タイトル個別コピーライト(あれば優先使用)` + `出版社コピーライト`, thêm `CMS ID`/`タイトルID`/`ジャンル`/`レーベル名`, lịch sử giảm **10 → 5** slot với ghi chú `旧コピーライトは5つまで保存(6つ以前はマスタから削除)`, và nguồn mới `出版社別コピーライトマスタ` thay `基本のC表記`) — **cần spec riêng**, không gộp vào lần này. Spreadsheet live của nó hiện vẫn layout cũ, và code lần này giữ đường ghi `コピーライトマスタ` không đổi.
+Riêng `コピーライトマスタ` thì **đã làm** — xem mục 14.
+
+## 14. ガワ mới của コピーライトマスタ + nguồn 出版社別コピーライトマスタ (2026-08-04)
+
+File: `example/【池永社内】コピーライトマスタ0804.xlsx`, sheet `コピーライトマスタ`. Dữ liệu cũ được giữ ở sheet `コピーライトマスタ_元`. Header **hàng 15**, cột A đệm, dữ liệu **B→P**.
+
+| Cột | Header | Nguồn |
+|---|---|---|
+| B→I | `タイトルNo`, `CMS ID`, `タイトルID`, `タイトル名`, `作家名`, `ジャンル`, `出版社`, `レーベル名` | `顧客作品マスタ` (chính danh sách đã lọc) |
+| J | `タイトル個別コピーライト(あれば優先使用)` | Cột `コピーライト` của CMS, **nguyên văn** |
+| K | `出版社コピーライト` | GAS **sinh** từ `出版社別コピーライトマスタ` |
+| L→P | `コピーライト_過去分1..5` | Lịch sử giá trị hiệu lực |
+
+### 14.1 Ba thay đổi cấu trúc
+
+1. **Bỏ cột `正規コピーライト`.** Bản quyền không còn là MỘT giá trị đi qua 4 tầng, mà là 2 cột độc lập J/K. Giá trị "hiệu lực" = J nếu có, không thì K (ghi chú ô B10: `①「タイトル個別コピーライト」がある場合は優先して設定を行う`) — quan hệ ưu tiên này giờ **chỉ tồn tại trong code** (`effectiveCopyright()`), không nằm trên sheet nữa.
+2. **Bỏ 2 cột `CopyRight(個別ルールの場合)` / `CopyRight自動生成`** — chúng vốn chỉ để phân biệt giá trị đến từ tầng nào, việc mà 2 cột J/K nay làm rõ hơn.
+3. **Lịch sử 10 → 5 slot**, đổi tên `CopyRight過去N` → `コピーライト_過去分N`, theo ghi chú ô B10: `②旧コピーライトは5つまで保存(6つ以前はマスタから削除)`.
+
+### 14.2 Nguồn mới `出版社別コピーライトマスタ` — thay hoàn toàn 6 sheet cũ
+
+User chốt 2026-08-04: **thay thế hoàn toàn** `基本のC表記` + 5 sheet quy tắc riêng NXB (LINE/スクエニ/リブレ/オーバーラップ/ヒーローズ). Toàn bộ `PUBLISHER_SHEET_PARSERS`, `resolvePublisherAliasMatch`, `applyBasicNotationTemplate`, `resolveCopyright` 4 tầng đã bị xoá.
+
+Sheet mới: 381 dòng, 292 NXB (hiện nằm trong workbook `【ソル】タイトルマスタ　ガワ作成 0803`). Cách sinh, theo ghi chú cột K của ガワ:
+
+| Bước | Cột | Quy tắc |
+|---|---|---|
+| Tra | E `出版社` → G `雑誌名/レーベル` | Dòng khớp **cả 2** thắng dòng chỉ khớp `出版社`. Bắt buộc: `集英社` → `©.集英社/作家名/タイトル名` nhưng `集英社`+`ブリンク` → `『タイトル名』©著者名／ホーム社` — tra sai tầng là ghi **tên công ty sai** vào bản quyền |
+| Cờ | H `自動化フラグ` | `01：自動化` 360 dòng → sinh; `02：個別ルール` 11 dòng → để trống + cảnh báo |
+| Sinh | O `テンプレート` | Thay placeholder: `タイトル名`/`作品名`, `著者名`/`作家名`/`作者名`, `レーベル`/`雑誌名`, `出版社` |
+
+**Cột N `著者名区切り方` CỐ TÌNH không dùng** (user chốt): cột đó nói cách nối nhiều tác giả, nhưng CMS chỉ cấp MỘT chuỗi định dạng tự do (`原作：Shigeky 漫画：こくだかや`, `Djade(作画) ┴KRE(ストーリー)`, `福,YTA`) — không có dấu phân cách đáng tin để tách rồi nối lại. Chèn nguyên văn: bản quyền có thể còn dính `原作：`, nhưng không bóp méo tên người.
+
+### 14.3 Cái bẫy: template có thể là CHỈ THỊ, không phải mẫu
+
+19 dòng có `テンプレート` nhưng không chứa placeholder nào, và một số là **câu lệnh cho con người**: `コピーライトについて都度確認`, `都度問い合わせ要`, `コピーライトルール参照して個別記載`. Tin cờ `01：自動化` rồi ghi thẳng cột O ra sheet nghĩa là ghi câu "都度問い合わせ要" vào ô bản quyền như thể đó LÀ bản quyền — và nó trông hoàn toàn bình thường với người đọc sheet.
+
+Cách chặn **không dùng danh sách đen** (sẽ lỗi thời ngay khi ai đó viết câu mới): mọi bản quyền thật đều phải có ký hiệu `©` (hoặc `Ⓒ`/`ⓒ`/`(C)`), câu chỉ thị thì không. Nhờ vậy `©Big Fields Publishing`, `©レジンコミックス` (bản quyền cứng, không placeholder) vẫn hợp lệ.
+
+### 14.4 Số liệu thật (đo 2026-08-04, trên 1.730 tác phẩm vào master)
+
+| Kết quả | Số | Ghi chú |
+|---|---|---|
+| **Sinh được `出版社コピーライト`** | **1.303** | |
+| Không: NXB chưa có quy tắc | **241** | Chủ yếu là imprint của chính ソルマーレ: `シーモアコミックス（トレモア）` 99, `ソルマーレ編集部` 60 — **cần thêm dòng vào `出版社別コピーライトマスタ`** |
+| Không: cờ `02：個別ルール` | **83** | |
+| Không: template không dùng được | **103** | ~29 template chỉ là `『タイトル名』`; ~32 ô テンプレート trống; 18 cần `原作者名（英語）` |
+| Tác phẩm đã có `コピーライト` sẵn từ CMS (cột J) | **1.711 (98,9%)** | Cột J gánh gần hết; cột K chủ yếu có giá trị cho tác phẩm MỚI |
+| Tác phẩm KHÔNG có bản quyền nào (cả 2 cột trống) | **14** | Vào danh sách `個別対応` + Slack |
+
+Cả 3 nhóm "không sinh được" đều ghi 1 dòng `コピーライト注意` vào `GAS1警告` **kèm lý do**, để người xử lý biết phải làm gì: thêm dòng quy tắc / tự viết vào cột J / sửa cột テンプレート.
+
+### 14.5 Còn treo
+
+- **`spreadsheetId` của `出版社別コピーライトマスタ`**: sheet này hiện chỉ nằm trong file thiết kế của ソル. `CONFIG.SOURCES.PUBLISHER_COPYRIGHT.spreadsheetId` đang để trống → `readSheetValues()` throw ngay, thay vì chạy tiếp và để trống cột K một cách im lặng cho 1.730 tác phẩm.
+- **Giờ chạy riêng**: ghi chú ô B8 nói `コピーライトマスタ` cập nhật **9時30分/17時30分** (30 phút sau `顧客作品マスタ`). Hiện GAS❶ vẫn ghi cả 2 master trong CÙNG một lần chạy. Nếu nghiệp vụ thật cần tách 2 lần chạy thì đó là việc tách GAS❷, chưa làm.

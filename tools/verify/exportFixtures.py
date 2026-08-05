@@ -26,8 +26,11 @@ TARGETS = [
     ('cms', 'example/【池永社内】【マスタ】先行タイトル情報（CMS）_代理店共通_DX_debug.xlsx',
      '★列追加の場合は増渕まで★'),
     ('ngTitles', PUBLISHER_RULES, '外部出稿用NGタイトル'),
-    ('basicNotation', PUBLISHER_RULES, '基本のC表記'),
     ('customerMasterGawa', 'example/【池永社内】顧客作品マスタ0803.xlsx', '顧客作品マスタ'),
+    # Nguồn quy tắc sinh 出版社コピーライト. Hiện chỉ là 1 sheet trong file thiết kế
+    # của ソル — khi nó được chuyển sang spreadsheet thật thì đổi đường dẫn ở đây.
+    ('publisherCopyright', 'example/【ソル】タイトルマスタ　ガワ作成 0803 .xlsx', '出版社別コピーライトマスタ'),
+    ('copyrightMasterGawa', 'example/【池永社内】コピーライトマスタ0804.xlsx', 'コピーライトマスタ'),
 ]
 
 

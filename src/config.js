@@ -5,13 +5,11 @@
 // khác) — muốn đổi 1 spreadsheet nguồn/output, chỉ cần sửa đúng 1 chỗ.
 
 /**
- * CONFIG.SOURCES.*  — 3 spreadsheet nguồn GAS❶ đọc trực tiếp (không qua
- *   IMPORTRANGE, xem spec §5). PUBLISHER_RULES.sheets liệt kê TẤT CẢ các
- *   sheet cần đọc trong file "出版社からの追記ルールと外部出稿NGタイトル" —
- *   NG_TITLES/BASIC_NOTATION là 2 sheet chung, còn LINE/SQUARE_ENIX/LIBRE/
- *   OVERLAP/HEROES là 5 sheet quy tắc bản quyền RIÊNG theo từng NXB (tầng ưu
- *   tiên 2 trong copyright.js — xem PUBLISHER_SHEET_PARSERS ở
- *   copyright.js để biết registry map các sheet này với NXB nào).
+ * CONFIG.SOURCES.*  — các nguồn GAS❶ đọc trực tiếp (không qua IMPORTRANGE):
+ *   REGULATION (bộ lọc + 3 cột phán định), CMS (danh sách tác phẩm),
+ *   PUBLISHER_RULES (chỉ sheet 外部出稿用NGタイトル, dùng làm nguồn cảnh báo),
+ *   PUBLISHER_COPYRIGHT (quy tắc sinh 出版社コピーライト), SUSPENSION (file TSV
+ *   trên Drive cấp 掲載停止日付).
  *
  * CONFIG.OUTPUTS.*  — 2 spreadsheet output mà GAS❶ tạo ra: 顧客作品マスタ và
  *   コピーライトマスタ.
@@ -24,8 +22,9 @@
  *   editor > Project Settings > Script Properties, xem comment trong
  *   io.js).
  *
- * CONFIG.COPYRIGHT_HISTORY_SLOTS — số cột lịch sử CopyRight過去1..N mà
- *   コピーライトマスタ hỗ trợ (hiện = 10, khớp với 10 cột 過去1-10 thật trên sheet).
+ * CONFIG.COPYRIGHT_HISTORY_SLOTS — số cột lịch sử コピーライト_過去分1..N của
+ *   コピーライトマスタ. Giảm 10 -> 5 (2026-08-04) theo ghi chú ô B10 của ガワ mới:
+ *   `②旧コピーライトは5つまで保存(6つ以前はマスタから削除)`.
  */
 var CONFIG = {
   SOURCES: {
@@ -38,17 +37,25 @@ var CONFIG = {
       spreadsheetId: "1Kxb4YNV1dUFkoAbUEnMPFXnXg3AZCi7zdos3SFmBTQU", //DEMO
       sheetName: "★列追加の場合は増渕まで★",
     },
+    // Chỉ còn dùng 1 sheet của file này: 外部出稿用NGタイトル (nguồn cảnh báo).
+    // 基本のC表記 và 5 sheet quy tắc riêng NXB (LINE/スクエニ/リブレ/オーバーラップ/
+    // ヒーローズ) ĐÃ BỊ BỎ 2026-08-04 — thay hoàn toàn bằng PUBLISHER_COPYRIGHT
+    // bên dưới (user chốt). Xem comment đầu copyright.js.
     PUBLISHER_RULES: {
       spreadsheetId: "1y5l36o6mvQAtfx3xn3YC4EYa5vn5fy7g2KeWvv5faD8",
       sheets: {
         NG_TITLES: "外部出稿用NGタイトル",
-        BASIC_NOTATION: "基本のC表記",
-        // LINE: 'LINEコピーライト一覧',
-        // SQUARE_ENIX: 'スクエニコピーライト一覧',
-        // LIBRE: 'リブレコピーライト',
-        // OVERLAP: 'オーバーラップ_コピーライト一覧',
-        // HEROES: 'ヒーローズコピーライト一覧',
       },
+    },
+    // Nguồn DUY NHẤT của quy tắc sinh 出版社コピーライト (cột K của コピーライトマスタ).
+    // Hiện sheet này nằm trong file thiết kế 【ソル】タイトルマスタ　ガワ作成 0803.
+    //
+    // ⚠️ spreadsheetId CHƯA có — cần ID của spreadsheet thật nơi sheet này sẽ sống.
+    // Để trống có chủ đích: readSheetValues() sẽ throw ngay thay vì chạy tiếp và
+    // để trống toàn bộ cột K một cách im lặng cho 1.730 tác phẩm.
+    PUBLISHER_COPYRIGHT: {
+      spreadsheetId: "",
+      sheetName: "出版社別コピーライトマスタ",
     },
     // Nguồn cột I 掲載停止日付 của 顧客作品マスタ (user cung cấp 2026-08-03).
     // Folder: https://drive.google.com/drive/folders/1nv1ivJBdMGe7LOdHfAqX30AIZY55ge6a
@@ -93,5 +100,5 @@ var CONFIG = {
     BOT_TOKEN: "SLACK_BOT_TOKEN",
     CHANNEL_ID: "SLACK_CHANNEL_ID",
   },
-  COPYRIGHT_HISTORY_SLOTS: 10,
+  COPYRIGHT_HISTORY_SLOTS: 5,
 };

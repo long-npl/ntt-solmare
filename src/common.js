@@ -192,6 +192,29 @@ function columnLetterToIndex(letter) {
   return index - 1;
 }
 
+/**
+ * Chiều ngược của columnLetterToIndex(): 0 -> 'A', 3 -> 'D', 26 -> 'AA'.
+ *
+ * Chỉ dùng để HIỂN THỊ trong log/chẩn đoán (xem probe_readCustomerMasterHeader
+ * trong main.js) — người đọc log đang mở sheet ra và nhìn thấy chữ cái cột, nên
+ * log kiểu 'K=タイトル名' đối chiếu được ngay, còn 'cột 10' thì phải tự đếm.
+ *
+ * @param {number} index - Index 0-based
+ * @returns {string} Chữ cái cột
+ */
+function columnIndexToLetter(index) {
+  var n = Number(index);
+  if (!isFinite(n) || n < 0) return '?';
+  var letters = '';
+  n = Math.floor(n) + 1;
+  while (n > 0) {
+    var remainder = (n - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
 function colByPrefix(headerIndex, prefix) {
   var normalizedPrefix = normalizeHeaderText(prefix);
   var matches = [];

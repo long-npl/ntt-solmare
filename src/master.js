@@ -40,7 +40,7 @@
  * Riêng tác phẩm ĐÃ CÓ trên master thì được giữ lại bất kể 2 cờ này (rule 2) —
  * xem master.js.
  *
- * KHÔNG gán copyright/copyrightTier/titleNo/suspensionDate ở đây — main.js gắn
+ * KHÔNG gán 2 cột bản quyền / titleNo / suspensionDate ở đây — main.js gắn
  * thêm sau (xem runGas1()).
  *
  * @param {Array<object>} cmsRecords - Kết quả sources.js: parseCmsRows()
@@ -68,8 +68,8 @@ function buildCustomerWorkRows(cmsRecords, regulationLookup) {
       label: cms.label,
       preStart: cms.preStart,
       preEnd: cms.preEnd,
-      // copyrightU: tầng 1 của resolveCopyright() đọc trực tiếp field này
-      // (spec §9.1) — không còn map tra theo cmsId.
+      // copyrightU: cột コピーライト của CMS. main.js copy nguyên văn sang
+      // work.individualCopyright (cột J của コピーライトマスタ) — không qua map nào.
       copyrightU: cms.copyrightU,
       // 3 cột dưới đây là NGUYÊN VĂN của レギュレーション, ghi vào cột F/G/H.
       // Để '' (không phải undefined) khi 未判定, để khớp với giá trị mà Google
@@ -472,9 +472,9 @@ function diffUpsertFromMatches(matches, isEqualFn) {
  *   toAdd: Array<object>,
  *   unchangedKeys: Array<string>
  * }}
- *   toUpdate: dòng đã tồn tại nhưng có thay đổi — record.rowOffset PHẢI được
- *     gán thêm bởi attachRowOffsets() (main.js) trước khi đưa cho sheetIO ghi.
- *     `previous` là bản ghi CŨ (từ existingRecords) tương ứng — giữ lại để
+ *   toUpdate: dòng đã tồn tại nhưng có thay đổi — mang sẵn `sheetRow` (số dòng
+ *     thật trên sheet) nên đường ghi dùng được trực tiếp, không cần bước gắn
+ *     thêm nào. `previous` là bản ghi CŨ (từ existingRecords) tương ứng — giữ lại để
  *     master.js so sánh field-by-field, phục vụ log audit chi
  *     tiết (xem buildChangeDetailRows() và io/io.js: appendChangeDetailRows()).
  *   toAdd: dòng có key CHƯA từng xuất hiện trong existingRecords — sẽ được
@@ -501,7 +501,11 @@ function diffUpsert(existingRecords, newRecords, keyFn, isEqualFn) {
     if (isEqualFn(existing, record)) {
       unchangedKeys.push(key);
     } else {
-      toUpdate.push({ key: key, record: record, previous: existing });
+      // sheetRow: số dòng thật 1-based, do readCopyrightMaster()/
+      // readCustomerWorkMaster() gắn vào existing record. Cấp thẳng ở đây để
+      // đường ghi không phải tự tính từ rowOffset — công thức đó ngầm giả định
+      // header ở hàng 1 và không có dòng trống xen giữa, cả 2 đều sai với ガワ mới.
+      toUpdate.push({ key: key, record: record, previous: existing, sheetRow: existing.sheetRow });
     }
   });
 
@@ -561,6 +565,7 @@ var WARNING_KIND_AMBIGUOUS = '照合曖昧';
 var WARNING_KIND_ORPHAN = '孤立行';
 var WARNING_KIND_NG_TITLE = '外部出稿NG注意';
 var WARNING_KIND_SUSPENSION = '掲載停止注意';
+var WARNING_KIND_COPYRIGHT = 'コピーライト注意';
 
 /**
  * Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告.
@@ -666,6 +671,59 @@ function buildNgTitleWarningRows(records, ngTitleLookup, runAt) {
     if (!remark) return;
     rows.push(warningRow(runAt, WARNING_KIND_NG_TITLE, record.titleNo, record.titleId, record.titleName,
       '外部出稿用NGタイトルの備考: ' + remark));
+  });
+  return rows;
+}
+
+/**
+ * コピーライト注意 — GOM THEO 出版社(+レーベル)+lý do, không phải 1 dòng/1 tác phẩm.
+ *
+ * VÌ SAO GOM: cột 出版社コピーライト được tính lại MỖI LẦN CHẠY (khác cột 掲載停止日付
+ * ghi-một-lần), nên cảnh báo cũng lặp lại mỗi lần chạy. Đo trên dữ liệu thật:
+ * 427 tác phẩm không sinh được -> 854 dòng/ngày với 2 lần chạy. Số đó sẽ nhấn chìm
+ * 4 loại cảnh báo còn lại trong tab GAS1警告, nhất là 照合曖昧 — loại duy nhất cần
+ * người xem NGAY. Gom lại còn 78 dòng/lần chạy (156/ngày).
+ *
+ * Gom mà KHÔNG mất thông tin, vì việc cần làm luôn ở mức NXB chứ không ở mức tác
+ * phẩm: thêm 1 dòng quy tắc cho NXB đó là 99 tác phẩm được sửa cùng lúc. Mỗi dòng
+ * cảnh báo mang: số tác phẩm bị ảnh hưởng, lý do, và tối đa 3 tên tác phẩm làm ví
+ * dụ để tra cứu.
+ *
+ * `titleNo`/`titleId` để trống vì dòng cảnh báo giờ nói về 1 NXB, không về 1 dòng
+ * master cụ thể — điền số của 1 tác phẩm đại diện sẽ khiến người đọc tưởng chỉ tác
+ * phẩm đó bị.
+ *
+ * @param {Array<{record: object, copyrightReason: string, copyrightDetail: string}>} entries
+ * @param {Date} runAt
+ * @returns {Array<object>}
+ */
+function buildCopyrightWarningRows(entries, runAt) {
+  var groups = new Map();
+  entries.forEach(function (entry) {
+    var key = normalizeJapaneseText(entry.record.publisher) + ' '
+      + normalizeJapaneseText(entry.record.label) + ' ' + entry.copyrightReason;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        publisher: entry.record.publisher,
+        label: entry.record.label,
+        reason: entry.copyrightReason,
+        detail: entry.copyrightDetail,
+        titleNames: [],
+        count: 0,
+      });
+    }
+    var group = groups.get(key);
+    group.count += 1;
+    if (group.titleNames.length < 3) group.titleNames.push(entry.record.titleName);
+  });
+
+  var rows = [];
+  groups.forEach(function (group) {
+    var labelPart = normalizeJapaneseText(group.label) === '' ? '' : '／' + String(group.label);
+    rows.push(warningRow(runAt, WARNING_KIND_COPYRIGHT, '', '',
+      String(group.publisher) + labelPart,
+      '出版社コピーライト未生成 ' + group.count + ' 件 [' + group.reason + '] ' + group.detail
+      + ' 例: ' + group.titleNames.join(' / ')));
   });
   return rows;
 }

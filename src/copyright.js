@@ -1,405 +1,385 @@
-// copyright.js — BẢN QUYỀN: quy tắc NXB -> resolve 4 tầng -> lịch sử 過去
+// copyright.js — BẢN QUYỀN: quy tắc theo NXB -> sinh 出版社コピーライト -> lịch sử
 //
-// Gom 3 file cũ (copyright.js + copyright.js +
-// copyright.js) vì cả 3 chỉ phục vụ đúng một vấn đề: xác định
-// 正規コピーライト cho 1 tác phẩm, và không có chỗ nào khác trong GAS❶ dùng tới.
+// VIẾT LẠI 2026-08-04 theo ガワ mới của コピーライトマスタ. Thay đổi cốt lõi: bản
+// quyền không còn là MỘT giá trị đi qua 4 tầng ưu tiên, mà là HAI CỘT ĐỘC LẬP:
 //
-// Ba phần, theo đúng thứ tự dùng:
-//   1. PARSE quy tắc  — 基本のC表記 (tầng 3) + 5 sheet riêng NXB (tầng 2)
-//   2. RESOLVE 4 tầng — CMS cột コピーライト -> sheet NXB -> công thức chung -> cá biệt
-//   3. LỊCH SỬ        — dịch chuyển CopyRight過去1-10 khi giá trị đổi
+//   J `タイトル個別コピーライト(あれば優先使用)` = cột コピーライト của CMS, nguyên văn
+//   K `出版社コピーライト`                      = GAS sinh từ 出版社別コピーライトマスタ
 //
-// Toàn bộ là hàm PURE (không đụng SpreadsheetApp).
+// Giá trị "hiệu lực" (dùng cho lịch sử 過去分, và là cái bước sau đọc) = J nếu có,
+// không thì K — xem effectiveCopyright(). Sheet mới KHÔNG còn cột 正規コピーライト,
+// nên quan hệ ưu tiên đó giờ chỉ tồn tại trong code, không nằm trên sheet nữa.
+//
+// ĐÃ XOÁ (user chốt 2026-08-04 "thay thế hoàn toàn"): `基本のC表記` và 5 sheet quy
+// tắc riêng NXB (LINE/スクエニ/リブレ/オーバーラップ/ヒーローズ), cùng toàn bộ
+// PUBLISHER_SHEET_PARSERS / resolvePublisherAliasMatch / applyBasicNotationTemplate
+// / resolveCopyright 4 tầng. Cả 6 sheet đó được thay bằng MỘT nguồn duy nhất:
+// `出版社別コピーライトマスタ` (381 dòng, 292 NXB). Đừng khôi phục lại theo kiểu "cho
+// chắc": 2 nguồn quy tắc song song cho cùng một tác phẩm là công thức của việc 2
+// người sửa 2 chỗ rồi không ai biết chỗ nào đang thắng.
+//
+// Ba phần:
+//   1. PARSE  `出版社別コピーライトマスタ` -> Map tra theo 出版社 (+ レーベル)
+//   2. SINH   出版社コピーライト từ template, kèm 3 lý do KHÔNG sinh được
+//   3. LỊCH SỬ コピーライト_過去分1..5
+//
+// Toàn bộ là hàm PURE (không đụng SpreadsheetApp) — được test bằng Node.
 
 // ==============================================================================
-// PHẦN 1 — PARSE QUY TẮC BẢN QUYỀN THEO NXB
+// PHẦN 1 — PARSE 出版社別コピーライトマスタ
 // ==============================================================================
 
-var BASIC_NOTATION_REQUIRED_HEADERS = ['事前確認', '©表記記載有無', '©表記ルール'];
+// Header thật (hàng 15 của sheet): E 出版社 / G 雑誌名/レーベル / H 自動化フラグ /
+// N 著者名区切り方 / O テンプレート. Tra theo TÊN nên không phụ thuộc vị trí cột.
+var PUBLISHER_COPYRIGHT_REQUIRED_HEADERS = ['出版社', '雑誌名/レーベル', '自動化フラグ'];
+
+// Cờ ở cột 自動化フラグ. Chỉ '01：自動化' (360 dòng) mới được GAS tự sinh;
+// '02：個別ルール' (11 dòng) là quy tắc con người phải tự viết cho từng tác phẩm.
+var PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX = '01';
 
 /**
- * Parse sheet 基本のC表記 — bảng "công thức" bản quyền mặc định theo từng
- * NXB/レーベル, dùng khi KHÔNG có bản quyền xác nhận cụ thể nào khác (tầng 3,
- * xem copyright.js: applyBasicNotationTemplate() để biết cách công thức
- * này được điền giá trị thật).
+ * Parse sheet 出版社別コピーライトマスタ.
  *
- * NGOẠI LỆ DUY NHẤT trong toàn bộ codebase không tra được cột bằng tên: header
- * "雑誌・レーベル" (tên NXB/レーベル) hiển thị LỆCH 1 CỘT sang phải so với dữ liệu
- * thật — ô ngay dưới header "雑誌・レーベル" luôn TRỐNG, còn tên NXB thật nằm ở
- * cột bên TRÁI nó. Đã xác minh thủ công (không phải merged cell, không phải
- * lỗi đọc file — đây là cách sheet gốc được người dùng tạo ra từ đầu). Vì cột
- * dữ liệu đó không có header text của riêng nó để tra theo tên, phải định vị
- * bằng OFFSET TƯƠNG ĐỐI: luôn nằm 2 cột về bên trái của cột "事前確認"
- * (label | <cột luôn trống> | 事前確認). Nếu sau này ai chèn thêm cột NẰM
- * GIỮA label và "事前確認", offset -2 này cần được cập nhật lại thủ công.
+ * Chỉ đọc 4 cột cần cho việc sinh bản quyền. Các cột còn lại (危険, 要注意作品あり,
+ * 順番指定, 3 cột 事前確認, その他注意, 要注意作品, 別紙参照) là thông tin cho con
+ * người trong quy trình duyệt creative — CỐ TÌNH không đọc, để không ai tưởng GAS
+ * đang xử lý chúng.
  *
- * @param {Array<Array<*>>} rawRows - Kết quả sheet.getDataRange().getValues()
- * @returns {Map<string, string>} Map tên NXB/レーベル (đã chuẩn hoá qua
- *   normalizeJapaneseText() — xem common.js/master.js) -> chuỗi công thức bản
- *   quyền thô (vd "©著者名/A-KAGURA", còn chứa placeholder text cần
- *   applyBasicNotationTemplate() thay thế sau)
+ * KHÔNG đọc cột 著者名区切り方 (N): user chốt 2026-08-04 bỏ qua cột này. Lý do thực
+ * tế: cột đó nói cách NỐI NHIỀU tác giả, nhưng CMS chỉ cấp MỘT chuỗi tác giả đã
+ * định dạng tự do (`原作：Shigeky 漫画：こくだかや`, `Djade(作画) ┴KRE(ストーリー)`,
+ * `福,YTA`, `コミック：コヤマナユ/原作：柊一葉/キャラクター原案：三浦ひらく`) — không có
+ * dấu phân cách nào đáng tin để tách ra rồi nối lại. Chèn nguyên văn chuỗi CMS thì
+ * bản quyền có thể còn dính `原作：`, nhưng KHÔNG bóp méo tên tác giả — đánh đổi
+ * đúng, vì tên người là thứ không được đoán.
+ *
+ * @param {Array<Array<*>>} rawRows - Kết quả io.js: readSheetValues()
+ * @returns {Array<{publisher: *, label: *, flag: *, template: *}>} Giá trị nguyên văn
  */
-function parseBasicNotation(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, BASIC_NOTATION_REQUIRED_HEADERS);
+function parsePublisherCopyrightRules(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, PUBLISHER_COPYRIGHT_REQUIRED_HEADERS);
   var idx = resolved.headerIndex;
-  var colRule = col(idx, '©表記ルール');
-  var colPreCheck = col(idx, '事前確認');
-  var colLabel = colPreCheck - 2; // xem giải thích NGOẠI LỆ ở JSDoc phía trên
+  var colPublisher = col(idx, '出版社');
+  var colLabel = col(idx, '雑誌名/レーベル');
+  var colFlag = col(idx, '自動化フラグ');
+  // Header thật là 'テンプレート\n(タイトルマスタで参照)' — phần trong ngoặc là ghi
+  // chú, tra bằng tiền tố cho bền với việc sửa lời ghi chú đó.
+  var colTemplate = colByPrefix(idx, 'テンプレート');
 
-  var map = new Map();
+  var records = [];
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
-    if (!row || !row[colLabel]) continue;
-    var label = normalizeJapaneseText(row[colLabel]);
-    var rule = row[colRule];
-    if (rule) map.set(label, rule);
+    if (!row) continue;
+    if (normalizeJapaneseText(row[colPublisher]) === '') continue;
+    records.push({
+      publisher: row[colPublisher],
+      label: row[colLabel],
+      flag: row[colFlag],
+      template: row[colTemplate],
+    });
   }
-  return map;
+  return records;
 }
 
-// LINEコピーライト一覧: không có cột タイトルID riêng -> key theo tên tác phẩm
-var LINE_REQUIRED_HEADERS = ['タイトル', '著者', '備考'];
-
-/**
- * Parse sheet LINEコピーライト一覧 (bản quyền các tác phẩm hợp tác với LINE).
- * Không có cột タイトルID trên sheet này, nên chỉ có thể tra theo tên tác phẩm.
- *
- * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map tên tác phẩm (đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền (©欧文表記 1)
- */
-function parseLineSheet(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, LINE_REQUIRED_HEADERS);
-  var idx = resolved.headerIndex;
-  var colTitle = col(idx, 'タイトル');
-  var colCopyright = col(idx, '©欧文表記 1');
-
-  var map = new Map();
-  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
-    var row = rawRows[i];
-    if (!row || !row[colTitle]) continue;
-    var titleName = normalizeJapaneseText(row[colTitle]);
-    var copyright = row[colCopyright];
-    if (copyright) map.set(titleName, copyright);
-  }
-  return map;
-}
-
-// スクエニコピーライト一覧: header thật nằm sau vài dòng ghi chú -> tự dò vị trí hàng
-var SQEX_REQUIRED_HEADERS = ['タイトル名', '著者名', 'コピーライト'];
-
-/**
- * Parse sheet スクエニコピーライト一覧 (bản quyền các tác phẩm SQUARE ENIX).
- * Sheet này có 2 dòng ghi chú dài ở đầu trước khi tới header thật —
- * resolveHeaderIndex() tự dò ra đúng hàng, không hardcode số hàng.
- *
- * Cố tình lấy cột "コピーライト" (dạng đầy đủ), KHÔNG lấy "コピーライト(省略)"
- * (dạng viết tắt cho banner hẹp chỗ) — vì "コピーライト" và "コピーライト(省略)"
- * là 2 tên khác nhau sau normalize nên col() sẽ không nhầm lẫn giữa 2 cột này.
- *
- * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map tên tác phẩm (đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền dạng đầy đủ
- */
-function parseSquareEnixSheet(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, SQEX_REQUIRED_HEADERS);
-  var idx = resolved.headerIndex;
-  var colTitle = col(idx, 'タイトル名');
-  var colCopyright = col(idx, 'コピーライト'); // dạng đầy đủ, không phải "コピーライト(省略)"
-
-  var map = new Map();
-  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
-    var row = rawRows[i];
-    if (!row || !row[colTitle]) continue;
-    var copyright = row[colCopyright];
-    if (copyright) map.set(normalizeJapaneseText(row[colTitle]), copyright);
-  }
-  return map;
-}
-
-// リブレコピーライト: có cả タイトルＩＤ và タイトル -> key theo cả 2
-var LIBRE_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピーライト'];
-
-/**
- * Parse sheet リブレコピーライト (bản quyền các tác phẩm NXB Libre — riêng cho
- * trường hợp đặc biệt "vẫn giữ copyright libre dù chạy trên kênh quảng cáo
- * người lớn"). Sheet này có cả タイトルＩＤ lẫn タイトル nên map được key theo
- * CẢ HAI, để resolver.js match được dù chỉ có 1 trong 2 giá trị.
- *
- * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map key (titleId dạng String, hoặc titleName
- *   đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền. Cùng 1 tác phẩm
- *   có thể xuất hiện 2 lần trong map (1 lần theo ID, 1 lần theo tên) trỏ tới
- *   cùng giá trị bản quyền.
- */
-function parseLibreSheet(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, LIBRE_REQUIRED_HEADERS);
-  var idx = resolved.headerIndex;
-  var colId = col(idx, 'タイトルＩＤ');
-  var colTitle = col(idx, 'タイトル');
-  var colCopyright = col(idx, 'コピーライト');
-
-  var map = new Map();
-  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
-    var row = rawRows[i];
-    if (!row || !row[colCopyright]) continue;
-    var copyright = row[colCopyright];
-    if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
-  }
-  return map;
-}
-
-// オーバーラップ_コピーライト一覧: header lệch sang cột B trở đi, cột A luôn trống
-var OVERLAP_REQUIRED_HEADERS = ['タイトルＩＤ', 'タイトル', 'コピーライト'];
-
-/**
- * Parse sheet オーバーラップ_コピーライト一覧 (bản quyền các tác phẩm NXB Overlap).
- * Cấu trúc giống hệt リブレコピーライト (key theo cả ID lẫn tên) nhưng nằm ở
- * vị trí hàng/cột khác — resolveHeaderIndex() tự xử lý khác biệt này.
- *
- * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map key (titleId hoặc titleName đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền
- */
-function parseOverlapSheet(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, OVERLAP_REQUIRED_HEADERS);
-  var idx = resolved.headerIndex;
-  var colId = col(idx, 'タイトルＩＤ');
-  var colTitle = col(idx, 'タイトル');
-  var colCopyright = col(idx, 'コピーライト');
-
-  var map = new Map();
-  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
-    var row = rawRows[i];
-    if (!row || !row[colCopyright]) continue;
-    var copyright = row[colCopyright];
-    if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
-  }
-  return map;
-}
-
-// ヒーローズコピーライト一覧: header ở hàng đầu tiên
-var HEROES_REQUIRED_HEADERS = ['タイトル名', 'TID', 'COPYRIGHT'];
-
-/**
- * Parse sheet ヒーローズコピーライト一覧 (bản quyền các tác phẩm NXB Heroes).
- * Header dùng tên cột tiếng Anh (TID, COPYRIGHT) thay vì tiếng Nhật như các
- * sheet khác — vẫn tra bằng tên như bình thường, chỉ khác chuỗi truyền vào col().
- *
- * @param {Array<Array<*>>} rawRows
- * @returns {Map<string, string>} Map key (titleId hoặc titleName đã chuẩn hoá qua normalizeJapaneseText()) -> bản quyền
- */
-function parseHeroesSheet(rawRows) {
-  var resolved = resolveHeaderIndex(rawRows, HEROES_REQUIRED_HEADERS);
-  var idx = resolved.headerIndex;
-  var colTitle = col(idx, 'タイトル名');
-  var colId = col(idx, 'TID');
-  var colCopyright = col(idx, 'COPYRIGHT');
-
-  var map = new Map();
-  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
-    var row = rawRows[i];
-    if (!row || !row[colCopyright]) continue;
-    var copyright = row[colCopyright];
-    if (row[colId]) map.set(String(row[colId]), copyright);
-    if (row[colTitle]) map.set(normalizeJapaneseText(row[colTitle]), copyright);
-  }
-  return map;
+/** Khoá tra: có レーベル thì khoá gồm cả レーベル, không thì chỉ 出版社. */
+function publisherCopyrightKey(publisher, label) {
+  var publisherKey = normalizeJapaneseText(publisher);
+  var labelKey = normalizeJapaneseText(label);
+  return labelKey === '' ? publisherKey : publisherKey + '\u0000' + labelKey;
 }
 
 /**
- * Registry các sheet quy tắc riêng theo NXB — đây là "danh sách NXB nào có
- * sheet bản quyền riêng" mà copyright.js: resolveCopyright() dùng ở TẦNG 2.
+ * Build bảng tra quy tắc bản quyền, 2 tầng: (出版社 + レーベル) và (出版社).
  *
- * Mỗi entry gồm:
- *   - key: định danh nội bộ, dùng làm key trong object publisherMaps ở main.js
- *     (vd publisherMaps['LINE'] = kết quả parseLineSheet())
- *   - sheetName: tên sheet thật trong Google Sheets (dùng để readSheetValues())
- *   - publisherAliases: các chuỗi con để nhận diện 1 NXB thuộc registry này —
- *     xem resolvePublisherAliasMatch() bên dưới. Vd tác phẩm có 出版社 =
- *     "株式会社スクウェア・エニックス" sẽ khớp entry SQUARE_ENIX vì alias
- *     "スクウェア・エニックス" là 1 chuỗi con của tên NXB đó.
- *   - parse: hàm parse tương ứng ở trên
+ * VÌ SAO PHẢI 2 TẦNG VÀ TẦNG CÓ レーベル THẮNG: 100 trong 381 dòng có レーベル, và
+ * chúng CỐ TÌNH khác dòng chỉ có 出版社 của cùng NXB đó. Ví dụ thật:
+ *   集英社               -> '©.集英社/作家名/タイトル名'
+ *   集英社 + ブリンク       -> '『タイトル名』©著者名／ホーム社'
+ *   集英社 + Office YOU  -> '『タイトル名』©著者名／集英社クリエイティブ'
+ * Tra theo 出版社 trước sẽ cho ra bản quyền ghi TÊN CÔNG TY SAI. Luôn thử khoá cụ
+ * thể nhất trước — xem resolvePublisherCopyright().
  *
- * MUỐN THÊM NXB MỚI CÓ SHEET RIÊNG: chỉ cần thêm 1 entry vào mảng này (viết
- * thêm 1 hàm parseXxxSheet() theo cấu trúc sheet mới, rồi thêm entry) —
- * KHÔNG cần sửa logic ở copyright.js hay main.js.
+ * Khoá trùng -> DÒNG ĐẦU TIÊN THẮNG (dữ liệu thật có `オトナ恋 + ライブコミックス`
+ * xuất hiện 2 lần). Chọn "đầu tiên" để kết quả không đổi khi ai đó thêm dòng vào
+ * cuối sheet.
+ *
+ * @param {Array<object>} records - Kết quả parsePublisherCopyrightRules()
+ * @returns {Map<string, object>} Khoá từ publisherCopyrightKey() -> record
  */
-var PUBLISHER_SHEET_PARSERS = [
-  { key: 'LINE', sheetName: 'LINEコピーライト一覧', publisherAliases: ['LINE'], parse: parseLineSheet },
-  { key: 'SQUARE_ENIX', sheetName: 'スクエニコピーライト一覧', publisherAliases: ['スクエニ', 'スクウェア・エニックス', 'SQUARE ENIX', 'SQEX'], parse: parseSquareEnixSheet },
-  { key: 'LIBRE', sheetName: 'リブレコピーライト', publisherAliases: ['リブレ', 'libre'], parse: parseLibreSheet },
-  { key: 'OVERLAP', sheetName: 'オーバーラップ_コピーライト一覧', publisherAliases: ['オーバーラップ'], parse: parseOverlapSheet },
-  { key: 'HEROES', sheetName: 'ヒーローズコピーライト一覧', publisherAliases: ['ヒーローズ'], parse: parseHeroesSheet },
+function buildPublisherCopyrightLookup(records) {
+  var lookup = new Map();
+  records.forEach(function (record) {
+    var key = publisherCopyrightKey(record.publisher, record.label);
+    if (key === '') return;
+    if (!lookup.has(key)) lookup.set(key, record);
+  });
+  return lookup;
+}
+
+// ==============================================================================
+// PHẦN 2 — SINH 出版社コピーライト TỪ TEMPLATE
+// ==============================================================================
+
+// Placeholder trong cột テンプレート — QUY LUẬT CHÍNH: mọi placeholder đều kết thúc
+// bằng 名. Đã quét toàn bộ 381 dòng để xác nhận (2026-08-04), số dòng dùng mỗi cái:
+//   タイトル名 308 / 作品名 1 / タイトル 3   -> tên tác phẩm
+//   著者名 273 / 作家名 13 / 作者名 12       -> tên tác giả
+//   レーベル名 9 / 雑誌名 1                 -> レーベル
+//   出版社名 4                             -> NXB
+//
+// ⚠️ TUYỆT ĐỐI KHÔNG thêm `出版社` (không có 名) vào danh sách này. Có 2 template
+// chứa `出版社` mà đó là TÊN NXB THẬT, không phải placeholder:
+//   '『タイトル名』©著者名/英和出版社'   -> thay sẽ ra '英和英和出版社'
+//   '『タイトル名』©著者名/笠倉出版社'   -> thay sẽ ra '笠倉笠倉出版社'
+// Cùng lý do, `レーベル` (không có 名) cũng không nằm đây — 0 template dùng dạng đó,
+// và thay nó vào 'レーベル名' sẽ ra '<レーベル>名'.
+//
+// Bản đầu (2026-08-04) có cả `出版社` và `レーベル` và đã sinh ra đúng 4 giá trị sai
+// đó. Hôm nay chưa tác phẩm nào thuộc mấy NXB ấy nên dữ liệu thật không phát hiện
+// được — bug tiềm ẩn, chỉ nổ khi có tác phẩm mới. Xem test_copyright.
+var COPYRIGHT_TEMPLATE_TOKENS = [
+  { tokens: ['タイトル名', '作品名', 'タイトル'], field: 'titleName' },
+  { tokens: ['著者名', '作家名', '作者名'], field: 'author' },
+  { tokens: ['レーベル名', '雑誌名'], field: 'label' },
+  { tokens: ['出版社名'], field: 'publisher' },
 ];
 
+// Placeholder KHÔNG THỂ điền từ dữ liệu CMS — mỗi cái đòi một thông tin mà CMS
+// không cấp riêng lẻ:
+//   原作者名 / 漫画家名 / 作画者名       -> tách riêng vai trò tác giả; CMS gộp 1 chuỗi
+//   英字作者名 / 英字著者名 / ローマ字著者名 -> tên tác giả dạng chữ Latin; CMS chỉ có tên gốc
+//   イラストレーター名                  -> tên hoạ sĩ minh hoạ; CMS không có trường này
+//   会社名 / 発行元社名                 -> xuất hiện trong câu ghi chú, không phải mẫu
+// Gặp những dòng này thì để trống cột K + cảnh báo, KHÔNG đoán.
+//
+// KIỂM TRÊN TEMPLATE GỐC, TRƯỚC KHI THAY, và danh sách này phải chứa dạng DÀI NHẤT:
+// '原作者名' chứa '作者名', 'ローマ字著者名' chứa '著者名' — kiểm sau khi thay thì mất
+// dấu hiệu để nhận ra.
+var COPYRIGHT_TEMPLATE_UNSUPPORTED_TOKENS = [
+  'ローマ字著者名', '英字著者名', '英字作者名', 'イラストレーター名', '原作者名',
+  '漫画家名', '作画者名', '発行元社名', '会社名', 'ローマ字', '漫画著者', '原作者',
+];
+
+// 2 placeholder viết tắt kiểu '©著 ©原作 ©SANKYO ©デジタルアトラクション' (nghĩa là
+// ©<tác giả> ©<nguyên tác> ...) — cũng không điền được vì CMS gộp mọi vai trò vào
+// 1 chuỗi.
+//
+// PHẢI dùng regex có negative lookahead, KHÔNG dùng so chuỗi thường: '©著' là TIỀN
+// TỐ của '©著者名' — placeholder phổ biến nhất của nguồn này (273/381 dòng). Bản
+// đầu dùng indexOf('©著') và nó khớp luôn '©著者名', tức LOẠI 273 quy tắc hợp lệ và
+// làm cột 出版社コピーライト trống gần hết. Test đơn vị bắt được — đừng đổi lại thành
+// so chuỗi thường.
+var COPYRIGHT_TEMPLATE_UNSUPPORTED_PATTERNS = [
+  { label: '©著', pattern: /[©Ⓒⓒ]著(?!者名)/ },
+  { label: '©原作', pattern: /[©Ⓒⓒ]原作(?!者)/ },
+];
+
+var COPYRIGHT_REASON_OK = 'ok';
+var COPYRIGHT_REASON_NO_RULE = 'ルール無し';
+var COPYRIGHT_REASON_MANUAL_FLAG = '個別ルール';
+var COPYRIGHT_REASON_BAD_TEMPLATE = 'テンプレート不備';
+
 /**
- * Tìm entry registry ĐẦU TIÊN có publisherAliases khớp (substring, phân biệt
- * hoa/thường) với tên NXB của 1 tác phẩm. Dùng bởi copyright.js để
- * quyết định tác phẩm này có nên tra ở tầng 2 (sheet riêng NXB) hay không, và
- * nếu có thì tra ở sheet/map nào.
+ * Template này là một bản quyền sinh được, hay chỉ là CHỈ THỊ cho con người?
  *
- * @param {string} publisherName - Tên NXB của tác phẩm (cột 出版社)
- * @param {Array<object>} registry - Thường truyền PUBLISHER_SHEET_PARSERS vào đây
- * @returns {object|null} Entry registry khớp đầu tiên, hoặc null nếu không NXB nào khớp
+ * ĐÂY LÀ CÁI BẪY QUAN TRỌNG NHẤT CỦA NGUỒN NÀY: 19 dòng có cột テンプレート nhưng
+ * không chứa placeholder nào, và một số trong đó là CÂU LỆNH chứ không phải mẫu:
+ *   'コピーライトについて都度確認'
+ *   '都度問い合わせ要'
+ *   'コピーライトルール参照して個別記載'
+ * Nếu chỉ tin cờ '01：自動化' rồi ghi thẳng cột テンプレート ra sheet, GAS sẽ ghi câu
+ * "都度問い合わせ要" vào ô bản quyền như thể đó LÀ bản quyền — và nó trông hoàn
+ * toàn bình thường với người đọc sheet.
+ *
+ * Cách nhận diện CỐ TÌNH KHÔNG dùng danh sách đen các câu chỉ thị (danh sách đó
+ * lỗi thời ngay khi ai đó viết câu mới): mọi bản quyền thật đều PHẢI có ký hiệu ©
+ * (hoặc biến thể Ⓒ/ⓒ/(C)/（Ｃ）), câu chỉ thị thì không. Nhờ vậy những dòng như
+ * '©Big Fields Publishing', '©レジンコミックス', '©ブリック出版' (bản quyền cứng,
+ * không có placeholder) vẫn hợp lệ — đúng, vì đó là bản quyền hoàn chỉnh.
+ *
+ * @param {*} template
+ * @returns {boolean}
  */
-function resolvePublisherAliasMatch(publisherName, registry) {
-  if (!publisherName) return null;
-  var normalizedPublisherName = normalizeJapaneseText(publisherName);
-  for (var i = 0; i < registry.length; i++) {
-    var entry = registry[i];
-    for (var j = 0; j < entry.publisherAliases.length; j++) {
-      if (normalizedPublisherName.indexOf(normalizeJapaneseText(entry.publisherAliases[j])) !== -1) return entry;
-    }
-  }
-  return null;
+function looksLikeCopyrightTemplate(template) {
+  var text = String(template === null || template === undefined ? '' : template);
+  if (normalizeJapaneseText(text) === '') return false;
+  return /[©Ⓒⓒ]/.test(text) || /[（(][CcＣｃ][）)]/.test(text);
 }
 
-
-// ==============================================================================
-// PHẦN 2 — RESOLVE 4 TẦNG
-// ==============================================================================
-
-var COPYRIGHT_TITLE_TOKENS = ['作品名', 'タイトル名'];
-var COPYRIGHT_AUTHOR_TOKENS = ['漫画家名・原作者名', '著者名', '作家名'];
-
 /**
- * Thay các placeholder text trong công thức 基本のC表記 (vd "著者名", "作品名")
- * bằng giá trị thật của tác phẩm — dùng ở TẦNG 3.
+ * Điền giá trị thật của tác phẩm vào template.
  *
- * Cách hoạt động: quét COPYRIGHT_TITLE_TOKENS theo thứ tự, thay TOKEN ĐẦU
- * TIÊN tìm thấy trong template bằng work.titleName (chỉ thay 1 lần, dùng
- * String.replace không có cờ /g); tương tự với COPYRIGHT_AUTHOR_TOKENS và
- * work.author. Đây là xử lý HEURISTIC đơn giản — các công thức trong sheet
- *基本のC表記 là text tự do do con người viết (có thể nhiều dòng, có điều kiện
- * "nếu... thì..."), nên hàm này KHÔNG bao phủ được mọi trường hợp phức tạp,
- * chỉ xử lý được các mẫu placeholder đơn giản, phổ biến nhất.
- *
- * @param {string} template - Chuỗi công thức thô từ parseBasicNotation() (vd "©著者名/A-KAGURA")
- * @param {{titleName: string, author: string}} work - Tác phẩm cần điền giá trị thật vào
- * @returns {string} Chuỗi bản quyền đã thay placeholder (vd "©Nguyễn Văn A/A-KAGURA")
+ * @param {*} template - Cột テンプレート, nguyên văn
+ * @param {{titleName: *, author: *, label: *, publisher: *}} work
+ * @returns {{value: string, unfilled: Array<string>}}
+ *   unfilled: placeholder KHÔNG điền được — token không hỗ trợ, HOẶC token hỗ trợ
+ *     nhưng tác phẩm không có giá trị (vd template cần レーベル mà CMS để trống).
+ *     Rỗng = điền xong sạch sẽ.
  */
-function applyBasicNotationTemplate(template, work) {
-  var text = template;
-  COPYRIGHT_TITLE_TOKENS.some(function (token) {
-    if (text.indexOf(token) === -1) return false;
-    text = text.replace(token, work.titleName);
-    return true;
+function applyCopyrightTemplate(template, work) {
+  var text = String(template);
+  var unfilled = [];
+
+  // Bước 1: chặn placeholder không hỗ trợ — trên template GỐC (xem comment ở
+  // COPYRIGHT_TEMPLATE_UNSUPPORTED_TOKENS về lý do phải làm trước khi thay).
+  COPYRIGHT_TEMPLATE_UNSUPPORTED_TOKENS.forEach(function (token) {
+    if (text.indexOf(token) !== -1) unfilled.push(token);
   });
-  COPYRIGHT_AUTHOR_TOKENS.some(function (token) {
-    if (text.indexOf(token) === -1) return false;
-    text = text.replace(token, work.author);
-    return true;
+  COPYRIGHT_TEMPLATE_UNSUPPORTED_PATTERNS.forEach(function (entry) {
+    if (entry.pattern.test(text)) unfilled.push(entry.label);
   });
-  return text;
-}
 
-/**
- * Xác định bản quyền chính thức (正規コピーライト) cho 1 tác phẩm, theo đúng 4
- * tầng ưu tiên mô tả ở đầu file. Đây là hàm được main.js gọi cho TỪNG tác
- * phẩm trong builtCustomerRows, trước khi build コピーライトマスタ.
- *
- * @param {{titleId: *, titleName: string, author: string, publisher: string, copyrightU: *}} work
- *   Tác phẩm cần xác định bản quyền (1 phần tử từ buildCustomerWorkRows()).
- *   copyrightU (cột コピーライト của CMS) CHÍNH LÀ TẦNG 1 — đọc trực tiếp từ
- *   work, không qua map tra theo cmsId như trước (spec §9.1). work.cmsId KHÔNG
- *   còn được dùng ở hàm này.
- * @param {Array<object>} publisherRegistry - Danh sách NXB có sheet riêng, truyền
- *   PUBLISHER_SHEET_PARSERS (copyright.js) vào đây
- * @param {Object<string, Map<string,string>>} publisherMaps - Kết quả parse của
- *   từng sheet riêng NXB, key = registry entry.key (vd publisherMaps['LINE'])
- * @param {Map<string, string>} basicNotationMap - Tầng 3, từ copyright.js: parseBasicNotation()
- * @returns {{value: string|null, tier: 1|2|3|4}}
- *   value: chuỗi bản quyền đã xác định, hoặc null nếu rơi vào tầng 4 (cá biệt)
- *   tier: tầng nào đã cho ra kết quả — dùng để ghi vào đúng cột
- *   CopyRight(個別ルールの場合)/CopyRight自動生成 khi ghi コピーライトマスタ
- *   (xem io.js: copyrightRecordToRow())
- */
-function resolveCopyright(work, publisherRegistry, publisherMaps, basicNotationMap) {
-  // Tầng 1: CMS cột コピーライト — ưu tiên cao nhất vì đây là giá trị con người
-  // đã trực tiếp xác nhận trong hệ thống CMS cho chính tác phẩm này. Đọc TRỰC
-  // TIẾP từ work (buildCustomerWorkRows() đã mang sẵn copyrightU sang), không
-  // qua map tra theo cmsId như trước — xem spec §9.1.
-  if (work.copyrightU) return { value: work.copyrightU, tier: 1 };
+  // Bước 2: thay trong MỘT LƯỢT quét, mỗi vị trí thử token DÀI NHẤT trước.
+  //
+  // Vì sao không dùng chuỗi .split().join() cho từng token: cách đó quét lại cả
+  // phần vừa thay, nên nếu tên tác phẩm/tác giả tình cờ chứa một token (vd tác
+  // phẩm có chữ '作品名' trong tên) thì lần thay sau sẽ ăn vào giá trị vừa chèn.
+  // Quét 1 lượt thì giá trị đã chèn không bao giờ bị đọc lại.
+  var pairs = [];
+  COPYRIGHT_TEMPLATE_TOKENS.forEach(function (group) {
+    group.tokens.forEach(function (token) { pairs.push({ token: token, field: group.field }); });
+  });
+  pairs.sort(function (a, b) { return b.token.length - a.token.length; });
 
-  // Tầng 2: sheet riêng theo NXB — dùng resolvePublisherAliasMatch()
-  // (copyright.js) để tìm xem NXB của tác phẩm này có sheet
-  // bản quyền riêng hay không, rồi tra map tương ứng theo titleId (ưu tiên)
-  // hoặc titleName (dự phòng nếu sheet đó không có cột ID).
-  var registryEntry = resolvePublisherAliasMatch(work.publisher, publisherRegistry);
-  if (registryEntry) {
-    var map = publisherMaps[registryEntry.key];
-    if (map) {
-      var byId = work.titleId !== undefined ? map.get(String(work.titleId)) : undefined;
-      var byName = work.titleName ? map.get(normalizeJapaneseText(work.titleName)) : undefined;
-      var tier2Value = byId || byName;
-      if (tier2Value) return { value: tier2Value, tier: 2 };
+  var result = '';
+  var i = 0;
+  while (i < text.length) {
+    var matched = null;
+    for (var k = 0; k < pairs.length; k++) {
+      if (text.substr(i, pairs[k].token.length) === pairs[k].token) {
+        matched = pairs[k];
+        break;
+      }
     }
+    if (matched === null) {
+      result += text.charAt(i);
+      i += 1;
+      continue;
+    }
+    var value = work[matched.field];
+    if (normalizeJapaneseText(value) === '') {
+      // Template đòi thông tin này mà tác phẩm không có -> KHÔNG thay bằng chuỗi
+      // rỗng (sẽ ra bản quyền khuyết kiểu '『』©/小学館'). Giữ nguyên token trong
+      // kết quả để dòng cảnh báo cho thấy chỗ nào thiếu.
+      unfilled.push(matched.token);
+      result += matched.token;
+    } else {
+      result += String(value);
+    }
+    i += matched.token.length;
   }
 
-  // Tầng 3: 基本のC表記 tự sinh — tra công thức chung theo NXB, điền giá trị
-  // thật của tác phẩm vào chỗ placeholder.
-  var template = work.publisher ? basicNotationMap.get(normalizeJapaneseText(work.publisher)) : undefined;
-  if (template) return { value: applyBasicNotationTemplate(template, work), tier: 3 };
-
-  // Tầng 4: cá biệt — không tầng nào khớp. CỐ TÌNH trả về null thay vì tự bịa
-  // 1 giá trị nào đó — main.js sẽ đưa tác phẩm này vào danh sách irregularTitles
-  // để ghi log + báo Slack, chờ con người xử lý tay.
-  return { value: null, tier: 4 };
+  return { value: result, unfilled: unfilled };
 }
 
+/**
+ * Sinh 出版社コピーライト (cột K) cho 1 tác phẩm.
+ *
+ * Tra quy tắc theo 出版社 (+ レーベル nếu khớp) rồi điền template. Trả `value: null`
+ * kèm `reason` cho 3 tình huống KHÔNG sinh được — cả 3 đều dẫn tới "để trống cột K
+ * + ghi cảnh báo", theo quyết định của user 2026-08-04:
+ *
+ *   ルール無し        NXB của tác phẩm không có dòng nào trong 出版社別コピーライトマスタ
+ *   個別ルール        cờ '02：個別ルール' — quy tắc con người phải tự viết
+ *   テンプレート不備   template là câu chỉ thị, hoặc đòi placeholder không điền được
+ *
+ * KHÔNG bao giờ tự bịa giá trị: một ô bản quyền TRỐNG là chuyện người ta thấy và
+ * xử lý được; một ô bản quyền SAI thì đi thẳng ra creative của khách.
+ *
+ * @param {{titleName: *, author: *, label: *, publisher: *}} work
+ * @param {Map<string, object>} rulesLookup - buildPublisherCopyrightLookup()
+ * @returns {{value: string|null, reason: string, rule: object|null, detail: string}}
+ */
+function resolvePublisherCopyright(work, rulesLookup) {
+  var rule = rulesLookup.get(publisherCopyrightKey(work.publisher, work.label));
+  if (rule === undefined) rule = rulesLookup.get(publisherCopyrightKey(work.publisher, ''));
+  if (rule === undefined) {
+    return {
+      value: null,
+      reason: COPYRIGHT_REASON_NO_RULE,
+      rule: null,
+      detail: '出版社「' + String(work.publisher || '(空欄)') + '」のルールが出版社別コピーライトマスタにありません',
+    };
+  }
+
+  if (normalizeJapaneseText(rule.flag).indexOf(PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX) !== 0) {
+    return {
+      value: null,
+      reason: COPYRIGHT_REASON_MANUAL_FLAG,
+      rule: rule,
+      detail: '自動化フラグ「' + String(rule.flag) + '」→ 個別対応（テンプレート: 「' + String(rule.template) + '」）',
+    };
+  }
+
+  if (!looksLikeCopyrightTemplate(rule.template)) {
+    return {
+      value: null,
+      reason: COPYRIGHT_REASON_BAD_TEMPLATE,
+      rule: rule,
+      detail: 'テンプレートが著作権表記ではありません（©なし）: 「' + String(rule.template) + '」',
+    };
+  }
+
+  var applied = applyCopyrightTemplate(rule.template, work);
+  if (applied.unfilled.length > 0) {
+    return {
+      value: null,
+      reason: COPYRIGHT_REASON_BAD_TEMPLATE,
+      rule: rule,
+      detail: '埋められないプレースホルダ [' + applied.unfilled.join(', ') + '] テンプレート: 「'
+        + String(rule.template) + '」',
+    };
+  }
+
+  return { value: applied.value, reason: COPYRIGHT_REASON_OK, rule: rule, detail: '' };
+}
+
+/**
+ * Giá trị bản quyền HIỆU LỰC của 1 dòng master: cột J nếu có, không thì cột K.
+ *
+ * ガワ mới bỏ cột 正規コピーライト, nên quan hệ ưu tiên này chỉ còn trong code —
+ * theo ghi chú ô B10 của sheet: `①「タイトル個別コピーライト」がある場合は優先して
+ * 設定を行う`. Dùng cho lịch sử 過去分 (người ta muốn thấy "bản quyền cũ", không
+ * phải "cột K cũ") và cho các bước sau đọc lại master này.
+ *
+ * @param {{individualCopyright: *, publisherCopyright: *}} record
+ * @returns {*} Giá trị nguyên văn của cột J hoặc K, hoặc '' nếu cả 2 trống
+ */
+function effectiveCopyright(record) {
+  if (normalizeJapaneseText(record.individualCopyright) !== '') return record.individualCopyright;
+  if (normalizeJapaneseText(record.publisherCopyright) !== '') return record.publisherCopyright;
+  return '';
+}
 
 // ==============================================================================
-// PHẦN 3 — LỊCH SỬ CopyRight過去1-10
+// PHẦN 3 — LỊCH SỬ コピーライト_過去分1..5
 // ==============================================================================
 
 /**
- * Quyết định giá trị 正規コピーライト mới và mảng lịch sử CopyRight過去1..N cho
- * 1 tác phẩm, dựa trên giá trị ĐANG LƯU (existingRecord, đọc từ コピーライト
- * マスタ trước khi chạy) và giá trị MỚI vừa tính ra (newValue).
+ * Tính mảng lịch sử mới cho 1 tác phẩm, dựa trên giá trị hiệu lực cũ và mới.
  *
- * QUY TẮC: chỉ dịch chuyển lịch sử khi giá trị THỰC SỰ THAY ĐỔI so với lần
- * trước — nếu newValue giống hệt currentValue, trả về y nguyên, KHÔNG đụng
- * vào mảng lịch sử (dù hàm này được gọi lại ở MỌI lần chạy 9h/17h, kể cả khi
- * không có gì thay đổi). Khi có thay đổi thật, giá trị CŨ được đẩy vào ĐẦU
- * mảng lịch sử (unshift, tức "過去1" luôn là giá trị gần nhất trước đó), các
- * giá trị cũ hơn bị đẩy lùi ra sau; nếu mảng vượt quá maxSlots, giá trị CŨ
- * NHẤT (cuối mảng) bị loại bỏ.
+ * Chỉ dịch chuyển lịch sử khi giá trị hiệu lực THỰC SỰ đổi — so bằng sameValue()
+ * nên 2 giá trị chỉ khác nhau ở biến thể ký hiệu ©/Ⓒ/(C) hoặc ký tự vô hình thì
+ * KHÔNG tính là đổi. Nếu không có điều kiện này, mỗi lần chạy sẽ đẩy lịch sử đi 1
+ * ô, và sau 5 lần chạy là mất sạch lịch sử thật (số slot chỉ còn 5).
  *
- * Trường hợp tác phẩm CHƯA từng có 正規コピーライト (currentValue null/rỗng —
- * vd tác phẩm mới, hoặc trước đó rơi vào tầng 4/cá biệt): không coi đó là
- * "thay đổi cần lưu lịch sử" — không có gì để đẩy vào 過去1 cả (nếu không có
- * check này, lần đầu tiên có giá trị sẽ tạo ra 1 mục lịch sử rỗng vô nghĩa).
+ * Số slot giảm 10 -> 5 theo ghi chú ô B10 của ガワ mới:
+ * `②旧コピーライトは5つまで保存(6つ以前はマスタから削除)`. Giá trị cũ hơn slot 5 bị
+ * CẮT BỎ — đó là yêu cầu nghiệp vụ, không phải giới hạn kỹ thuật.
  *
- * So sánh bằng sameValue() (common.js/master.js), KHÔNG dùng `===` trực tiếp:
- * newValue có thể là `undefined` (resolveCopyright() không thay đổi placeholder
- * cho tier 4), còn currentValue đọc lại từ sheet sau khi đã ghi 1 giá trị
- * rỗng trước đó sẽ là chuỗi `''`, không phải `undefined`/`null` — so sánh
- * `===` trực tiếp sẽ coi đây là "đã đổi" và dịch chuyển lịch sử một cách sai
- * lệch ở MỌI lần chạy cho các tác phẩm cá biệt (đã kiểm chứng bug này qua dữ
- * liệu thật, cùng gốc với bug tương tự ở customerIsEqualFn/copyrightIsEqualFn
- * trong main.js).
- *
- * @param {{copyrightCurrent: string|null, copyrightHistory: Array<string>}} existingRecord
- *   Bản ghi コピーライトマスタ hiện tại của tác phẩm này (đọc từ sheet, hoặc
- *   {copyrightCurrent: null, copyrightHistory: []} nếu tác phẩm chưa từng có dòng)
- * @param {string|null} newValue - Giá trị 正規コピーライト vừa tính ra ở lần chạy này
- *   (kết quả resolveCopyright().value — có thể null nếu tầng 4/cá biệt)
- * @param {number} maxSlots - Số cột lịch sử tối đa được phép giữ (CONFIG.COPYRIGHT_HISTORY_SLOTS = 10)
- * @returns {{copyrightCurrent: string|null, copyrightHistory: Array<string>}}
- *   Giá trị mới để main.js đưa vào record ghi lên コピーライトマスタ
+ * @param {{copyrightHistory: Array<*>}|null} prior - Bản ghi đang có trên sheet
+ * @param {*} priorEffective - Giá trị hiệu lực ĐANG có trên sheet (effectiveCopyright(prior))
+ * @param {*} nextEffective - Giá trị hiệu lực vừa tính cho lần chạy này
+ * @param {number} slots - CONFIG.COPYRIGHT_HISTORY_SLOTS (= 5)
+ * @returns {{copyrightHistory: Array<*>, changed: boolean}}
  */
-function shiftCopyrightHistory(existingRecord, newValue, maxSlots) {
-  var currentValue = existingRecord.copyrightCurrent || null;
-  var history = existingRecord.copyrightHistory ? existingRecord.copyrightHistory.slice() : [];
+function shiftCopyrightHistory(prior, priorEffective, nextEffective, slots) {
+  var history = (prior && prior.copyrightHistory ? prior.copyrightHistory : []).slice();
 
-  if (sameValue(newValue, currentValue)) {
-    return { copyrightCurrent: currentValue, copyrightHistory: history };
-  }
+  // Dòng mới (chưa có giá trị cũ) hoặc giá trị không đổi -> lịch sử giữ nguyên.
+  if (normalizeJapaneseText(priorEffective) === '') return { copyrightHistory: history.slice(0, slots), changed: false };
+  if (sameValue(priorEffective, nextEffective)) return { copyrightHistory: history.slice(0, slots), changed: false };
 
-  if (currentValue) {
-    history.unshift(currentValue);
-    if (history.length > maxSlots) history = history.slice(0, maxSlots);
-  }
-
-  return { copyrightCurrent: newValue, copyrightHistory: history };
+  history.unshift(priorEffective);
+  return { copyrightHistory: history.slice(0, slots), changed: true };
 }

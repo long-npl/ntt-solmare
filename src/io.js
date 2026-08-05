@@ -262,38 +262,58 @@ function writeCustomerWorkMaster(diffResult) {
   }
 }
 
-// ==================== コピーライトマスタ (spec §4.2) ====================
+// ==================== コピーライトマスタ (ガワ mới 2026-08-04) ====================
+//
+// Layout ガワ mới: header HÀNG 15, dữ liệu từ hàng 16, cột A là cột đệm trống, dữ
+// liệu ở B→P. Toàn bộ 15 cột đều do GAS ghi (hàng 13 của sheet đánh dấu
+// '自動入力/GAS' cho cả 15) — khác 顧客作品マスタ, ở đây không có cột nào phải bảo
+// toàn cho người nhập tay.
+//
+// Ba thay đổi lớn so với ガワ cũ:
+//   1. Bỏ cột `正規コピーライト`. Thay bằng 2 cột độc lập: J
+//      `タイトル個別コピーライト(あれば優先使用)` (từ CMS) và K `出版社コピーライト`
+//      (GAS sinh). Giá trị "hiệu lực" = J nếu có, không thì K — quan hệ đó giờ nằm
+//      trong code (effectiveCopyright() ở copyright.js), không nằm trên sheet.
+//   2. Bỏ 2 cột `CopyRight(個別ルールの場合)` / `CopyRight自動生成` — chúng vốn chỉ
+//      để phân biệt giá trị đến từ tầng nào, việc mà 2 cột J/K nay làm rõ hơn.
+//   3. Lịch sử đổi tên `CopyRight過去1..10` -> `コピーライト_過去分1..5` (10 -> 5 slot).
+//
+// Thêm 4 cột định danh lấy từ 顧客作品マスタ (CMS ID / タイトルID / ジャンル /
+// レーベル名) — trước đây master này chỉ có タイトルNo nên không tra ngược được về
+// CMS mà không đi qua 顧客作品マスタ.
 
 var COPYRIGHT_REQUIRED_HEADERS = [
-  'タイトルNo', 'タイトル名', '著者名', '出版社(雑誌名/レーベル)',
-  '正規コピーライト', 'CopyRight(個別ルールの場合)', 'CopyRight自動生成',
+  'タイトルNo', 'CMS ID', 'タイトルID', 'タイトル名', '作家名', 'ジャンル', '出版社', 'レーベル名',
+  'タイトル個別コピーライト(あれば優先使用)', '出版社コピーライト',
 ];
 
 /**
- * Tên header thật của 1 cột lịch sử CopyRight過去N trên sheet (vd slot=1 ->
- * "CopyRight過去1"). Tách thành hàm riêng vì tên này được dùng ở CẢ
- * readCopyrightMaster() lẫn copyrightRecordToRow() — tránh lặp chuỗi ghép.
+ * Tên header thật của 1 cột lịch sử trên sheet (slot=1 -> 'コピーライト_過去分1').
  *
- * @param {number} slot - Số thứ tự slot lịch sử, từ 1 đến CONFIG.COPYRIGHT_HISTORY_SLOTS
- * @returns {string} Tên header tương ứng (vd "CopyRight過去1")
+ * Tách thành hàm riêng vì tên này được dùng ở CẢ readCopyrightMaster() lẫn
+ * copyrightRecordToRow() — tránh lặp chuỗi ghép ở 2 nơi rồi lệch nhau.
+ *
+ * @param {number} slot - Từ 1 đến CONFIG.COPYRIGHT_HISTORY_SLOTS (= 5)
+ * @returns {string}
  */
 function copyrightHistoryHeaderName(slot) {
-  return 'CopyRight過去' + slot;
+  return 'コピーライト_過去分' + slot;
 }
 
 /**
  * Đọc toàn bộ dòng dữ liệu hiện có trên コピーライトマスタ, kèm khôi phục mảng
- * copyrightHistory từ 10 cột CopyRight過去1..10 (chỉ giữ giá trị non-empty,
- * nên độ dài mảng trả về có thể ngắn hơn 10 nếu chưa đủ lịch sử).
+ * copyrightHistory từ 5 cột コピーライト_過去分1..5 (chỉ giữ giá trị non-empty, nên
+ * mảng trả về có thể ngắn hơn 5 nếu chưa đủ lịch sử).
  *
- * LƯU Ý: record trả về KHÔNG có trường titleId/cmsId — コピーライトマスタ
- * không có cột đó trên sheet thật, chỉ có タイトルNo (dùng chung với 顧客作品
- * マスタ). Đây là lý do main.js phải key コピーライトマスタ theo titleNo,
- * KHÔNG theo titleId (xem comment trong runGas1(), main.js).
+ * Trả thêm `sheetRow` (số dòng thật 1-based) vì đường ghi dùng trực tiếp giá trị
+ * đó — cùng lý do với readCustomerWorkMaster(): công thức rowOffset + 2 ngầm giả
+ * định header ở hàng 1, sai với ガワ mới (header hàng 15).
  *
  * @returns {Array<{
- *   titleNo: number, titleName: string, author: string, publisher: string,
- *   copyrightCurrent: string, copyrightHistory: Array<string>
+ *   titleNo: *, cmsId: *, titleId: *, titleName: string, author: string,
+ *   genre: string, publisher: string, label: string,
+ *   individualCopyright: *, publisherCopyright: *,
+ *   copyrightHistory: Array<*>, sheetRow: number
  * }>}
  */
 function readCopyrightMaster() {
@@ -301,49 +321,53 @@ function readCopyrightMaster() {
   var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, COPYRIGHT_REQUIRED_HEADERS);
   var idx = resolved.headerIndex;
   var colTitleNo = col(idx, 'タイトルNo');
+  var colCmsId = col(idx, 'CMS ID');
+  var colTitleId = col(idx, 'タイトルID');
   var colTitleName = col(idx, 'タイトル名');
-  var colAuthor = col(idx, '著者名');
-  var colPublisher = col(idx, '出版社(雑誌名/レーベル)');
-  var colCurrent = col(idx, '正規コピーライト');
+  var colAuthor = col(idx, '作家名');
+  var colGenre = col(idx, 'ジャンル');
+  var colPublisher = col(idx, '出版社');
+  var colLabel = col(idx, 'レーベル名');
+  var colIndividual = col(idx, 'タイトル個別コピーライト(あれば優先使用)');
+  var colPublisherCopyright = col(idx, '出版社コピーライト');
   var historyCols = [];
   for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
     historyCols.push(col(idx, copyrightHistoryHeaderName(h)));
   }
 
-  // Dùng resolved.values + headerRowIndex thay vì đọc lại sheet và giả định header
-  // ở hàng 1: コピーライトマスタ hiện vẫn header hàng 1, nhưng ガワ của nó cũng đang
-  // được thiết kế lại (header hàng 15, xem plan) — viết theo headerRowIndex thì lần
-  // đó không phải sửa hàm này nữa.
-  var rows = resolved.values;
   var records = [];
-  for (var i = resolved.headerRowIndex + 1; i < rows.length; i++) {
-    var row = rows[i];
+  for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
+    var row = resolved.values[i];
+    if (!row) continue;
     if (!row[colTitleNo]) continue;
     var history = [];
     historyCols.forEach(function (c) {
-      if (row[c]) history.push(row[c]);
+      if (row[c] !== '' && row[c] !== null && row[c] !== undefined) history.push(row[c]);
     });
     records.push({
       titleNo: row[colTitleNo],
+      cmsId: row[colCmsId],
+      titleId: row[colTitleId],
       titleName: row[colTitleName],
       author: row[colAuthor],
+      genre: row[colGenre],
       publisher: row[colPublisher],
-      copyrightCurrent: row[colCurrent],
+      label: row[colLabel],
+      individualCopyright: row[colIndividual],
+      publisherCopyright: row[colPublisherCopyright],
       copyrightHistory: history,
+      sheetRow: i + 1,
     });
   }
   return records;
 }
 
 /**
- * Chuyển 1 "copyright record" thành mảng giá trị theo đúng vị trí cột thật —
- * tương tự customerRecordToRow() nhưng cho コピーライトマスタ.
+ * Chuyển 1 copyright record thành mảng giá trị theo đúng vị trí cột thật.
  *
- * Cột CopyRight(個別ルールの場合)/CopyRight自動生成 chỉ được điền khi
- * record.tier tương ứng đúng tầng đó (tier===2 -> 個別ルール, tier===3 ->
- * 自動生成) — record.tier do copyright.js: resolveCopyright() trả về và
- * được main.js gắn thêm vào record trước khi gọi hàm này, để 2 cột đó phản
- * ánh ĐÚNG bản quyền đến từ tầng nào, phục vụ việc audit sau này.
+ * Khác customerRecordToRow(): ở đây KHÔNG cần dựng từ bản copy dòng cũ, vì cả 15
+ * cột của master này đều do GAS ghi — không có cột nào của người nhập tay để mà
+ * bảo toàn. Cột A (đệm) vẫn được để trống đúng như trên sheet.
  *
  * @param {object} record - Copyright record (từ main.js, sau shiftCopyrightHistory())
  * @param {Map<string,number>} headerIndex
@@ -353,12 +377,18 @@ function readCopyrightMaster() {
 function copyrightRecordToRow(record, headerIndex, columnCount) {
   var row = new Array(columnCount).fill('');
   row[col(headerIndex, 'タイトルNo')] = record.titleNo;
+  row[col(headerIndex, 'CMS ID')] = record.cmsId;
+  row[col(headerIndex, 'タイトルID')] = record.titleId;
   row[col(headerIndex, 'タイトル名')] = record.titleName;
-  row[col(headerIndex, '著者名')] = record.author;
-  row[col(headerIndex, '出版社(雑誌名/レーベル)')] = record.publisher;
-  row[col(headerIndex, '正規コピーライト')] = record.copyrightCurrent || '';
-  row[col(headerIndex, 'CopyRight(個別ルールの場合)')] = record.tier === 2 ? record.copyrightCurrent : '';
-  row[col(headerIndex, 'CopyRight自動生成')] = record.tier === 3 ? record.copyrightCurrent : '';
+  row[col(headerIndex, '作家名')] = record.author;
+  row[col(headerIndex, 'ジャンル')] = record.genre;
+  row[col(headerIndex, '出版社')] = record.publisher;
+  row[col(headerIndex, 'レーベル名')] = record.label;
+  // 2 cột bản quyền độc lập. J nguyên văn từ CMS; K là giá trị GAS sinh, để TRỐNG
+  // khi không sinh được (không bao giờ ghi câu chỉ thị hay giá trị đoán — xem
+  // resolvePublisherCopyright() ở copyright.js).
+  row[col(headerIndex, 'タイトル個別コピーライト(あれば優先使用)')] = record.individualCopyright || '';
+  row[col(headerIndex, '出版社コピーライト')] = record.publisherCopyright || '';
   for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
     row[col(headerIndex, copyrightHistoryHeaderName(h))] = record.copyrightHistory[h - 1] || '';
   }
@@ -366,11 +396,11 @@ function copyrightRecordToRow(record, headerIndex, columnCount) {
 }
 
 /**
- * Ghi kết quả diffUpsert() vào コピーライトマスタ thật — logic giống hệt
- * writeCustomerWorkMaster() (update theo rowOffset, append dòng mới ở cuối,
- * không bao giờ xoá), chỉ khác header/số cột.
+ * Ghi kết quả diffUpsert() vào コピーライトマスタ thật — update theo `item.sheetRow`
+ * (số dòng thật do readCopyrightMaster() gắn), append dòng mới ở cuối, không bao
+ * giờ xoá dòng nào.
  *
- * @param {{toUpdate: Array<{key:string, record:object, rowOffset:number}>, toAdd: Array<object>}} diffResult
+ * @param {{toUpdate: Array<{record: object, sheetRow: number}>, toAdd: Array<object>}} diffResult
  * @returns {void}
  */
 function writeCopyrightMaster(diffResult) {
@@ -379,20 +409,21 @@ function writeCopyrightMaster(diffResult) {
   var sheet = resolved.sheet;
   var headerIndex = resolved.headerIndex;
   var columnCount = resolved.columnCount;
-
   var headerRowNumber = resolved.headerRowIndex + 1;
+
   diffResult.toUpdate.forEach(function (item) {
-    var sheetRowIndex = headerRowNumber + item.rowOffset + 1; // +header, +1 chuyển 0-based -> 1-based
-    sheet.getRange(sheetRowIndex, 1, 1, columnCount).setValues([copyrightRecordToRow(item.record, headerIndex, columnCount)]);
+    sheet.getRange(item.sheetRow, 1, 1, columnCount)
+      .setValues([copyrightRecordToRow(item.record, headerIndex, columnCount)]);
   });
 
   if (diffResult.toAdd.length > 0) {
     var startRow = Math.max(sheet.getLastRow(), headerRowNumber) + 1;
-    var values = diffResult.toAdd.map(function (record) { return copyrightRecordToRow(record, headerIndex, columnCount); });
+    var values = diffResult.toAdd.map(function (record) {
+      return copyrightRecordToRow(record, headerIndex, columnCount);
+    });
     sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
   }
 }
-
 
 // ==============================================================================
 // PHẦN 2 — ĐỌC FILE TSV TRÊN DRIVE
@@ -460,13 +491,13 @@ function readTsvRows(file, encoding) {
 // ==============================================================================
 
 var LOG_SHEET_NAME = 'GAS1ログ';
-// 7 cột số đếm ở giữa được thêm 2026-08-03 (spec §6). Từ nay tác phẩm có thể biến
+// 8 cột số đếm ở giữa được thêm 2026-08-03/08-04 (spec §6). Từ nay tác phẩm có thể biến
 // mất khỏi master một cách im lặng (595 NG + 3.353 未判定 trên dữ liệu hôm nay),
 // nên 1 dòng log phải đủ để biết lần chạy đó có gì bất thường mà không cần mở tab
 // GAS1警告.
 var LOG_HEADER = ['開始日時', '終了日時', '追加件数', '更新件数',
   '除外_NG件数', '除外_未判定件数', '照合注意件数', '照合曖昧件数', '孤立行件数',
-  '外部出稿NG注意件数', '掲載停止注意件数',
+  '外部出稿NG注意件数', '掲載停止注意件数', 'コピーライト注意件数',
   '個別対応タイトル', 'エラー'];
 
 var CHANGE_DETAIL_SHEET_NAME = 'GAS1変更詳細';
@@ -558,6 +589,7 @@ function appendLogEntry(entry) {
     entry.orphanCount || 0,
     entry.ngTitleNoticeCount || 0,
     entry.suspensionNoticeCount || 0,
+    entry.copyrightNoticeCount || 0,
     entry.irregularTitles.join(', '),
     entry.errors.join(', '),
   ]);

@@ -146,23 +146,10 @@ function test_cms(ctx) {
       [parsed[0].label, parsed[0].copyrightU], ['レーベルA', '©桜田霊子/スターツ出版']);
     check('buildCmsCopyrightLookup da bi xoa', typeof src.buildCmsCopyrightLookup, 'undefined');
 
-    // ---- resolveCopyright: tầng 1 đọc work.copyrightU, không còn map ----
-    var basicNotation = new Map([[src.normalizeJapaneseText('アルファポリス'), '©著者名/アルファポリス']]);
-    var tier1 = src.resolveCopyright(
-      { titleId: 1, titleName: 'X', author: '作家', publisher: 'アルファポリス', copyrightU: '©確認済み/CMS' },
-      src.PUBLISHER_SHEET_PARSERS, {}, basicNotation);
-    check('resolveCopyright tang 1 lay tu work.copyrightU', [tier1.value, tier1.tier], ['©確認済み/CMS', 1]);
-
-    var tier3 = src.resolveCopyright(
-      { titleId: 2, titleName: 'Y', author: '作家Y', publisher: 'アルファポリス', copyrightU: '' },
-      src.PUBLISHER_SHEET_PARSERS, {}, basicNotation);
-    check('resolveCopyright roi xuong tang 3 khi copyrightU rong',
-      [tier3.value, tier3.tier], ['©作家Y/アルファポリス', 3]);
-
-    var tier4 = src.resolveCopyright(
-      { titleId: 3, titleName: 'Z', author: '作家Z', publisher: '出版社不明', copyrightU: null },
-      src.PUBLISHER_SHEET_PARSERS, {}, basicNotation);
-    check('resolveCopyright tang 4 khi khong tang nao khop', [tier4.value, tier4.tier], [null, 4]);
+    // Tầng 1 cũ (CMS コピーライト) giờ là cột J của コピーライトマスタ, main.js copy
+  // nguyên văn — logic sinh bản quyền chuyển hết sang test_copyright.
+  check('parseCmsRows mang copyrightU sang de main.js copy vao cot J',
+    parsed[0].copyrightU, '©桜田霊子/スターツ出版');
 }
 
 // ==============================================================================
@@ -498,6 +485,197 @@ function test_warnings(ctx) {
 }
 
 // ==============================================================================
+// BẢN QUYỀN — tra rule theo 出版社(+レーベル), sinh template, 3 lý do không sinh được
+// ==============================================================================
+function test_copyright(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  // Header thật của 出版社別コピーライトマスタ (hàng 15), chỉ giữ các cột code đọc.
+  var HEADER = ['出版社', '危険', '雑誌名/レーベル', '自動化フラグ', '要注意\n作品あり', '順番指定',
+    '(CL)\nC表記の\n事前確認', '(出版社)\n事前確認', '(出版社)\n使用画像の報告', '著者名\n区切り方',
+    'テンプレート\n(タイトルマスタで参照)'];
+
+  /** 1 dòng rule theo đúng thứ tự HEADER. */
+  function rule(publisher, label, flag, template) {
+    return [publisher, '', label, flag, '', '', '', '', '', '・', template];
+  }
+  function sheet(rows) { return [['ghi chú'], HEADER].concat(rows); }
+
+  var rules = src.parsePublisherCopyrightRules(sheet([
+    rule('集英社', '', '01：自動化', '©.集英社/作家名/タイトル名'),
+    rule('集英社', 'ブリンク', '01：自動化', '『タイトル名』©著者名／ホーム社'),
+    rule('小学館', '', '01：自動化', '『タイトル名』©著者名 / 小学館'),
+    rule('AZITO', '', '01：自動化', '©雑誌名'),
+    rule('レジンコミックス', '', '01：自動化', '©レジンコミックス'),
+    rule('ヒーローズ', '', '01：自動化', 'コピーライトルール参照して個別記載'),
+    rule('アスタリスク文庫', '', '01：自動化', '都度問い合わせ要'),
+    rule('サード・ライン', '', '01：自動化', '©著 ©原作 ©SANKYO'),
+    rule('KADOKAWA', '', '02：個別ルール', '『タイトル名』©著者名（ローマ字）'),
+    rule('オトナ恋', 'ライブコミックス', '02：個別ルール', '『タイトル名』©オトナ恋'),
+    rule('オトナ恋', 'ライブコミックス', '01：自動化', 'dòng trùng khoá, phải bị bỏ ©X'),
+    rule('', '', '01：自動化', 'dòng không có 出版社, phải bị bỏ'),
+  ]));
+  check('parsePublisherCopyrightRules bo dong khong co 出版社', rules.length, 11);
+
+  var lookup = src.buildPublisherCopyrightLookup(rules);
+  check('lookup: khoa trung thi dong DAU TIEN thang',
+    lookup.get(src.publisherCopyrightKey('オトナ恋', 'ライブコミックス')).flag, '02：個別ルール');
+
+  function work(publisher, label, titleName, author) {
+    return { publisher: publisher, label: label, titleName: titleName, author: author };
+  }
+
+  // ---- Tầng レーベル phải thắng tầng 出版社 ----
+  var shueishaNoLabel = src.resolvePublisherCopyright(work('集英社', '', 'テスト作品', 'テスト作家'), lookup);
+  check('khong co レーベル -> dung rule cua 出版社',
+    [shueishaNoLabel.reason, shueishaNoLabel.value],
+    [src.COPYRIGHT_REASON_OK, '©.集英社/テスト作家/テスト作品']);
+  var shueishaBlink = src.resolvePublisherCopyright(work('集英社', 'ブリンク', 'テスト作品', 'テスト作家'), lookup);
+  check('co レーベル khop -> rule レーベル THANG (ghi ten cong ty khac!)',
+    shueishaBlink.value, '『テスト作品』©テスト作家／ホーム社');
+  var shueishaOtherLabel = src.resolvePublisherCopyright(work('集英社', 'レーベル lạ', 'テスト作品', 'テスト作家'), lookup);
+  check('レーベル khong khop -> roi ve rule cua 出版社',
+    shueishaOtherLabel.value, '©.集英社/テスト作家/テスト作品');
+
+  // ---- placeholder レーベル/雑誌名 ----
+  check('placeholder 雑誌名 duoc dien bang レーベル名 cua tac pham',
+    src.resolvePublisherCopyright(work('AZITO', 'AZITOレーベル', 'X', 'Y'), lookup).value, '©AZITOレーベル');
+  check('template doi レーベル ma tac pham khong co -> KHONG sinh (tranh ban quyen khuyet)',
+    src.resolvePublisherCopyright(work('AZITO', '', 'X', 'Y'), lookup).reason,
+    src.COPYRIGHT_REASON_BAD_TEMPLATE);
+
+  // ---- template không có placeholder nhưng LÀ bản quyền hoàn chỉnh ----
+  check('template ban quyen cung (khong placeholder) van hop le',
+    src.resolvePublisherCopyright(work('レジンコミックス', '', 'X', 'Y'), lookup).value, '©レジンコミックス');
+
+  // ---- CÁI BẪY: template là câu chỉ thị, không phải bản quyền ----
+  check('template la cau chi thi (khong co ©) -> KHONG BAO GIO ghi ra sheet',
+    [src.resolvePublisherCopyright(work('ヒーローズ', '', 'X', 'Y'), lookup).reason,
+      src.resolvePublisherCopyright(work('ヒーローズ', '', 'X', 'Y'), lookup).value,
+      src.resolvePublisherCopyright(work('アスタリスク文庫', '', 'X', 'Y'), lookup).reason],
+    [src.COPYRIGHT_REASON_BAD_TEMPLATE, null, src.COPYRIGHT_REASON_BAD_TEMPLATE]);
+  check('looksLikeCopyrightTemplate: chi thi vs ban quyen',
+    [src.looksLikeCopyrightTemplate('都度問い合わせ要'), src.looksLikeCopyrightTemplate('©レジンコミックス'),
+      src.looksLikeCopyrightTemplate('(C)ABC'), src.looksLikeCopyrightTemplate(''),
+      src.looksLikeCopyrightTemplate(null)],
+    [false, true, true, false, false]);
+
+  // ---- placeholder không điền được từ CMS ----
+  var sanko = src.resolvePublisherCopyright(work('サード・ライン', '', 'X', 'Y'), lookup);
+  check('placeholder ©著/©原作 khong dien duoc -> BAD_TEMPLATE, khong doan',
+    [sanko.reason, sanko.value], [src.COPYRIGHT_REASON_BAD_TEMPLATE, null]);
+
+  // ---- cờ 02：個別ルール ----
+  var kadokawa = src.resolvePublisherCopyright(work('KADOKAWA', '', 'X', 'Y'), lookup);
+  check('co 02：個別ルール -> de trong + ly do 個別ルール',
+    [kadokawa.reason, kadokawa.value], [src.COPYRIGHT_REASON_MANUAL_FLAG, null]);
+
+  // ---- NXB không có rule ----
+  var unknown = src.resolvePublisherCopyright(work('出版社 chưa có rule', '', 'X', 'Y'), lookup);
+  check('NXB khong co rule -> ly do ルール無し',
+    [unknown.reason, unknown.value], [src.COPYRIGHT_REASON_NO_RULE, null]);
+
+  // ---- effectiveCopyright: J thắng K ----
+  check('effectiveCopyright: J uu tien hon K',
+    [src.effectiveCopyright({ individualCopyright: '©J', publisherCopyright: '©K' }),
+      src.effectiveCopyright({ individualCopyright: '', publisherCopyright: '©K' }),
+      src.effectiveCopyright({ individualCopyright: '  ', publisherCopyright: '' })],
+    ['©J', '©K', '']);
+
+  // ---- Lịch sử 5 slot ----
+  var noChange = src.shiftCopyrightHistory({ copyrightHistory: ['©cũ1'] }, '©A', '©A', 5);
+  check('lich su KHONG dich khi gia tri khong doi',
+    [noChange.changed, noChange.copyrightHistory], [false, ['©cũ1']]);
+  var variant = src.shiftCopyrightHistory({ copyrightHistory: [] }, '(C)A', 'ⒸA', 5);
+  check('lich su KHONG dich khi chi khac bien the ky hieu ©', variant.changed, false);
+  var changed = src.shiftCopyrightHistory({ copyrightHistory: ['©cũ1', '©cũ2'] }, '©A', '©B', 5);
+  check('lich su dich khi gia tri that su doi',
+    [changed.changed, changed.copyrightHistory], [true, ['©A', '©cũ1', '©cũ2']]);
+  var full = src.shiftCopyrightHistory({ copyrightHistory: ['1', '2', '3', '4', '5'] }, '©A', '©B', 5);
+  check('lich su cat con 5 slot (6 tro len bi xoa theo yeu cau nghiep vu)',
+    full.copyrightHistory, ['©A', '1', '2', '3', '4']);
+  var brandNew = src.shiftCopyrightHistory(null, '', '©A', 5);
+  check('dong moi (khong co gia tri cu) -> lich su rong', brandNew.copyrightHistory, []);
+
+  // ---- BUG TIỀM ẨN đã từng có: token là chuỗi con của TÊN NXB THẬT ----
+  // 4 ca này không xuất hiện trong dữ liệu hôm nay (không tác phẩm nào thuộc mấy
+  // NXB đó), nên chạy trên dữ liệu thật KHÔNG phát hiện được — chỉ test đơn vị bắt
+  // được. Bản đầu có token '出版社' và 'レーベル' (không kèm 名) và sinh ra:
+  //   英和出版社   -> '英和英和出版社'      (nhân đôi tên NXB)
+  //   笠倉出版社   -> '笠倉笠倉出版社'      (nhân đôi)
+  //   ダイヤモンド社 -> 'ダイヤモンド社名'    (dính chữ 名)
+  //   サイゾー     -> 'サイゾーレーベル名'  (dính chữ 名)
+  var literalRules = src.buildPublisherCopyrightLookup(src.parsePublisherCopyrightRules(sheet([
+    rule('英和出版社', '', '01：自動化', '『タイトル名』©著者名/英和出版社'),
+    rule('笠倉出版社', '', '01：自動化', '『タイトル名』©著者名/笠倉出版社'),
+    rule('ダイヤモンド社', '', '01：自動化', '『タイトル名』©著者名/出版社名'),
+    rule('サイゾー', '', '01：自動化', '『タイトル名』©著者名／レーベル名'),
+    rule('MATA出版', '', '01：自動化', '『タイトル』©漫画家名/©原作者名/©レーベル名'),
+    rule('TOブックス', '', '01：自動化', '『タイトル名』© 著者名 / 原作者名（英語）'),
+    rule('画家出版', '', '01：自動化', '『タイトル名』©イラストレーター名/画家出版'),
+  ])));
+  function gen(publisher, label) {
+    return src.resolvePublisherCopyright(
+      { publisher: publisher, label: label, titleName: 'ある作品', author: '山田' }, literalRules).value;
+  }
+  check('ten NXB that chua chu 出版社 -> KHONG bi thay (khong nhan doi)',
+    [gen('英和出版社', ''), gen('笠倉出版社', '')],
+    ['『ある作品』©山田/英和出版社', '『ある作品』©山田/笠倉出版社']);
+  check('placeholder 出版社名 duoc thay dung, khong de lai chu 名',
+    gen('ダイヤモンド社', ''), '『ある作品』©山田/ダイヤモンド社');
+  check('placeholder レーベル名 duoc thay dung, khong de lai chu 名',
+    gen('サイゾー', 'サイゾーレーベル'), '『ある作品』©山田／サイゾーレーベル');
+
+  // ---- Placeholder đòi thông tin CMS không có -> BAD_TEMPLATE, không đoán ----
+  function reasonOf(publisher) {
+    return src.resolvePublisherCopyright(
+      { publisher: publisher, label: 'L', titleName: 'X', author: 'Y' }, literalRules).reason;
+  }
+  check('原作者名 / 漫画家名 / イラストレーター名 deu la placeholder KHONG dien duoc',
+    [reasonOf('MATA出版'), reasonOf('TOブックス'), reasonOf('画家出版')],
+    [src.COPYRIGHT_REASON_BAD_TEMPLATE, src.COPYRIGHT_REASON_BAD_TEMPLATE,
+      src.COPYRIGHT_REASON_BAD_TEMPLATE]);
+
+  // ---- Thay 1 lượt: giá trị vừa chèn KHÔNG được quét lại ----
+  // Tác phẩm có tên chứa đúng chữ '著者名' — nếu thay theo từng token nhiều lượt,
+  // lượt sau sẽ ăn vào tên tác phẩm vừa chèn.
+  var trickyRules = src.buildPublisherCopyrightLookup(src.parsePublisherCopyrightRules(sheet([
+    rule('T社', '', '01：自動化', '『タイトル名』©著者名/T社'),
+  ])));
+  check('gia tri vua chen khong bi quet lai (ten tac pham chua chu 著者名)',
+    src.resolvePublisherCopyright(
+      { publisher: 'T社', label: '', titleName: '著者名のひみつ', author: '山田' }, trickyRules).value,
+    '『著者名のひみつ』©山田/T社');
+
+  // ---- コピーライト注意: GOM theo NXB, không phải 1 dòng/1 tác phẩm ----
+  function cwEntry(publisher, label, titleName, reason) {
+    return {
+      record: { titleNo: 1, titleId: 1, titleName: titleName, publisher: publisher, label: label },
+      copyrightReason: reason,
+      copyrightDetail: 'chi tiet',
+    };
+  }
+  var cwRows = src.buildCopyrightWarningRows([
+    cwEntry('ソルマーレ編集部', '', 'A', 'ルール無し'),
+    cwEntry('ソルマーレ編集部', '', 'B', 'ルール無し'),
+    cwEntry('ソルマーレ編集部', '', 'C', 'ルール無し'),
+    cwEntry('ソルマーレ編集部', '', 'D', 'ルール無し'),
+    cwEntry('ソルマーレ編集部', 'レーベルX', 'E', 'ルール無し'),
+    cwEntry('TOブックス', '', 'F', 'テンプレート不備'),
+    cwEntry('ソルマーレ編集部', '', 'G', '個別ルール'),
+  ], new Date(2026, 7, 4));
+  check('gom 7 tac pham thanh 4 dong (NXB + レーベル + ly do)', cwRows.length, 4);
+  check('dong gom mang so luong + toi da 3 ten vi du',
+    [cwRows[0].detail.indexOf('4 件') !== -1, cwRows[0].detail.indexOf('A / B / C') !== -1,
+      cwRows[0].detail.indexOf(' / D') === -1],
+    [true, true, true]);
+  check('dong gom de trong titleNo/titleId (noi ve NXB, khong ve 1 dong master)',
+    [cwRows[0].titleNo, cwRows[0].titleId], ['', '']);
+  check('レーベル duoc ghi kem NXB de phan biet', cwRows[1].titleName, 'ソルマーレ編集部／レーベルX');
+}
+
+// ==============================================================================
 // NGUỒN 掲載停止日付 — join theo タイトルID, ghi một lần
 //
 // Header dùng trong test là tên GIẢ ĐỊNH ('タイトルID' / '掲載停止日付') — mục đích
@@ -530,6 +708,10 @@ function test_suspension(ctx) {
   var threwBadColumn = false;
   try { src.columnLetterToIndex('A1'); } catch (e) { threwBadColumn = true; }
   check('columnLetterToIndex throw khi chu cai cot khong hop le', threwBadColumn, true);
+  check('columnIndexToLetter la chieu nguoc lai (dung cho log chan doan)',
+    [src.columnIndexToLetter(0), src.columnIndexToLetter(3), src.columnIndexToLetter(20),
+      src.columnIndexToLetter(26), src.columnIndexToLetter(-1)],
+    ['A', 'D', 'U', 'AA', '?']);
   var threwEmptyColumn = false;
   try { src.parseSuspensionRows(TSV, '', 'D'); } catch (e) { threwEmptyColumn = true; }
   check('parseSuspensionRows throw khi CONFIG chua dien cot', threwEmptyColumn, true);
@@ -730,6 +912,56 @@ function test_dataset(ctx) {
     check('lan 4: 0 them moi, 0 update, 1.730 khop tang 1',
       [run4.diff.toAdd.length, run4.diff.toUpdate.length, run4.tiers.t1], [0, 0, 1730]);
 
+
+    // ---- Bản quyền trên dữ liệu thật (đo 2026-08-04) ----
+    var publisherCopyrightRows = ctx.fixtures.load('publisherCopyright');
+    var rules = src.parsePublisherCopyrightRules(publisherCopyrightRows);
+    var rulesLookup = src.buildPublisherCopyrightLookup(rules);
+    check('出版社別コピーライトマスタ: so dong rule', rules.length, 381);
+    check('so khoa tra (出版社 + 出版社|レーベル)', rulesLookup.size, 373);
+
+    // Chỉ tính cho 1.730 tác phẩm THẬT SỰ vào master — tính cho tác phẩm bị loại
+    // là vô nghĩa (chúng không có dòng nào trên master).
+    var keptForCopyright = run1.filtered.matches.map(function (m) { return m.record; });
+    var copyrightStats = {};
+    var withIndividual = 0;
+    var noEffective = 0;
+    keptForCopyright.forEach(function (work) {
+      var resolved = src.resolvePublisherCopyright(work, rulesLookup);
+      copyrightStats[resolved.reason] = (copyrightStats[resolved.reason] || 0) + 1;
+      if (src.normalizeJapaneseText(work.copyrightU) !== '') withIndividual += 1;
+      var effective = src.effectiveCopyright({
+        individualCopyright: work.copyrightU,
+        publisherCopyright: resolved.value === null ? '' : resolved.value,
+      });
+      if (src.normalizeJapaneseText(effective) === '') noEffective += 1;
+    });
+
+    // Số ĐO ĐƯỢC trên dữ liệu thật 2026-08-04, tổng = 1.730 dòng vào master.
+    // Đây là mốc phát hiện hồi quy: nếu 'ok' tụt mạnh nghĩa là việc tra rule hoặc
+    // điền template vừa bị hỏng — loại lỗi âm thầm nhất, vì sheet vẫn ghi được,
+    // chỉ là cột 出版社コピーライト trống hàng loạt (đã xảy ra 1 lần khi token '©著'
+    // khớp luôn '©著者名', xem COPYRIGHT_TEMPLATE_UNSUPPORTED_PATTERNS).
+    check('sinh duoc 出版社コピーライト (reason=ok)', copyrightStats[src.COPYRIGHT_REASON_OK], 1303);
+    // 241: chủ yếu là imprint của chính ソルマーレ — シーモアコミックス（トレモア） 99
+    // và ソルマーレ編集部 60 tác phẩm, chưa có dòng nào trong 出版社別コピーライトマスタ.
+    check('khong sinh duoc: NXB chua co rule', copyrightStats[src.COPYRIGHT_REASON_NO_RULE], 241);
+    check('khong sinh duoc: co 02：個別ルール', copyrightStats[src.COPYRIGHT_REASON_MANUAL_FLAG], 83);
+    // 103: 3 nhóm, tất cả đều KHÔNG dùng được thật (không phải lỗi code) —
+    //   ~29 template là '『タイトル名』' (không © / không tác giả / không NXB)
+    //   ~32 ô テンプレート trống dù dòng rule tồn tại
+    //    18 cần '原作者名（英語）' mà CMS không có tên tác giả dạng chữ Latin
+    check('khong sinh duoc: template khong dung duoc', copyrightStats[src.COPYRIGHT_REASON_BAD_TEMPLATE], 103);
+    check('4 nhom cong lai = so tac pham vao master',
+      copyrightStats[src.COPYRIGHT_REASON_OK] + copyrightStats[src.COPYRIGHT_REASON_NO_RULE]
+        + copyrightStats[src.COPYRIGHT_REASON_MANUAL_FLAG] + copyrightStats[src.COPYRIGHT_REASON_BAD_TEMPLATE],
+      1730);
+    // 1.711/1.730 = 98,9% tác phẩm đã có bản quyền sẵn ở cột コピーライト của CMS,
+    // nên cột J gánh gần hết — cột K chủ yếu có giá trị cho tác phẩm MỚI của NXB
+    // đã có quy tắc.
+    check('tac pham co san タイトル個別コピーライト tu CMS', withIndividual, 1711);
+    check('tac pham KHONG co ban quyen nao (ca 2 cot trong) -> 個別対応', noEffective, 14);
+
     // Không bao giờ có タイトルNo trùng nhau qua cả 4 lần chạy
     [['lan 1', run1], ['lan 3', run3], ['lan 4', run4]].forEach(function (pair) {
       var numbers = pair[1].master.map(function (r) { return String(r.titleNo); });
@@ -738,6 +970,7 @@ function test_dataset(ctx) {
 }
 
 module.exports = {
-  unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter, test_warnings, test_suspension],
+  unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
+    test_copyright, test_warnings, test_suspension],
   data: [test_dataset],
 };

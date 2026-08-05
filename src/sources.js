@@ -254,10 +254,10 @@ function parseCmsRows(rawRows) {
 
 // buildCmsCopyrightLookup() ĐÃ BỊ XOÁ (2026-08-03, spec §9.1).
 //
-// Nó build 1 Map từ chính cmsRecords rồi để resolveCopyright() tra lại bằng
+// Nó build 1 Map từ chính cmsRecords rồi để bước resolve bản quyền tra lại bằng
 // cmsId của một work vốn sinh ra từ đúng cmsRecord đó — một self-join không cần
 // thiết. Nay buildCustomerWorkRows() mang thẳng copyrightU vào work và
-// resolveCopyright() đọc work.copyrightU.
+// main.js copy thẳng work.copyrightU sang cột J của コピーライトマスタ.
 //
 // Đừng "khôi phục lại nhưng đổi khoá sang タイトル名": làm vậy chỉ mang bài toán
 // trùng tên vào chỗ vốn không cần khoá nào cả.
