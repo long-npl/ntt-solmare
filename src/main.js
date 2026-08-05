@@ -1,5 +1,5 @@
 // main.js — điều phối GAS❶: đọc nguồn -> LỌC theo レギュレーション -> build
-// 顧客作品マスタ -> tính bản quyền 4 tầng -> build コピーライトマスタ -> ghi upsert
+// 顧客作品マスタ -> sinh 2 cột bản quyền -> build コピーライトマスタ -> ghi upsert
 // cả 2 -> log + cảnh báo -> Slack khi có tác phẩm cá biệt hoặc lỗi.
 //
 // Đây là file "nhạc trưởng" — TỰ NÓ không chứa logic nghiệp vụ (parse/tính
@@ -46,9 +46,10 @@
  *     (copyright.js) để quyết định giá trị mới + lịch sử 過去.
  * 10. buildChangeDetailRows() cho CẢ 2 master -> appendChangeDetailRows() ghi audit
  *     log field-by-field vào tab "GAS1変更詳細".
- * 11. 5 loại cảnh báo (master.js) -> appendWarningRows() ghi vào tab
+ * 11. 6 loại cảnh báo (master.js) -> appendWarningRows() ghi vào tab
  *     "GAS1警告" (spec §6).
- * 12. notifySlack() nếu có tác phẩm tầng 4, rồi appendLogEntry() ghi log tổng hợp
+ * 12. notifySlack() nếu có tác phẩm không có bản quyền nào, rồi appendLogEntry()
+ *     ghi log tổng hợp
  *     (luôn chạy, kể cả khi lỗi — xem khối catch).
  *
  * LƯU Ý LẦN CHẠY ĐẦU TIÊN (spec §10b): bước 4 đọc về mảng rỗng, nên MỌI tác phẩm
@@ -58,11 +59,16 @@
  * sạch trước lần chạy đầu, vì タイトルNo được cấp lại từ 1 và số cũ sẽ trỏ sai tác phẩm.
  *
  *
- * NGOẠI LỆ DUY NHẤT: bước đọc nguồn 掲載停止日付 (file TSV trên Drive) có try/catch
- * RIÊNG và KHÔNG làm cả lần chạy thất bại — cột I là dữ liệu phụ, ghi-một-lần, nên
- * "không có dữ liệu mới" là vô hại; để việc chưa cấp quyền Drive hay CONFIG chưa
- * điền tên cột chặn toàn bộ cập nhật master là đánh đổi sai. Lỗi đó vẫn hiện ra ở
- * Logger.log + tab GAS1警告 + cột 掲載停止注意件数 của GAS1ログ.
+ * HAI NGOẠI LỆ: bước đọc nguồn 掲載停止日付 (file TSV trên Drive) và bước đọc
+ * 出版社別コピーライトマスタ đều có try/catch RIÊNG và KHÔNG làm cả lần chạy thất bại.
+ * Cả 2 là nguồn PHỤ, cấp đúng 1 cột: để việc chưa cấp quyền Drive / chưa có
+ * spreadsheetId chặn toàn bộ việc cập nhật 20 cột còn lại của 1.730 dòng là đánh
+ * đổi sai. Lỗi vẫn hiện ra ở Logger.log + tab GAS1警告 + cột số đếm của GAS1ログ.
+ *
+ * Khác nhau ở cách xử lý khi thiếu dữ liệu: cột I 掲載停止日付 là GHI MỘT LẦN nên
+ * "không có dữ liệu mới" tự nhiên là vô hại; còn cột K 出版社コピーライト được TÍNH
+ * LẠI mỗi lần chạy, nên phải chủ động GIỮ NGUYÊN giá trị đang có — coi nó là rỗng
+ * sẽ xoá sạch bản quyền đã sinh của 1.303 tác phẩm.
  *
  * XỬ LÝ LỖI: nếu BẤT KỲ bước nào throw (vd 1 sheet nguồn bị đổi tên/xoá cột,
  * hoặc mất quyền truy cập), khối catch sẽ: ghi lỗi vào log, báo Slack, rồi
@@ -88,8 +94,7 @@ function runGas1() {
     var regulationRaw = readSheetValues(CONFIG.SOURCES.REGULATION.spreadsheetId, CONFIG.SOURCES.REGULATION.sheetName);
     var cmsRaw = readSheetValues(CONFIG.SOURCES.CMS.spreadsheetId, CONFIG.SOURCES.CMS.sheetName);
     var ngTitleRaw = readSheetValues(CONFIG.SOURCES.PUBLISHER_RULES.spreadsheetId, CONFIG.SOURCES.PUBLISHER_RULES.sheets.NG_TITLES);
-    var publisherCopyrightRaw = readSheetValues(CONFIG.SOURCES.PUBLISHER_COPYRIGHT.spreadsheetId,
-      CONFIG.SOURCES.PUBLISHER_COPYRIGHT.sheetName);
+
 
     var regulationRecords = parseRegulationRows(regulationRaw);
     var regulationLookup = buildRegulationLookup(regulationRecords);
@@ -117,13 +122,32 @@ function runGas1() {
     var ngTitleLookup = buildNgTitleLookup(ngTitleRecords);
     Logger.log('外部出稿用NGタイトル: ' + ngTitleRecords.length + ' 件読み込み完了');
 
-    var publisherCopyrightRules = parsePublisherCopyrightRules(publisherCopyrightRaw);
-    var publisherCopyrightLookup = buildPublisherCopyrightLookup(publisherCopyrightRules);
-    var manualRuleCount = publisherCopyrightRules.filter(function (rule) {
-      return normalizeJapaneseText(rule.flag).indexOf('01') !== 0;
-    }).length;
-    Logger.log('出版社別コピーライトマスタ: ' + publisherCopyrightRules.length + ' ルール読み込み完了（'
-      + publisherCopyrightLookup.size + ' キー、うち自動化対象外 ' + manualRuleCount + ' 件）');
+    // ---- Nguồn quy tắc sinh 出版社コピーライト (cột K của コピーライトマスタ) ----
+    // CỐ TÌNH bọc try/catch, giống nguồn 掲載停止日付: đây là nguồn PHỤ. Không đọc
+    // được nó (chưa có spreadsheetId, mất quyền, sheet bị đổi tên) thì cột K không
+    // được cập nhật — nhưng 20 cột còn lại của 2 master vẫn phải được cập nhật.
+    //
+    // QUAN TRỌNG — khi không đọc được thì cột K được GIỮ NGUYÊN giá trị đang có,
+    // KHÔNG bị coi là rỗng. Khác cột 掲載停止日付 (ghi-một-lần), cột K được tính lại
+    // MỖI LẦN CHẠY, nên nếu coi "không đọc được" = "rỗng" thì một lần sheet quy tắc
+    // tạm không truy cập được sẽ XOÁ SẠCH bản quyền đã sinh của 1.303 tác phẩm.
+    var publisherCopyrightLookup = new Map();
+    var publisherCopyrightError = null;
+    try {
+      var publisherCopyrightRaw = readSheetValues(CONFIG.SOURCES.PUBLISHER_COPYRIGHT.spreadsheetId,
+        CONFIG.SOURCES.PUBLISHER_COPYRIGHT.sheetName);
+      var publisherCopyrightRules = parsePublisherCopyrightRules(publisherCopyrightRaw);
+      publisherCopyrightLookup = buildPublisherCopyrightLookup(publisherCopyrightRules);
+      var manualRuleCount = publisherCopyrightRules.filter(function (rule) {
+        return normalizeJapaneseText(rule.flag).indexOf('01') !== 0;
+      }).length;
+      Logger.log('出版社別コピーライトマスタ: ' + publisherCopyrightRules.length + ' ルール読み込み完了（'
+        + publisherCopyrightLookup.size + ' キー、うち自動化対象外 ' + manualRuleCount + ' 件）');
+    } catch (publisherCopyrightFailure) {
+      publisherCopyrightError = String(publisherCopyrightFailure);
+      Logger.log('出版社別コピーライトマスタ: 読み込み失敗 -> K列は据え置きのまま処理を継続します。'
+        + publisherCopyrightError);
+    }
 
     // ---- Nguồn cột I 掲載停止日付 (ghi một lần, join theo タイトルID) ----
     // Không tìm thấy file thì KHÔNG throw: cột I là cột ghi-một-lần nên "không có
@@ -194,21 +218,28 @@ function runGas1() {
       var work = match.record;
       work.individualCopyright = work.copyrightU;
 
-      var resolved = resolvePublisherCopyright(work, publisherCopyrightLookup);
-      work.publisherCopyright = resolved.value === null ? '' : resolved.value;
-      if (resolved.reason !== COPYRIGHT_REASON_OK) {
-        copyrightWarnings.push({
-          record: work,
-          copyrightReason: resolved.reason,
-          copyrightDetail: resolved.detail,
-        });
-      }
-      // 個別対応 = KHÔNG có bản quyền nào dùng được (cả 2 cột trống). Tác phẩm có
-      // cột J thì vẫn dùng được dù cột K trống, nên không tính là cá biệt — nhưng
-      // vẫn có dòng cảnh báo ở trên, vì quy tắc NXB đó đang thiếu và tác phẩm sau
-      // của cùng NXB cũng sẽ không sinh được.
-      if (normalizeJapaneseText(effectiveCopyright(work)) === '') {
-        irregularTitles.push(work.titleId + ' ' + work.titleName + '【' + resolved.reason + '】');
+      if (publisherCopyrightError !== null) {
+        // Không có nguồn quy tắc: đánh dấu để bước build コピーライトマスタ giữ nguyên
+        // giá trị cột K đang có trên sheet. Cũng không kết luận "cá biệt" được, vì
+        // chưa biết cột K đang có gì.
+        work.publisherCopyrightSkipped = true;
+      } else {
+        var resolved = resolvePublisherCopyright(work, publisherCopyrightLookup);
+        work.publisherCopyright = resolved.value === null ? '' : resolved.value;
+        if (resolved.reason !== COPYRIGHT_REASON_OK) {
+          copyrightWarnings.push({
+            record: work,
+            copyrightReason: resolved.reason,
+            copyrightDetail: resolved.detail,
+          });
+        }
+        // 個別対応 = KHÔNG có bản quyền nào dùng được (cả 2 cột trống). Tác phẩm có
+        // cột J thì vẫn dùng được dù cột K trống, nên không tính là cá biệt — nhưng
+        // vẫn có dòng cảnh báo ở trên, vì quy tắc NXB đó đang thiếu và tác phẩm sau
+        // của cùng NXB cũng sẽ không sinh được.
+        if (normalizeJapaneseText(effectiveCopyright(work)) === '') {
+          irregularTitles.push(work.titleId + ' ' + work.titleName + '【' + resolved.reason + '】');
+        }
       }
 
       work.suspensionDate = lookupSuspensionDate(work, suspensionLookup);
@@ -269,6 +300,11 @@ function runGas1() {
 
     var newCopyrightRows = numberedCustomerRows.map(function (work) {
       var prior = existingCopyrightByTitleNo.get(String(work.titleNo)) || null;
+      // Không đọc được nguồn quy tắc -> giữ nguyên cột K đang có trên sheet (dòng
+      // mới thì để trống), thay vì xoá bản quyền đã sinh trước đó.
+      if (work.publisherCopyrightSkipped) {
+        work.publisherCopyright = prior === null ? '' : prior.publisherCopyright;
+      }
       var nextEffective = effectiveCopyright(work);
       var priorEffective = prior === null ? '' : effectiveCopyright(prior);
       var shifted = shiftCopyrightHistory(prior, priorEffective, nextEffective, CONFIG.COPYRIGHT_HISTORY_SLOTS);
@@ -306,7 +342,11 @@ function runGas1() {
     var copyrightDiff = diffUpsert(existingCopyrightRows, newCopyrightRows, copyrightKeyFn, copyrightIsEqualFn);
     Logger.log('コピーライトマスタ 集計: 追加 ' + copyrightDiff.toAdd.length + ' 件 / 更新 ' + copyrightDiff.toUpdate.length
       + ' 件 / 変化なし ' + copyrightDiff.unchangedKeys.length + ' 件（既存 ' + existingCopyrightRows.length + ' 件）');
-    Logger.log('出版社コピーライト: 生成できず ' + copyrightWarnings.length + ' 件（内訳は GAS1警告 の コピーライト注意）');
+    if (publisherCopyrightError === null) {
+      Logger.log('出版社コピーライト: 生成できず ' + copyrightWarnings.length + ' 件（内訳は GAS1警告 の コピーライト注意）');
+    } else {
+      Logger.log('出版社コピーライト: 今回は生成せず（K列据え置き）。原因は GAS1警告 の コピーライト注意 を参照');
+    }
     if (irregularTitles.length > 0) {
       Logger.log('個別対応（コピーライト無し）: ' + irregularTitles.length + ' 件 -> ' + irregularTitles.slice(0, 20).join(' / ')
         + (irregularTitles.length > 20 ? ' ...' : ''));
@@ -355,7 +395,7 @@ function runGas1() {
       .concat(buildOrphanWarningRows(existingCustomerRows, filtered.orphanOffsets, runAt))
       .concat(buildNgTitleWarningRows(numberedCustomerRows, ngTitleLookup, runAt))
       .concat(buildSuspensionWarningRows(numberedCustomerRows, suspensionLookup, suspensionFileName, runAt, suspensionError))
-      .concat(buildCopyrightWarningRows(copyrightWarnings, runAt));
+      .concat(buildCopyrightWarningRows(copyrightWarnings, runAt, publisherCopyrightError));
     appendWarningRows(warningRows);
     var warningCounts = { match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0 };
     warningRows.forEach(function (row) {

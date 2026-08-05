@@ -695,10 +695,20 @@ function buildNgTitleWarningRows(records, ngTitleLookup, runAt) {
  *
  * @param {Array<{record: object, copyrightReason: string, copyrightDetail: string}>} entries
  * @param {Date} runAt
+ * @param {string|null} [errorMessage] - Nội dung lỗi nếu KHÔNG đọc được
+ *   出版社別コピーライトマスタ. Khi đó cột K không được tính lại lần này (giá trị đang
+ *   có trên sheet được GIỮ NGUYÊN, không bị xoá) và `entries` sẽ rỗng — nhưng lỗi
+ *   PHẢI hiện ra ở đây, nếu không thì đúng là nuốt lỗi.
  * @returns {Array<object>}
  */
-function buildCopyrightWarningRows(entries, runAt) {
+function buildCopyrightWarningRows(entries, runAt, errorMessage) {
   var groups = new Map();
+  var rowsFromError = [];
+  if (errorMessage) {
+    rowsFromError.push(warningRow(runAt, WARNING_KIND_COPYRIGHT, '', '', '',
+      '出版社別コピーライトマスタ を読めませんでした → 出版社コピーライト(K列)は今回据え置き（処理は継続）: '
+      + errorMessage));
+  }
   entries.forEach(function (entry) {
     var key = normalizeJapaneseText(entry.record.publisher) + ' '
       + normalizeJapaneseText(entry.record.label) + ' ' + entry.copyrightReason;
@@ -717,7 +727,7 @@ function buildCopyrightWarningRows(entries, runAt) {
     if (group.titleNames.length < 3) group.titleNames.push(entry.record.titleName);
   });
 
-  var rows = [];
+  var rows = rowsFromError;
   groups.forEach(function (group) {
     var labelPart = normalizeJapaneseText(group.label) === '' ? '' : '／' + String(group.label);
     rows.push(warningRow(runAt, WARNING_KIND_COPYRIGHT, '', '',
