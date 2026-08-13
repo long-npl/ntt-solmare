@@ -1095,6 +1095,18 @@ function test_titleCategoryAndLp(ctx) {
     check('canh bao: 独占 binh thuong (khong co tren nguon) -> KHONG canh bao',
       src.buildTitleCategoryWarningRows([{ titleNo: 1, titleName: 'この作品は存在しない' }], lookup, runAt, null).length,
       0);
+    check('canh bao 更新日: master nao khong dong dau duoc thi co 1 dong',
+      src.buildUpdatedAtWarningRows([
+        { label: '顧客作品マスタ', cell: 'C5' },
+        { label: 'コピーライトマスタ', cell: null },
+      ], runAt).map(function (r) { return [r.kind, r.detail.indexOf('コピーライトマスタ') === 0]; }),
+      [['更新日注意', true]]);
+    check('canh bao 更新日: ca 2 dong dau duoc -> 0 dong',
+      src.buildUpdatedAtWarningRows([
+        { label: '顧客作品マスタ', cell: 'C5' },
+        { label: 'コピーライトマスタ', cell: 'C5' },
+      ], runAt).length, 0);
+
     check('canh bao LP: chi bao tac pham chua phan dinh duoc',
       src.buildLpProductionWarningRows([
         { titleNo: 1, titleName: 'A', genre: '女性', lpProduction: '' },
@@ -1272,6 +1284,86 @@ function test_preConfirmation(ctx) {
       src.buildPreConfirmationWarningRows(true, renamed, runAt).length, 1);
     check('canh bao: nguon loi (0 rule) -> khong bao nham "doi ten"',
       src.buildPreConfirmationWarningRows(true, [], runAt).length, 0);
+}
+
+// ==============================================================================
+// Ô 更新日 — đóng dấu thời điểm chạy vào ô bên phải nhãn 更新日 của 2 master
+//
+// stampUpdatedAt() nằm trong src/io.js nhưng KHÔNG đụng SpreadsheetApp: nó nhận sẵn
+// sheet + values và chỉ gọi getRange().setValue(). Sheet giả bên dưới ghi lại lời gọi
+// đó, nên test được đúng phần dễ sai nhất — DÒ ĐÚNG Ô.
+// ==============================================================================
+function test_updatedAt(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    /** Sheet giả: ghi lại (row, col, value) của mọi setValue(). */
+    function fakeSheet() {
+      var calls = [];
+      return {
+        calls: calls,
+        getRange: function (row, column) {
+          return { setValue: function (value) { calls.push({ row: row, column: column, value: value }); } };
+        },
+      };
+    }
+
+    var runAt = new Date(2026, 7, 13, 9, 30, 0);
+
+    // Layout ガワ thật của 顧客作品マスタ, chép đúng 16 hàng đầu (cột A là cột đệm
+    // trống): nhãn 更新日 ở B5, ô nhận giá trị là C5, header dữ liệu ở hàng 15.
+    // Chỉ số mảng lệch 1 so với số hàng — đó chính là chỗ dễ sai, nên hàng nào là
+    // hàng nào được ghi rõ ở cuối mỗi dòng.
+    var gawa = [
+      [''],                                                          // R1
+      ['', '▮顧客作品マスタ'],                                          // R2
+      [''],                                                          // R3
+      ['', '更新チーム', '営業'],                                       // R4
+      ['', '更新日', new Date(2026, 6, 21), '→GAS回した日に更新'],       // R5  <- đích
+      [''],                                                          // R6
+      ['', '[1]更新ルール'],                                            // R7
+      ['', '①更新タイミング：毎日　9時、17時にGASで更新＋旧情報アーカイブ'],   // R8
+      ['', '②データ取得元：…'],                                         // R9
+      ['', '③各NG定義：…'],                                            // R10
+      ['', '[2]マスタエリア'],                                          // R11
+      [''],                                                          // R12
+      ['', '自動入力/GAS', '自動入力/GAS'],                              // R13
+      ['', 'タイトル情報'],                                             // R14
+      ['', 'タイトルNo', 'CMS ID', 'タイトルID'],                        // R15 <- header
+      ['', 1, 6761, 354296],                                         // R16 dữ liệu
+    ];
+    var headerRowIndex = 14; // R15, 0-based
+
+    var sheet = fakeSheet();
+    var cell = src.stampUpdatedAt(sheet, gawa, headerRowIndex, runAt);
+    check('更新日: do ra dung o C5 tren layout ガワ that', cell, 'C5');
+    check('更新日: ghi dung 1 o, dung toa do (hang 5, cot 3)',
+      sheet.calls.map(function (c) { return [c.row, c.column]; }), [[5, 3]]);
+    check('更新日: ghi Date object chu khong phai chuoi',
+      Object.prototype.toString.call(sheet.calls[0].value), '[object Date]');
+    check('更新日: ghi dung thoi diem chay', sheet.calls[0].value, runAt);
+
+    // Chèn thêm 1 hàng ghi chú phía trên -> ô phải trôi thành C6, KHÔNG được cứng C5.
+    var shifted = [['']].concat(gawa);
+    var sheet2 = fakeSheet();
+    check('更新日: chen them 1 hang ghi chu -> tu troi sang C6',
+      src.stampUpdatedAt(sheet2, shifted, headerRowIndex + 1, runAt), 'C6');
+
+    // Các nhãn lân cận KHÔNG được khớp (so đúng bằng, không phải chứa).
+    check('更新日: khong bat nham 更新チーム / [1]更新ルール / ①更新タイミング',
+      sheet.calls.length, 1);
+
+    // Nhãn nằm DƯỚI hàng header (tức trong vùng dữ liệu) -> bỏ qua, không ghi bậy.
+    var labelInData = [[''], ['', 'タイトルNo'], ['', '更新日', 'ghi chú của ai đó']];
+    var sheet3 = fakeSheet();
+    check('更新日: nhan nam trong vung du lieu -> khong ghi, tra null',
+      [src.stampUpdatedAt(sheet3, labelInData, 1, runAt), sheet3.calls.length], [null, 0]);
+
+    // Không còn nhãn nào -> null (main.js dựng dòng 更新日注意 từ đó).
+    var sheet4 = fakeSheet();
+    check('更新日: khong tim thay nhan -> null, khong ghi gi',
+      [src.stampUpdatedAt(sheet4, [['', 'タイトルNo']], 1, runAt), sheet4.calls.length], [null, 0]);
 }
 
 // ==============================================================================
@@ -1548,7 +1640,7 @@ function test_preEndAndMassFreeDataset(ctx) {
 module.exports = {
   unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
     test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp, test_preConfirmation,
-    test_preEndAndMassFree],
+    test_preEndAndMassFree, test_updatedAt],
   data: [test_dataset, test_titleCategoryDataset, test_preConfirmationDataset,
     test_preEndAndMassFreeDataset],
 };

@@ -513,9 +513,15 @@ function runGas1() {
     }
 
     // ---- Bước 8b/9b: ghi thật lên 2 sheet output ----
-    writeCustomerWorkMaster(customerDiff);
-    writeCopyrightMaster(copyrightDiff);
-    Logger.log('顧客作品マスタ・コピーライトマスタへの書き込み完了');
+    // runAt được lấy Ở ĐÂY (trước bước ghi) chứ không phải ở Bước 10 như trước: ô
+    // 更新日 của 2 master, tab GAS1変更詳細 và tab GAS1警告 giờ dùng CHUNG một mốc
+    // thời gian, nên 3 nơi đó đối chiếu được với nhau cho cùng một lần chạy.
+    var runAt = new Date();
+    var customerWrite = writeCustomerWorkMaster(customerDiff, runAt);
+    var copyrightWrite = writeCopyrightMaster(copyrightDiff, runAt);
+    Logger.log('顧客作品マスタ・コピーライトマスタへの書き込み完了'
+      + '（更新日: 顧客作品マスタ ' + (customerWrite.updatedAtCell || '書き込めず')
+      + ' / コピーライトマスタ ' + (copyrightWrite.updatedAtCell || '書き込めず') + '）');
 
     // ---- Bước 10: log audit chi tiết (backup từng field đã đổi, để tra ngược
     // lại nếu sau này phát hiện giá trị nào đó bị sai — xem io.js).
@@ -524,7 +530,8 @@ function runGas1() {
     // (io.js): field không có cột thì log ra chỉ gây nhiễu. Cột 備考 và
     // コピーライト đã bị bỏ khỏi ガワ mới nên bị xoá khỏi đây; 3 cột phán định
     // ①/②/③ được thêm vào vì giờ chúng là dữ liệu GAS ghi.
-    var runAt = new Date();
+    //
+    // runAt đã được lấy ở Bước 8b/9b — dùng lại chính nó, KHÔNG gọi new Date() lần nữa.
     var customerChangeRows = buildChangeDetailRows('顧客作品マスタ', customerDiff.toUpdate, [
       { key: 'titleId', label: 'タイトルID' },
       { key: 'titleName', label: 'タイトル名' },
@@ -580,11 +587,16 @@ function runGas1() {
       // quy tắc đọc lỗi thì nó undefined, truyền mảng rỗng để hàm chỉ báo đúng việc
       // thiếu cột Q (việc nguồn lỗi đã có dòng コピーライト注意 riêng).
       .concat(buildPreConfirmationWarningRows(hasPreConfirmationColumn,
-        publisherCopyrightRules || [], runAt));
+        publisherCopyrightRules || [], runAt))
+      .concat(buildUpdatedAtWarningRows([
+        { label: '顧客作品マスタ', cell: customerWrite.updatedAtCell },
+        { label: 'コピーライトマスタ', cell: copyrightWrite.updatedAtCell },
+      ], runAt));
     appendWarningRows(warningRows);
     var warningCounts = {
       match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0,
       preEndExtension: 0, massFree: 0, titleCategory: 0, lpProduction: 0, preConfirmation: 0,
+      updatedAt: 0,
     };
     warningRows.forEach(function (row) {
       if (row.kind === WARNING_KIND_MATCH) warningCounts.match += 1;
@@ -598,6 +610,7 @@ function runGas1() {
       else if (row.kind === WARNING_KIND_TITLE_CATEGORY) warningCounts.titleCategory += 1;
       else if (row.kind === WARNING_KIND_LP_PRODUCTION) warningCounts.lpProduction += 1;
       else if (row.kind === WARNING_KIND_PRE_CONFIRMATION) warningCounts.preConfirmation += 1;
+      else if (row.kind === WARNING_KIND_UPDATED_AT) warningCounts.updatedAt += 1;
     });
     Logger.log('GAS1警告 記録: ' + warningRows.length + ' 件（照合注意 ' + warningCounts.match
       + ' / 照合曖昧 ' + warningCounts.ambiguous + ' / 孤立行 ' + warningCounts.orphan
@@ -606,7 +619,8 @@ function runGas1() {
       + ' / 大量無料注意 ' + warningCounts.massFree
       + ' / タイトル区分注意 ' + warningCounts.titleCategory
       + ' / LP制作注意 ' + warningCounts.lpProduction
-      + ' / 出版社事前確認注意 ' + warningCounts.preConfirmation + '）');
+      + ' / 出版社事前確認注意 ' + warningCounts.preConfirmation
+      + ' / 更新日注意 ' + warningCounts.updatedAt + '）');
 
     // ---- Bước 12: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {

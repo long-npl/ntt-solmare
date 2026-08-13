@@ -13,15 +13,23 @@
 // trong 1 vm context rồi đọc property của global object là cách nạp nguyên vẹn,
 // không phải sửa src/ chỉ để test được.
 //
-// CHỈ nạp các file PURE. src/io.js và src/main.js dùng SpreadsheetApp/DriveApp
-// nên cố tình không nạp — 2 file đó kiểm chứng bằng hàm probe_* chạy tay trong
-// Apps Script editor.
+// src/io.js CÓ trong danh sách dù nó dùng SpreadsheetApp/DriveApp: mọi lời gọi API đó
+// nằm TRONG thân hàm, còn tầng ngoài chỉ có khai báo — nạp file không chạm tới API nào.
+// Nhờ vậy test được các hàm THUẦN VỊ TRÍ của nó (stampUpdatedAt dò ô 更新日) trên đúng
+// layout ガワ thật, bằng một sheet giả chỉ cần có getRange().setValue().
+//
+// RANH GIỚI VẪN GIỮ: KHÔNG test nào được gọi hàm thật sự đọc/ghi sheet
+// (readCustomerWorkMaster, writeCopyrightMaster, findLatestSuspensionFile...) — chúng
+// ném ReferenceError vì SpreadsheetApp không tồn tại ở đây, và đó là hành vi đúng.
+// src/main.js vẫn KHÔNG nạp: nó là tầng dàn dựng, kiểm bằng hàm probe_* chạy tay
+// trong Apps Script editor.
 
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const PURE_FILES = ['src/common.js', 'src/sources.js', 'src/master.js', 'src/copyright.js'];
+const PURE_FILES = ['src/common.js', 'src/config.js', 'src/sources.js', 'src/master.js',
+  'src/copyright.js', 'src/io.js'];
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');

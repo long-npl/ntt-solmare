@@ -75,6 +75,48 @@ function resolveMasterHeader(spreadsheetId, sheetName, requiredHeaders) {
   };
 }
 
+// Nhãn ô 更新日 trong khối ghi chú phía trên vùng dữ liệu của CẢ HAI master. Ô ngay
+// BÊN PHẢI nhãn này là ô nhận thời điểm chạy (trên ガワ hiện tại: nhãn ở B5, giá trị
+// ở C5, kèm ghi chú D5 '→GAS回した日に更新').
+var UPDATED_AT_LABEL = '更新日';
+
+/**
+ * Ghi thời điểm chạy vào ô 更新日 của một master.
+ *
+ * DÒ THEO NHÃN, KHÔNG HARDCODE 'C5': tìm ô có chữ 更新日 trong khối ghi chú rồi ghi
+ * vào ô kế bên phải. Cùng lý do với mọi chỗ khác trong file này — 池永 chèn thêm một
+ * hàng ghi chú phía trên là C5 thành C6, và một hằng 'C5' sẽ âm thầm ghi đè lên ô
+ * 更新チーム hoặc một ô ghi chú nào đó thay vì báo lỗi.
+ *
+ * CHỈ QUÉT CÁC HÀNG TRÊN HÀNG HEADER: dưới đó là dữ liệu thật, và 1.730 dòng dữ liệu
+ * hoàn toàn có thể chứa chữ 更新日 trong một ô 備考 nào đó. So khớp là ĐÚNG BẰNG
+ * (sau normalizeHeaderText) chứ không phải chứa — nếu không thì '①更新タイミング：…'
+ * và '[1]更新ルール' ở ngay các hàng bên cạnh cũng khớp.
+ *
+ * Ghi Date object chứ không phải chuỗi: ô đó đang được định dạng ngày trên sheet
+ * (giá trị cũ '2026-07-21 00:00:00'), nên Date giữ được định dạng người ta đã đặt và
+ * vẫn sắp xếp/so sánh được. Muốn thấy cả giờ thì đổi định dạng ô, không phải đổi code.
+ *
+ * @param {Sheet} sheet - Sheet đích (từ resolveMasterHeader)
+ * @param {Array<Array<*>>} values - Toàn bộ giá trị đã đọc (từ resolveMasterHeader)
+ * @param {number} headerRowIndex - Index 0-based của hàng header dữ liệu
+ * @param {Date} runAt - Thời điểm chạy, dùng chung cho cả lần chạy
+ * @returns {string|null} Ô đã ghi dạng A1 (vd 'C5'), null nếu không tìm thấy nhãn
+ */
+function stampUpdatedAt(sheet, values, headerRowIndex, runAt) {
+  for (var r = 0; r < headerRowIndex; r++) {
+    var row = values[r];
+    if (!row) continue;
+    // row.length - 1: nhãn nằm ở cột cuối cùng thì không có ô nào bên phải để ghi.
+    for (var c = 0; c < row.length - 1; c++) {
+      if (normalizeHeaderText(row[c]) !== UPDATED_AT_LABEL) continue;
+      sheet.getRange(r + 1, c + 2).setValue(runAt);
+      return columnIndexToLetter(c + 1) + (r + 1);
+    }
+  }
+  return null;
+}
+
 // ==================== 顧客作品マスタ (ガワ mới 2026-08-03) ====================
 //
 // Layout ガワ mới: header HÀNG 15, dữ liệu từ hàng 16, cột A là cột đệm trống,
@@ -314,10 +356,17 @@ function customerRecordToRow(record, headerIndex, columnCount, previousRow) {
  *
  * KHÔNG BAO GIỜ xoá dòng nào — spec §3.4 (`削除等はしない`).
  *
+ * Ô 更新日 được đóng dấu ở CUỐI hàm, tức chỉ khi mọi dòng đã ghi xong: ô đó nói "dữ
+ * liệu bên dưới cập nhật tới lúc này", nên đóng dấu trước khi ghi là nói dối nếu bước
+ * ghi throw giữa chừng. Đóng dấu KỂ CẢ khi diff không có dòng nào đổi — theo đúng ghi
+ * chú ô D5 của ガワ (`→GAS回した日に更新`): người đọc cần biết GAS có chạy hay không,
+ * và "chạy mà không có gì đổi" khác hẳn "GAS chết từ hôm kia".
+ *
  * @param {{toUpdate: Array<{record: object, previous: object, sheetRow: number}>, toAdd: Array<object>}} diffResult
- * @returns {void}
+ * @param {Date} runAt - Thời điểm chạy, ghi vào ô 更新日
+ * @returns {{updatedAtCell: string|null}} Ô đã đóng dấu dạng A1, null nếu không thấy nhãn
  */
-function writeCustomerWorkMaster(diffResult) {
+function writeCustomerWorkMaster(diffResult, runAt) {
   var cfg = CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER;
   var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, CUSTOMER_REQUIRED_HEADERS);
   var sheet = resolved.sheet;
@@ -337,6 +386,10 @@ function writeCustomerWorkMaster(diffResult) {
     });
     sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
   }
+
+  return {
+    updatedAtCell: stampUpdatedAt(sheet, resolved.values, resolved.headerRowIndex, runAt),
+  };
 }
 
 // ==================== コピーライトマスタ (ガワ mới 2026-08-04) ====================
@@ -512,10 +565,13 @@ function copyrightRecordToRow(record, headerIndex, columnCount) {
  * (số dòng thật do readCopyrightMaster() gắn), append dòng mới ở cuối, không bao
  * giờ xoá dòng nào.
  *
+ * Ô 更新日 đóng dấu ở cuối hàm — cùng lý do đã ghi ở writeCustomerWorkMaster().
+ *
  * @param {{toUpdate: Array<{record: object, sheetRow: number}>, toAdd: Array<object>}} diffResult
- * @returns {void}
+ * @param {Date} runAt - Thời điểm chạy, ghi vào ô 更新日
+ * @returns {{updatedAtCell: string|null}} Ô đã đóng dấu dạng A1, null nếu không thấy nhãn
  */
-function writeCopyrightMaster(diffResult) {
+function writeCopyrightMaster(diffResult, runAt) {
   var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
   var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName, COPYRIGHT_REQUIRED_HEADERS);
   var sheet = resolved.sheet;
@@ -535,6 +591,10 @@ function writeCopyrightMaster(diffResult) {
     });
     sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
   }
+
+  return {
+    updatedAtCell: stampUpdatedAt(sheet, resolved.values, resolved.headerRowIndex, runAt),
+  };
 }
 
 // ==============================================================================

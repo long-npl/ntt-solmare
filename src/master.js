@@ -629,6 +629,7 @@ var WARNING_KIND_MASS_FREE = '大量無料注意';
 var WARNING_KIND_TITLE_CATEGORY = 'タイトル区分注意';
 var WARNING_KIND_LP_PRODUCTION = 'LP制作注意';
 var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
+var WARNING_KIND_UPDATED_AT = '更新日注意';
 
 /**
  * Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告.
@@ -1024,6 +1025,33 @@ function buildTitleCategoryWarningRows(records, commitFlagLookup, runAt, errorMe
       '出稿コミット管理表に同名 ' + found.rowCount + ' 行（区分: ' + found.categories.join('・') + '）'
       + ' → うち ' + found.commitRowCount + ' 行がコミットフラグのため E列「'
       + (found.committed ? TITLE_CATEGORY_COMMIT : TITLE_CATEGORY_EXCLUSIVE) + '」'));
+  });
+  return rows;
+}
+
+/**
+ * 更新日注意 — master nào không đóng dấu được thời điểm chạy vào ô 更新日.
+ *
+ * stampUpdatedAt() (io.js) dò ô mang chữ 更新日 trong khối ghi chú rồi ghi vào ô kế
+ * bên phải; trả null nghĩa là không còn ô nào như vậy — nhãn bị đổi chữ, bị xoá, hoặc
+ * bị đẩy xuống dưới hàng header.
+ *
+ * ĐÁNG CẢNH BÁO dù chỉ là một ô hiển thị: 更新日 là thứ DUY NHẤT trên sheet cho người
+ * dùng biết dữ liệu bên dưới có còn được cập nhật hay không. Nó đứng im trong khi mọi
+ * cột khác vẫn chạy là kiểu hỏng tệ nhất — sheet trông như đã chết từ ngày ghi trên
+ * ô đó, và người ta sẽ đi tìm lỗi ở đúng chỗ không có lỗi.
+ *
+ * @param {Array<{label: string, cell: string|null}>} stamps - Mỗi master 1 phần tử
+ * @param {Date} runAt
+ * @returns {Array<object>}
+ */
+function buildUpdatedAtWarningRows(stamps, runAt) {
+  var rows = [];
+  stamps.forEach(function (stamp) {
+    if (stamp.cell !== null && stamp.cell !== undefined) return;
+    rows.push(warningRow(runAt, WARNING_KIND_UPDATED_AT, '', '', '',
+      stamp.label + ': 「更新日」ラベルが見つからず、実行日時を書き込めませんでした'
+      + '（データ自体は更新済み）。ラベルの位置・文字列を確認してください'));
   });
   return rows;
 }
