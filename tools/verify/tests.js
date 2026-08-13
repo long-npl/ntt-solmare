@@ -1331,8 +1331,224 @@ function test_preConfirmationDataset(ctx) {
       noCopyrightButHasQ, 186);
 }
 
+// ==============================================================================
+// CỘT R 先行終了日（延長）/ S （最終確定）/ T・U 大量無料
+// 3 cột này được cài đặt 2026-08-07 nhưng KHÔNG có test nào — fixture đã export mà
+// không hàm nào dùng tới. Bổ sung 2026-08-13 khi user gửi lại nguyên văn 3 quy tắc.
+//
+// Ô ngày ở đây là Date object, ĐÚNG như SpreadsheetApp.getValues() trả về (và đúng
+// như fixtures.load() dựng lại) — viết chuỗi '2022-04-10T00:00:00' sẽ không phải là
+// mô phỏng trung thực, xem comment reviveCell() trong run.js.
+// ==============================================================================
+function test_preEndAndMassFree(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    // ---- 3 HÀNG HEADER thật của 【先行作品】独占期間の延長, sheet Sheet1 ----
+    // Hàng 1 là header thật, hàng 2 gộp nhóm 当初/延長, hàng 3 mới là 1回目〜7回目.
+    // Dải 延長 bắt đầu ở cột G (index 6) — đúng "G∼M列" trong spec.
+    var H1 = ['更新日', 'タイトル\nID', 'タイトル', '出版社', 'リリース日\n（先行開始）',
+      '独占期間（1話目の先行）終了日', '', '', '', '', '', '', '', '備考'];
+    var H2 = ['', '', '', '', '', '当初', '延長', '', '', '', '', '', '', ''];
+    var H3 = ['', '', '', '', '', '', '1回目', '2回目', '3回目', '4回目', '5回目', '6回目', '7回目', ''];
+
+    /** 1 dòng dữ liệu: rounds là mảng giá trị cho G→M (tối đa 7 phần tử). */
+    function extRow(titleId, titleName, rounds) {
+      var row = ['', titleId, titleName, '', '', '', '', '', '', '', '', '', '', ''];
+      for (var i = 0; i < 7; i++) row[6 + i] = rounds[i] === undefined ? '' : rounds[i];
+      return row;
+    }
+
+    var d = function (y, m, day) { return new Date(y, m - 1, day); };
+
+    var extRows = [H1, H2, H3,
+      // ❶ spec: G列1回目に期日記載あり＋H〜Mに記載なし
+      extRow(232760, '❶1回目のみ', [d(2022, 4, 10)]),
+      // ❷ spec: G列「1回目」に期日記載あり＋H列「2回目」に期日記載あり
+      extRow(231402, '❷2回目まで', [d(2022, 4, 21), d(2022, 6, 30)]),
+      // 「期日のみ」: ô 'NG' sau lần thắng KHÔNG được dùng, và cũng không chặn vòng quét
+      extRow(300001, '❸NGのあと', [d(2023, 1, 31), 'NG']),
+      // Cả dải không có ô nào là 期日 -> không vào cột R
+      extRow(300002, '❹期日なし', ['NG', '一旦無期限先行']),
+    ];
+
+    var extRecords = src.parsePreEndExtensionRows(extRows);
+    check('R: bo qua ca 3 hang header, doc dung 4 dong du lieu', extRecords.length, 4);
+    check('R: doc dung dai cot 1回目〜7回目',
+      extRecords[0].rounds.map(function (r) { return r.roundName; }),
+      ['1回目', '2回目', '3回目', '4回目', '5回目', '6回目', '7回目']);
+
+    // ❶ và ❷ của spec nói cùng 1 quy tắc: LẦN GIA HẠN CUỐI CÙNG có 期日 thắng.
+    check('R ❶: chi 1回目 co ngay -> lay 1回目',
+      src.resolvePreEndExtension(extRecords[0]).roundName, '1回目');
+    check('R ❷: 1回目 va 2回目 deu co ngay -> lay 2回目 (lan cuoi thang)',
+      src.resolvePreEndExtension(extRecords[1]).roundName, '2回目');
+    check('R ❷: gia tri tra ve la NGUYEN BAN cua o, khong parse lai',
+      src.resolvePreEndExtension(extRecords[1]).value, d(2022, 6, 30));
+    check('R ❸: o NG sau lan thang bi bo qua nhung duoc ghi lai de canh bao',
+      [src.resolvePreEndExtension(extRecords[2]).roundName,
+        src.resolvePreEndExtension(extRecords[2]).skipped.map(function (x) { return x.value; })],
+      ['1回目', ['NG']]);
+    check('R ❹: khong o nao la 期日 -> null (khong vao cot R)',
+      src.resolvePreEndExtension(extRecords[3]), null);
+
+    var extLookup = src.buildPreEndExtensionLookup(extRecords);
+    check('R: chi 3/4 dong vao bang tra (dong ❹ bi loai)', extLookup.size, 3);
+    check('R: tra theo タイトルID',
+      src.lookupPreEndExtension({ titleId: 231402 }, extLookup), d(2022, 6, 30));
+    check('R: タイトルID khong phai so -> rong (khong khop qua khoa rong)',
+      [src.lookupPreEndExtension({ titleId: '' }, extLookup),
+        src.lookupPreEndExtension({ titleId: 'メモ' }, extLookup)], ['', '']);
+    check('R: tac pham khong co trong nguon -> rong',
+      src.lookupPreEndExtension({ titleId: 999999 }, extLookup), '');
+
+    // ---- S: bảng chân lý đầy đủ ----
+    // Spec gốc có 2 gạch đầu dòng ĐIỀU KIỆN GIỐNG HỆT NHAU ('Q列に期日記載あり、
+    // R列に期日あり') nhưng kết quả ngược nhau — user xác nhận gạch thứ nhất thiếu
+    // chữ 'なし'. 4 ca dưới đây là cách đọc đã được chốt.
+    check('S: Q co ngay + R trong -> S = Q',
+      src.resolvePreEndFinal(d(2026, 6, 25), ''), d(2026, 6, 25));
+    check('S: Q co ngay + R co ngay -> S = R (gia han thang)',
+      src.resolvePreEndFinal(d(2026, 6, 25), d(2026, 9, 30)), d(2026, 9, 30));
+    check('S: Q trong + R co ngay -> S = R',
+      src.resolvePreEndFinal('', d(2026, 9, 30)), d(2026, 9, 30));
+    check('S: ca hai trong -> S = rong', src.resolvePreEndFinal('', ''), '');
+
+    // ---- T/U: 大量無料希望作品リスト_CA様, sheet ★出稿回答シート ----
+    // Header thật ở HÀNG 2 (hàng 1 là ghi chú ※編集禁止※). H列 開始日 -> T, I列 終了日 -> U.
+    var MF_NOTE = ['※編集可※', '', '※※編集禁止※※', '', '', '', '', '', '', '', '', ''];
+    var MF_HEADER = ['出稿回答', 'CA\n選定', 'タイトルID', 'タイトル名', '出版社', 'ジャンル',
+      '新規\n延長', 'キャンペーン\n開始日', 'キャンペーン\n終了日', '話巻\n区分', '単価\n（pt）',
+      'キャンペーン種別'];
+
+    function mfRow(answer, titleId, titleName, kind, start, end) {
+      return [answer, '', titleId, titleName, '', '', kind, start, end, '巻', 150, '無料'];
+    }
+
+    var mfRows = [MF_NOTE, MF_HEADER,
+      // 1 ID, 1 dòng: H -> T, I -> U, không có gì để gộp
+      mfRow('', 111111, '単発キャンペーン', '新規', d(2025, 5, 1), d(2025, 5, 31)),
+      // 1 ID, 4 dòng gia hạn liên tiếp -> T = 開始日 NHỎ NHẤT, U = 終了日 LỚN NHẤT
+      mfRow('', 267846, '延長あり', '新規', d(2025, 5, 1), d(2025, 5, 31)),
+      mfRow('', 267846, '延長あり', '延長', d(2025, 6, 1), d(2025, 6, 30)),
+      mfRow('', 267846, '延長あり', '延長', d(2025, 8, 1), d(2025, 8, 31)),
+      mfRow('', 267846, '延長あり', '延長', d(2025, 7, 1), d(2025, 7, 31)),
+      // 出稿回答 = ✕ -> dòng bị loại hoàn toàn
+      mfRow('✕', 222222, '出稿しない', '新規', d(2025, 5, 1), d(2025, 5, 31)),
+    ];
+
+    var mfRecords = src.parseMassFreeRows(mfRows);
+    check('T/U: parse bo hang ghi chu, doc du 6 dong', mfRecords.length, 6);
+    check('T/U: nhan dien dong ✕',
+      mfRecords.filter(function (r) { return r.rejected; }).length, 1);
+
+    var mfLookup = src.buildMassFreeLookup(mfRecords);
+    check('T/U: H列 -> T, I列 -> U',
+      src.lookupMassFreePeriod({ titleId: 111111 }, mfLookup),
+      { start: d(2025, 5, 1), end: d(2025, 5, 31) });
+    // T và U lấy ĐỘC LẬP: U = 8/31 dù dòng cuối trong sheet là 7/1〜7/31.
+    check('T/U: 4 dong chien dich -> T = 開始日 nho nhat, U = 終了日 lon nhat',
+      src.lookupMassFreePeriod({ titleId: 267846 }, mfLookup),
+      { start: d(2025, 5, 1), end: d(2025, 8, 31) });
+    check('T/U: ID chi co dong ✕ -> khong vao bang tra',
+      src.lookupMassFreePeriod({ titleId: 222222 }, mfLookup), { start: '', end: '' });
+    check('T/U: tac pham khong co trong nguon -> ca 2 rong',
+      src.lookupMassFreePeriod({ titleId: 999999 }, mfLookup), { start: '', end: '' });
+}
+
+// ==============================================================================
+// ĐỐI CHIẾU DỮ LIỆU THẬT — R/S/T/U trên 532 dòng 独占期間の延長 và 372 dòng 大量無料
+//
+// ⚠️ Trước 2026-08-13 KHÔNG có test nào ở đây, và fixtures.load() trả ngày về dưới
+// dạng chuỗi ISO có phần giờ nên toDateOrNull() coi MỌI ô ngày là "không phải 期日".
+// Hậu quả: nguồn 延長 cho 1/532 dòng và nguồn 大量無料 cho 0/372 — không có gì đỏ,
+// chỉ là những con số 0 im lặng. Các con số dưới đây là lưới chắn cho đúng lỗi đó.
+// ==============================================================================
+function test_preEndAndMassFreeDataset(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    // ---- Nguồn R ----
+    var extRecords = src.parsePreEndExtensionRows(ctx.fixtures.load('preEndExtension'));
+    check('独占期間の延長: 532 dong co タイトルID', extRecords.length, 532);
+    check('独占期間の延長: dai cot gia han hien co 7 lan',
+      extRecords[0].rounds.length, 7);
+
+    var extLookup = src.buildPreEndExtensionLookup(extRecords);
+    // 444/532 dòng có ít nhất 1 期日. 88 dòng còn lại chỉ chứa 'NG'/ghi chú -> không
+    // vào cột R, đúng theo 「期日のみを記載」.
+    check('独占期間の延長: 444 dong co 期日 -> doi tuong cua cot R', extLookup.size, 444);
+    var noDateRows = extRecords.filter(function (r) {
+      return src.resolvePreEndExtension(r) === null;
+    }).length;
+    check('独占期間の延長: 88 dong khong co 期日 nao (chi NG / ghi chu)', noDateRows, 88);
+
+    // Phân bố lần thắng — bằng chứng cho quy tắc ❶❷ ("lần cuối thắng") chạy thật:
+    // nếu ai đó đổi thành "lần đầu thắng" thì 129 dòng sẽ chuyển hết về 1回目.
+    var byRound = {};
+    extLookup.forEach(function (e) { byRound[e.roundName] = (byRound[e.roundName] || 0) + 1; });
+    check('独占期間の延長: phan bo lan gia han THANG (1回目〜6回目)',
+      [byRound['1回目'], byRound['2回目'], byRound['3回目'], byRound['4回目'],
+        byRound['5回目'], byRound['6回目'], byRound['7回目']],
+      [315, 75, 25, 13, 13, 3, undefined]);
+    check('独占期間の延長: tong phan bo = so dong vao cot R',
+      315 + 75 + 25 + 13 + 13 + 3, extLookup.size);
+
+    // 71 dòng có ô CÓ NỘI DUNG nằm SAU lần thắng (vd 1回目=期日, 2回目='NG'). Chúng là
+    // nguồn của cảnh báo 先行延長注意 — thông tin mới hơn nhưng không dùng được.
+    var withSkipped = 0;
+    extLookup.forEach(function (e) { if (e.skipped.length > 0) withSkipped += 1; });
+    check('独占期間の延長: 71 dong co o khong-phai-期日 sau lan thang', withSkipped, 71);
+
+    // ---- Nguồn T/U ----
+    var mfRecords = src.parseMassFreeRows(ctx.fixtures.load('massFree'));
+    check('大量無料: 372 dong', mfRecords.length, 372);
+    check('大量無料: 2 dong 出稿回答 = ✕',
+      mfRecords.filter(function (r) { return r.rejected; }).length, 2);
+
+    var mfLookup = src.buildMassFreeLookup(mfRecords);
+    check('大量無料: 185 タイトルID -> doi tuong cua cot T/U', mfLookup.size, 185);
+    var multiRow = 0;
+    mfLookup.forEach(function (e) { if (e.rowCount >= 2) multiRow += 1; });
+    check('大量無料: 65 ID duoc gop tu >= 2 dong chien dich', multiRow, 65);
+
+    // ---- Áp lên đúng 1.730 tác phẩm vào master ----
+    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup)
+      .filter(function (w) { return src.isWorkEligible(w); });
+    check('vao master: 1.730 tac pham (khop test_dataset)', works.length, 1730);
+
+    var counts = { r: 0, sFromR: 0, sFromQ: 0, sEmpty: 0, tu: 0 };
+    works.forEach(function (w) {
+      var r = src.lookupPreEndExtension(w, extLookup);
+      var hasR = src.normalizeJapaneseText(r) !== '';
+      if (hasR) counts.r += 1;
+      var sValue = src.resolvePreEndFinal(w.preEnd, r);
+      if (src.normalizeJapaneseText(sValue) === '') counts.sEmpty += 1;
+      else if (hasR) counts.sFromR += 1;
+      else counts.sFromQ += 1;
+
+      var period = src.lookupMassFreePeriod(w, mfLookup);
+      if (src.normalizeJapaneseText(period.start) !== ''
+        || src.normalizeJapaneseText(period.end) !== '') counts.tu += 1;
+    });
+
+    check('R列: 199/1.730 tac pham co ngay gia han', counts.r, 199);
+    // S = R đúng 199 lần và không lần nào khác: mọi tác phẩm có R đều phải lấy R.
+    check('S列: so dong lay tu R = so dong co R', counts.sFromR, counts.r);
+    check('S列: 1.519 lay tu Q, 12 de trong (ca Q lan R deu trong)',
+      [counts.sFromQ, counts.sEmpty], [1519, 12]);
+    check('S列: tong 3 nhanh = 1.730',
+      counts.sFromR + counts.sFromQ + counts.sEmpty, 1730);
+    check('T/U列: 27/1.730 tac pham co ky 大量無料', counts.tu, 27);
+}
+
 module.exports = {
   unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
-    test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp, test_preConfirmation],
-  data: [test_dataset, test_titleCategoryDataset, test_preConfirmationDataset],
+    test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp, test_preConfirmation,
+    test_preEndAndMassFree],
+  data: [test_dataset, test_titleCategoryDataset, test_preConfirmationDataset,
+    test_preEndAndMassFreeDataset],
 };

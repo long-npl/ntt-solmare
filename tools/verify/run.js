@@ -54,11 +54,43 @@ function check(label, actual, expected) {
 }
 
 // ---------------------------------------------------------------- chạy
+
+// Ô ngày do exportFixtures.py ghi ra dưới dạng ISO CÓ PHẦN GIỜ ('2022-04-10T00:00:00')
+// — JSON không có kiểu Date nên buộc phải vậy.
+//
+// PHẢI DỰNG LẠI THÀNH Date TRƯỚC KHI ĐƯA VÀO src/: SpreadsheetApp.getValues() trả về
+// Date object cho ô định dạng ngày, còn toDateOrNull() (common.js) chỉ nhận Date thật
+// hoặc chuỗi mà TOÀN BỘ là ngày — chuỗi có 'T00:00:00' trượt regex và bị coi là "không
+// phải 期日". Để nguyên chuỗi thì harness không mô phỏng GAS mà mô phỏng một thế giới
+// nơi mọi cột ngày đều rỗng: nguồn 独占期間の延長 ra 1/532 dòng có ngày thay vì 531, và
+// nguồn 大量無料 ra 0/372 — cả hai đều KHÔNG có test nào đỏ, chỉ là những con số 0 im
+// lặng. Đó chính là cách lỗi này sống sót từ 2026-08-07 tới 2026-08-13.
+//
+// Chỉ dựng lại dạng CÓ 'T': đó là dạng duy nhất openpyxl sinh ra cho ô ngày thật. Chuỗi
+// 'YYYY-MM-DD' trần được để nguyên vì nó là ô CHỮ trên sheet, và toDateOrNull() vốn
+// nhận dạng đó rồi nên kết quả không đổi.
+//
+// Date được tạo ở realm của run.js chứ không phải trong vm context — đó chính là lý do
+// toDateOrNull()/toDateKey() kiểm bằng Object.prototype.toString thay vì instanceof.
+const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/;
+
+function reviveCell(value) {
+  if (typeof value !== 'string') return value;
+  const m = ISO_DATETIME.exec(value);
+  if (!m) return value;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4]), Number(m[5]), Number(m[6]));
+}
+
 const fixtures = {
   dir: FIXTURES_DIR,
-  /** Đọc 1 fixture đã export (mảng 2 chiều, ô trống = '', ngày = ISO string). */
+  /**
+   * Đọc 1 fixture đã export: mảng 2 chiều, ô trống = '', ô ngày = Date object
+   * (đúng như SpreadsheetApp.getValues() trả về).
+   */
   load: function (name) {
-    return JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name + '.json'), 'utf8'));
+    const rows = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name + '.json'), 'utf8'));
+    return rows.map(function (row) { return row.map(reviveCell); });
   },
 };
 

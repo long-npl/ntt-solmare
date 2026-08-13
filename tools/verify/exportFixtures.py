@@ -50,6 +50,13 @@ def cell(value):
     file CMS thật có ô được định dạng là giờ (và 1 ô có serial ngày sai — openpyxl
     cảnh báo 'outside the limits for dates' rồi trả về error value). Không xử lý
     thì json.dump throw giữa lúc ghi và để lại file JSON dở dang.
+
+    Ô NGÀY ra chuỗi ISO CÓ PHẦN GIỜ ('2022-04-10T00:00:00') vì JSON không có kiểu
+    Date. Đó KHÔNG phải thứ SpreadsheetApp trả về (nó trả Date object), nên phía
+    Node phải dựng lại — xem reviveCell() trong tools/verify/run.js. Đừng bỏ bước
+    dựng lại đó: toDateOrNull() chỉ nhận chuỗi mà TOÀN BỘ là ngày, chuỗi có
+    'T00:00:00' bị coi là "không phải 期日" và mọi cột ngày lặng lẽ ra rỗng (lỗi
+    này từng sống 6 ngày mà không test nào đỏ).
     """
     if value is None:
         return ''
