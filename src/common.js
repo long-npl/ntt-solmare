@@ -126,11 +126,13 @@ function col(headerIndex, name) {
  * thêm header vào. Nếu dùng col() cho những cột đó, code throw ngay lần chạy đầu
  * tiên; dùng tryCol() thì code vẫn chạy, chỉ để giá trị trống.
  *
- * HIỆN TẠI KHÔNG CÓ CHỖ NÀO DÙNG (từ 2026-08-03): chỗ dùng duy nhất trước đây là
- * cột 配信NGフラグ của 顧客作品マスタ — một cột đề xuất chưa bao giờ tồn tại, và đã bị
- * bỏ hẳn khi ガワ mới ra. Giữ hàm này lại vì nó là cặp đối xứng tự nhiên của col()
- * và ガワ còn 6 cột GAS không sở hữu, rất có thể sẽ cần tới khi một trong số đó có
- * nguồn dữ liệu.
+ * CHỖ DÙNG (2026-08-07): parseMassFreeRows() trong sources.js tra 2 cột 出稿回答 và
+ * タイトル名 của sheet ★出稿回答シート. Cả 2 đều là cột "có thì tốt": 出稿回答 chỉ dùng để
+ * LỌC (mất cột -> mọi dòng được tính, đúng hành vi mặc định an toàn), タイトル名 chỉ
+ * dùng để cảnh báo đọc được. Để 1 trong 2 cột đó làm sập cả lần chạy là đánh đổi sai.
+ *
+ * CHÚ Ý KIỂU TRẢ VỀ: `undefined`, KHÔNG phải `null` — so `=== null` sẽ luôn sai và
+ * `row[undefined]` thì trả về undefined một cách im lặng.
  *
  * @param {Map<string, number>} headerIndex
  * @param {string} name
@@ -356,6 +358,70 @@ function isDigits(value) {
 }
 
 /**
+ * Ô này có phải MỘT NGÀY CỤ THỂ (期日) hay không — trả về Date nếu có, null nếu không.
+ *
+ * KHÁC toDateKey() bên dưới ở đúng một điểm quyết định: hàm này CHẶT, toDateKey()
+ * LỎNG. toDateKey() chỉ cần khớp TIỀN TỐ ('2026-03-27 ※3巻出るまで' vẫn ra khoá) vì
+ * việc của nó là so 2 giá trị cho khỏi churn — nhận lỏng thì cùng lắm là coi 2 thứ
+ * hơi khác nhau như nhau, vô hại. Hàm này thì quyết định CÓ GHI hay KHÔNG GHI một
+ * ngày vào master, nên nhận lỏng nghĩa là ghi ra dữ liệu sai.
+ *
+ * VÌ SAO CẦN NÓ (nguồn 【先行作品】独占期間の延長, spec R列: "G∼M列に記載のある期日のみ"):
+ * 7 cột 1回目〜7回目 của nguồn đó là ô người gõ tay, và trên dữ liệu thật
+ * 2026-08-07 chúng chứa 149 ô 'NG' cộng khoảng 15 ô không phải ngày:
+ * '一旦無期限先行', '11月末', '12月頃', '2025年2月予定', '4話の配信日', '以降の延長NG',
+ * '#VALUE!', '2024/02/01\n※3巻出るまで', '2025/7/3（以降の延長NG)', và ô ghi dồn nhiều
+ * lần gia hạn vào một ô ('6回目：2024/4/26\n7回目：2024/5/30\n...').
+ *
+ * 3 quyết định cố ý:
+ *
+ * 1. CHỈ nhận Date thật + chuỗi mà TOÀN BỘ ô là một ngày. Có chữ kèm theo -> null.
+ *    '2024/02/01 ※3巻出るまで' bị bỏ chứ không lấy phần ngày: ghi chú đó nói điều
+ *    kiện gia hạn chưa chắc chắn, lấy riêng con số ngày là bóp méo ý người nhập.
+ *
+ * 2. KIỂM TRA NGÀY CÓ TỒN TẠI THẬT trên lịch. Nguồn có 2 ô '2025/11/31' (tháng 11
+ *    không có ngày 31). `new Date('2025/11/31')` của JS âm thầm cuộn sang 2025/12/01,
+ *    tức tự ý dịch hạn độc quyền của tác phẩm đi 1 ngày. So lại 3 thành phần
+ *    y/m/d sau khi dựng Date là cách duy nhất bắt được kiểu lỗi này.
+ *
+ * 3. KHÔNG nhận number. Ô định dạng ngày của Sheets luôn về đây dưới dạng Date, nên
+ *    một ô số trần trong cột 期日 là dữ liệu lạ (serial ngày thô, hoặc số vô nghĩa)
+ *    — đoán nghĩa cho nó rủi ro hơn là bỏ qua và để nó hiện ra ở cảnh báo.
+ *
+ * normalizeJapaneseText() chạy trước khi khớp regex nên NFKC gộp luôn chữ số
+ * full-width — ô thật '2024/7/４' (chữ 4 full-width do lỗi IME) vì thế vẫn đọc được.
+ *
+ * @param {*} value - Giá trị ô nguyên bản
+ * @returns {Date|null} Date (00:00 giờ địa phương) nếu ô là 1 期日, null nếu không
+ */
+function toDateOrNull(value) {
+  // Kiểm theo internal class chứ không dùng instanceof — cùng lý do đã ghi trong
+  // toDateKey() bên dưới (harness Node chạy src/ trong vm context riêng).
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'number') return null;
+
+  var text = normalizeJapaneseText(value);
+  // ^...$ (khớp TOÀN BỘ chuỗi) là điểm khác biệt then chốt so với toDateKey().
+  // Nhận cả 3 cách viết đang có thật trong nguồn: 2024/7/4, 2024-07-04, 2024年7月4日.
+  var matched = /^(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?$/.exec(text);
+  if (!matched) return null;
+
+  var year = Number(matched[1]);
+  var month = Number(matched[2]);
+  var day = Number(matched[3]);
+  var date = new Date(year, month - 1, day);
+  // Ngày không tồn tại trên lịch (vd 2025/11/31) -> Date tự cuộn sang tháng sau,
+  // nên 3 thành phần đọc lại sẽ KHÁC 3 số đã nhập. Đó là cách bắt lỗi ở đây.
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date;
+}
+
+/**
  * Khoá ngày (năm-tháng-ngày) của 1 giá trị, hoặc null nếu không phải ngày.
  *
  * Nhận CẢ Date lẫn chuỗi dạng ngày ('2026-03-27', '2026/3/27'): giá trị ghi vào
@@ -434,4 +500,32 @@ function sameDateValue(a, b) {
 function sameWriteOnceValue(existingValue, incomingValue) {
   if (normalizeForCompare(existingValue) !== '') return true;
   return normalizeForCompare(incomingValue) === '';
+}
+
+/**
+ * So sánh dành cho cột mà GAS GHI ĐÈ ĐƯỢC nhưng KHÔNG ĐƯỢC PHÉP XOÁ (hiện chỉ có
+ * cột J LP制作).
+ *
+ * Khác cả 2 hàm trên:
+ *   - sameValue()          : incoming rỗng -> ghi rỗng đè lên (XOÁ dữ liệu người gõ)
+ *   - sameWriteOnceValue() : ô đã có chữ -> không bao giờ đổi nữa (không sửa được
+ *                            khi ロゴ判定 đổi từ ロゴなし sang ロゴあり)
+ *   - hàm này             : incoming CÓ giá trị -> ghi đè bình thường;
+ *                           incoming RỖNG -> coi là "không đổi", giữ nguyên ô.
+ *
+ * VÌ SAO CẦN NÓ: LP制作 rỗng nghĩa là "chưa phán định được" (ジャンル không phải
+ * TL/BL và ③シーモアロゴ判定 đang 未判定), KHÔNG phải "phán định ra là rỗng". Ghi
+ * rỗng đè lên sẽ xoá mất giá trị 営業 gõ tay chỉ vì レギュレーション chưa chấm xong
+ * tác phẩm đó — cột này vốn là cột nhập tay trước khi GAS tiếp quản.
+ *
+ * CHÚ Ý THỨ TỰ THAM SỐ: hàm này KHÔNG đối xứng, phải gọi
+ * sameKeepWhenBlankValue(existing, incoming) — giống sameWriteOnceValue().
+ *
+ * @param {*} existingValue - Giá trị đang có trên sheet
+ * @param {*} incomingValue - Giá trị vừa tính ra
+ * @returns {boolean} true nếu coi là "không cần ghi"
+ */
+function sameKeepWhenBlankValue(existingValue, incomingValue) {
+  if (normalizeForCompare(incomingValue) === '') return true;
+  return sameValue(existingValue, incomingValue);
 }

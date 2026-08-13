@@ -82,11 +82,25 @@ function resolveMasterHeader(spreadsheetId, sheetName, requiredHeaders) {
 // sang cột K) nhưng KHÔNG cần sửa gì ở đây ngoài danh sách dưới, vì mọi truy cập
 // đều qua col(headerIndex, 'tên cột').
 //
-// 6 CỘT GAS KHÔNG SỞ HỮU (phải giữ nguyên giá trị người ta điền tay):
-//   A (đệm), E タイトル区分 (nguồn 出稿コミット管理表 chưa có file),
-//   J LP制作, R 先行終了日（延長）, S 先行終了日（最終確定）,
-//   T/U 大量無料開始日・終了日 (nguồn chưa có).
+// CỘT GAS KHÔNG SỞ HỮU (phải giữ nguyên giá trị người ta điền tay):
+//   A (đệm) — và bất kỳ cột nào 池永 thêm về sau.
 // Xem customerRecordToRow() để biết cách bảo toàn.
+//
+// 2 CỘT VỪA CHUYỂN SANG GAS SỞ HỮU (2026-08-13, xem NGUỒN 7 trong sources.js và
+// resolveLpProduction() trong master.js):
+//   E タイトル区分 <- 出稿コミット管理表, コミット / 独占 (không bao giờ trống)
+//   J LP制作      <- suy ra từ ジャンル + ③シーモアロゴ判定 của chính dòng này
+// 2 cột này có 2 CƠ CHẾ GHI KHÁC NHAU, xem customerRecordToRow().
+//
+// 4 CỘT VỪA CHUYỂN SANG GAS SỞ HỮU (2026-08-07, xem NGUỒN 5/6 trong sources.js):
+//   R 先行終了日（延長）  <- 【先行作品】独占期間の延長, lần 回目 CUỐI có 期日
+//   S 先行終了日（最終確定）<- R nếu R có ngày, ngược lại Q
+//   T/U 大量無料開始日・終了日 <- 大量無料希望作品リスト_CA様（★出稿回答シート）
+// 4 cột này GAS GHI ĐÈ HOÀN TOÀN (kể cả ghi rỗng), khác cột I bên dưới — nguồn là
+// nơi duy nhất đúng, giá trị gõ tay không khớp nguồn sẽ bị thay ở lần chạy sau.
+// NGOẠI LỆ: nếu nguồn tương ứng đọc KHÔNG được (hoặc chưa có spreadsheetId, như
+// MASS_FREE hiện nay), main.js gán lại chính giá trị đang có trên sheet vào record
+// nên diff coi là "không đổi" và cột được giữ nguyên — xem runGas1().
 //
 // Cột I 掲載停止日付 là trường hợp RIÊNG: GAS ĐIỀN nhưng chỉ khi ô đang TRỐNG —
 // ghi một lần, không bao giờ ghi đè (nguồn: multi_title_yyyyMMdd.tsv trên Drive,
@@ -94,10 +108,18 @@ function resolveMasterHeader(spreadsheetId, sheetName, requiredHeaders) {
 
 // Cột GAS ĐỌC + GHI. Thiếu bất kỳ cột nào trong đây -> throw ngay, vì ghi thiếu
 // cột nghĩa là dữ liệu master sai một cách âm thầm.
+//
+// 4 tên cột cuối phải ghi ĐẦY ĐỦ, KHÔNG dùng colByPrefix('先行終了日'): ガワ có 3 cột
+// bắt đầu bằng 先行終了日 nên tiền tố đó nhập nhằng — colByPrefix() cố tình throw ở
+// trường hợp này (xem JSDoc của nó trong common.js). Ký tự ngoặc là ngoặc FULL-WIDTH
+// （）đúng như trên sheet; ô thật còn có '\n' trước ngoặc, nhưng normalizeHeaderText()
+// bỏ newline nên không cần viết vào đây.
 var CUSTOMER_REQUIRED_HEADERS = [
   'タイトルNo', 'CMS ID', 'タイトルID', 'タイトル名', '作家名', 'ジャンル', '出版社',
   'レーベル名', '先行開始日', '先行終了日', '①広告出稿ポリシー', '②一般面出稿NG', '③シーモアロゴ判定',
   '掲載停止日付',
+  '先行終了日（延長）', '先行終了日（最終確定）', '大量無料開始日', '大量無料終了日',
+  'タイトル区分', 'LP制作',
 ];
 
 /**
@@ -120,6 +142,8 @@ var CUSTOMER_REQUIRED_HEADERS = [
  *   titleNo: *, cmsId: *, titleId: *, titleName: string, author: string,
  *   genre: string, publisher: string, label: string, preStart: *, preEnd: *,
  *   policy: string, general: string, logoJudgement: string, suspensionDate: *,
+ *   preEndExtended: *, preEndFinal: *, massFreeStart: *, massFreeEnd: *,
+ *   titleCategory: *, lpProduction: *,
  *   sheetRow: number, rawRow: Array<*>
  * }>}
  */
@@ -141,6 +165,18 @@ function readCustomerWorkMaster() {
   var colGeneral = col(idx, '②一般面出稿NG');
   var colLogo = col(idx, '③シーモアロゴ判定');
   var colSuspension = col(idx, '掲載停止日付');
+  // 4 cột GAS mới sở hữu từ 2026-08-07. PHẢI đọc lại (không chỉ ghi): runGas1() cần
+  // giá trị đang có trên sheet cho 2 việc — (a) so diff để dòng không đổi không bị ghi
+  // lại vô ích, (b) giữ nguyên cột khi nguồn tương ứng đọc không được.
+  var colPreEndExtended = col(idx, '先行終了日（延長）');
+  var colPreEndFinal = col(idx, '先行終了日（最終確定）');
+  var colMassFreeStart = col(idx, '大量無料開始日');
+  var colMassFreeEnd = col(idx, '大量無料終了日');
+  // 2 cột GAS mới sở hữu từ 2026-08-13, cùng lý do (a)+(b) như 4 cột ngay trên. Riêng
+  // LP制作 còn thêm lý do (c): giá trị đang có trên sheet là thứ được GIỮ LẠI khi
+  // resolveLpProduction() không phán định được — không đọc thì không giữ được.
+  var colTitleCategory = col(idx, 'タイトル区分');
+  var colLpProduction = col(idx, 'LP制作');
 
   var records = [];
   for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
@@ -162,6 +198,12 @@ function readCustomerWorkMaster() {
       general: row[colGeneral],
       logoJudgement: row[colLogo],
       suspensionDate: row[colSuspension],
+      preEndExtended: row[colPreEndExtended],
+      preEndFinal: row[colPreEndFinal],
+      massFreeStart: row[colMassFreeStart],
+      massFreeEnd: row[colMassFreeEnd],
+      titleCategory: row[colTitleCategory],
+      lpProduction: row[colLpProduction],
       sheetRow: i + 1,
       rawRow: row,
     });
@@ -174,13 +216,16 @@ function readCustomerWorkMaster() {
  * dùng bởi writeCustomerWorkMaster() cho cả update dòng cũ lẫn append dòng mới.
  *
  * ĐIỂM QUAN TRỌNG NHẤT — dòng ghi được dựng TỪ BẢN COPY CỦA DÒNG CŨ, rồi chỉ ghi
- * đè các cột GAS sở hữu. ガワ mới có 6 cột GAS KHÔNG ghi (タイトル区分, LP制作,
- * 先行終了日（延長）, 先行終了日（最終確定）, 大量無料開始日/終了日) — có cột do người
- * điền tay, có cột chờ nguồn dữ liệu chưa tồn tại. Cách cũ
- * (`new Array(columnCount).fill('')`) sẽ XOÁ TRẮNG cả 6 cột đó mỗi lần dòng bị
- * update, không có lỗi nào để nhận ra — chỉ là dữ liệu người ta nhập tự nhiên
- * biến mất sau 9h sáng. Dựng từ dòng cũ còn bền với việc 池永 thêm cột mới: cột lạ
- * được giữ nguyên thay vì bị xoá, không cần sửa code.
+ * đè các cột GAS sở hữu. Cách cũ (`new Array(columnCount).fill('')`) sẽ XOÁ TRẮNG
+ * mọi cột GAS không ghi mỗi lần dòng bị update, không có lỗi nào để nhận ra — chỉ là
+ * dữ liệu người ta nhập tự nhiên biến mất sau 9h sáng. Dựng từ dòng cũ còn bền với
+ * việc 池永 thêm cột mới: cột lạ được giữ nguyên thay vì bị xoá, không cần sửa code.
+ * Nó cũng là nền cho cơ chế "giữ nguyên ô" của cột J LP制作 bên dưới.
+ *
+ * 2026-08-07: 4 cột R/S/T/U đã CHUYỂN từ nhóm "không ghi" sang nhóm GAS ghi đè (nguồn
+ * 5/6 trong sources.js). Chúng vẫn được lợi từ cách dựng-từ-dòng-cũ ở trên: khi nguồn
+ * đọc không được, main.js gán giá trị cũ của sheet vào record nên dòng bị coi là không
+ * đổi và không được ghi lại chút nào.
  *
  * @param {object} record - Work record đã qua resolveNumbersFromMatches()
  * @param {Map<string,number>} headerIndex - Từ resolveMasterHeader()
@@ -210,6 +255,38 @@ function customerRecordToRow(record, headerIndex, columnCount, previousRow) {
   row[col(headerIndex, '①広告出稿ポリシー')] = record.policy || '';
   row[col(headerIndex, '②一般面出稿NG')] = record.general || '';
   row[col(headerIndex, '③シーモアロゴ判定')] = record.logoJudgement || '';
+
+  // 4 cột R/S/T/U — GHI ĐÈ VÔ ĐIỀU KIỆN, kể cả ghi rỗng (khác cột I ngay bên dưới).
+  // Tác phẩm bị rút khỏi nguồn gia hạn/大量無料 thì ô tương ứng PHẢI được xoá, nếu
+  // không master sẽ giữ mãi một hạn độc quyền đã không còn hiệu lực — sai nguy hiểm
+  // hơn là để trống. `|| ''` để undefined không bị ghi thành chuỗi "undefined".
+  //
+  // KHÔNG có nhánh "nguồn lỗi thì bỏ qua" ở đây là CÓ Ý: main.js đã gán giá trị cũ của
+  // sheet vào 4 field này khi nguồn lỗi, nên tới đây record luôn mang giá trị ĐÚNG cần
+  // ghi. Đặt điều kiện ở cả 2 chỗ là chia đôi một quy tắc ra 2 file.
+  row[col(headerIndex, '先行終了日（延長）')] = record.preEndExtended || '';
+  row[col(headerIndex, '先行終了日（最終確定）')] = record.preEndFinal || '';
+  row[col(headerIndex, '大量無料開始日')] = record.massFreeStart || '';
+  row[col(headerIndex, '大量無料終了日')] = record.massFreeEnd || '';
+
+  // Cột E タイトル区分 — GHI ĐÈ VÔ ĐIỀU KIỆN, cùng nhóm với R/S/T/U ở trên. Giá trị
+  // luôn là コミット hoặc 独占 (lookupTitleCategory() không bao giờ trả '') nên `|| ''`
+  // ở đây chỉ chặn undefined của dòng mới khi nguồn lỗi — không phải là nhánh xoá ô.
+  // Nguồn lỗi -> main.js đã gán lại giá trị cũ của sheet, giống hệt 4 cột kia.
+  row[col(headerIndex, 'タイトル区分')] = record.titleCategory || '';
+
+  // Cột J LP制作 — GHI ĐÈ CÓ ĐIỀU KIỆN, cơ chế RIÊNG không giống cột nào khác:
+  // ghi khi tính ra 必要/不要, GIỮ NGUYÊN ô khi tính ra '' (未判定).
+  //
+  // Khác cột E ngay trên (ghi đè cả khi rỗng) và khác cột I ngay dưới (ô đã có chữ
+  // thì không bao giờ đụng tới). Ở đây phán định MỚI phải thắng được giá trị cũ —
+  // tác phẩm đổi từ ロゴなし sang ロゴあり thì J phải đổi 必要 -> 不要 — nhưng "chưa
+  // phán định được" thì không được phép xoá chữ 営業 gõ tay. Điều kiện tương ứng ở
+  // đường diff là sameKeepWhenBlankValue() (common.js), 2 chỗ phải khớp nhau.
+  var lpProduction = normalizeJapaneseText(record.lpProduction);
+  if (lpProduction !== '') {
+    row[col(headerIndex, 'LP制作')] = record.lpProduction;
+  }
 
   // Cột I 掲載停止日付 — GHI MỘT LẦN: chỉ điền khi ô đang trống. row[] tại đây đang
   // giữ giá trị của dòng cũ (hoặc '' nếu là dòng mới), nên điều kiện dưới đây đọc
@@ -495,9 +572,14 @@ var LOG_SHEET_NAME = 'GAS1ログ';
 // mất khỏi master một cách im lặng (595 NG + 3.353 未判定 trên dữ liệu hôm nay),
 // nên 1 dòng log phải đủ để biết lần chạy đó có gì bất thường mà không cần mở tab
 // GAS1警告.
+// 2026-08-07: thêm 2 cột đếm cho nguồn cột R/S và T/U. ensureLogHeaderRow() tự
+// NÂNG CẤP hàng header của tab đang có, nên không phải xoá tab cũ — nhưng CHÚ Ý:
+// dòng log của những lần chạy TRƯỚC không dịch theo, nên 2 cột mới sẽ trống ở các
+// dòng cũ và 2 cột cuối (個別対応タイトル/エラー) của dòng cũ nằm lệch sang trái 2 ô.
 var LOG_HEADER = ['開始日時', '終了日時', '追加件数', '更新件数',
   '除外_NG件数', '除外_未判定件数', '照合注意件数', '照合曖昧件数', '孤立行件数',
   '外部出稿NG注意件数', '掲載停止注意件数', 'コピーライト注意件数',
+  '先行延長注意件数', '大量無料注意件数',
   '個別対応タイトル', 'エラー'];
 
 var CHANGE_DETAIL_SHEET_NAME = 'GAS1変更詳細';
@@ -590,6 +672,8 @@ function appendLogEntry(entry) {
     entry.ngTitleNoticeCount || 0,
     entry.suspensionNoticeCount || 0,
     entry.copyrightNoticeCount || 0,
+    entry.preEndExtensionNoticeCount || 0,
+    entry.massFreeNoticeCount || 0,
     entry.irregularTitles.join(', '),
     entry.errors.join(', '),
   ]);
@@ -658,8 +742,8 @@ function getOrCreateWarningSheet() {
 
 /**
  * Ghi thêm nhiều dòng cảnh báo trong 1 lần setValues() duy nhất — nhận kết quả đã
- * gộp của cả 5 hàm build trong master.js (照合注意, 照合曖昧, 孤立行,
- * 外部出稿NG注意, 掲載停止注意).
+ * gộp của cả 7 hàm build trong master.js (照合注意, 照合曖昧, 孤立行,
+ * 外部出稿NG注意, 掲載停止注意, コピーライト注意, 先行延長注意, 大量無料注意).
  *
  * Rows rỗng -> không làm gì: không tạo dòng trống, và cũng không tạo tab GAS1警告
  * nếu lần chạy đó hoàn toàn sạch sẽ.

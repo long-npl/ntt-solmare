@@ -149,6 +149,85 @@ function runGas1() {
         + publisherCopyrightError);
     }
 
+    // ---- Nguồn cột R 先行終了日（延長）→ suy ra cột S （最終確定）----
+    // Cùng khuôn với 出版社別コピーライトマスタ ở trên và vì cùng một lý do: nguồn PHỤ,
+    // đọc không được thì 2 cột đó GIỮ NGUYÊN và lần chạy vẫn tiếp tục. Bắt buộc phải
+    // "giữ nguyên" chứ không phải "coi như rỗng" — cột R là cột GAS ghi đè hoàn toàn,
+    // nên coi như rỗng sẽ xoá sạch ngày gia hạn của 532 tác phẩm chỉ vì một lần nguồn
+    // tạm không truy cập được.
+    var preEndExtensionLookup = new Map();
+    var preEndExtensionError = null;
+    try {
+      var preEndExtensionRaw = readSheetValues(CONFIG.SOURCES.PRE_END_EXTENSION.spreadsheetId,
+        CONFIG.SOURCES.PRE_END_EXTENSION.sheetName);
+      var preEndExtensionRecords = parsePreEndExtensionRows(preEndExtensionRaw);
+      preEndExtensionLookup = buildPreEndExtensionLookup(preEndExtensionRecords);
+      Logger.log('【先行作品】独占期間の延長: ' + preEndExtensionRecords.length + ' 行読み込み完了（'
+        + preEndExtensionLookup.size + ' 件が期日あり → R列の対象）');
+    } catch (preEndExtensionFailure) {
+      preEndExtensionError = String(preEndExtensionFailure);
+      preEndExtensionLookup = new Map();
+      Logger.log('【先行作品】独占期間の延長: 読み込み失敗 -> R列・S列は据え置きのまま処理を継続します。'
+        + preEndExtensionError);
+    }
+
+    // ---- Nguồn cột T/U 大量無料開始日・終了日 ----
+    // spreadsheetId CHƯA ĐƯỢC CẤP (2026-08-07) nên nhánh "chưa cấu hình" là nhánh
+    // đang chạy thật, không phải nhánh phòng xa. Nó được xử lý GIỐNG HỆT lỗi đọc:
+    // T/U giữ nguyên + 1 dòng vào GAS1警告. Điền spreadsheetId trong config.js là đủ
+    // để kích hoạt, không phải sửa gì ở đây.
+    var massFreeLookup = new Map();
+    var massFreeError = null;
+    if (normalizeJapaneseText(CONFIG.SOURCES.MASS_FREE.spreadsheetId) === '') {
+      massFreeError = 'CONFIG.SOURCES.MASS_FREE.spreadsheetId が未設定です（ID を入れれば自動で有効化されます）';
+      Logger.log('大量無料希望作品リスト_CA様: ' + massFreeError + ' -> T列・U列は据え置き');
+    } else {
+      try {
+        var massFreeRaw = readSheetValues(CONFIG.SOURCES.MASS_FREE.spreadsheetId,
+          CONFIG.SOURCES.MASS_FREE.sheetName);
+        var massFreeRecords = parseMassFreeRows(massFreeRaw);
+        massFreeLookup = buildMassFreeLookup(massFreeRecords);
+        Logger.log('大量無料希望作品リスト_CA様: ' + massFreeRecords.length + ' 行読み込み完了（'
+          + massFreeLookup.size + ' タイトルID → T/U列の対象）');
+      } catch (massFreeFailure) {
+        massFreeError = String(massFreeFailure);
+        massFreeLookup = new Map();
+        Logger.log('大量無料希望作品リスト_CA様: 読み込み失敗 -> T列・U列は据え置きのまま処理を継続します。'
+          + massFreeError);
+      }
+    }
+
+    // ---- Nguồn cột E タイトル区分 (コミット / 独占) ----
+    // spreadsheetId CHƯA ĐƯỢC CẤP (2026-08-13) — cùng khuôn "nguồn PHỤ chưa cấu hình"
+    // với 大量無料 ở trên: E giữ nguyên + 1 dòng vào GAS1警告, điền ID vào config.js là
+    // đủ để kích hoạt.
+    //
+    // Phải "giữ nguyên" chứ không phải "coi như rỗng" vì cùng lý do với cột R: E là
+    // cột GAS ghi đè hoàn toàn, coi như rỗng sẽ xoá sạch 区分 của mọi dòng master chỉ
+    // vì một lần nguồn không đọc được.
+    var commitFlagLookup = new Map();
+    var commitManagementError = null;
+    if (normalizeJapaneseText(CONFIG.SOURCES.COMMIT_MANAGEMENT.spreadsheetId) === '') {
+      commitManagementError = 'CONFIG.SOURCES.COMMIT_MANAGEMENT.spreadsheetId が未設定です（ID を入れれば自動で有効化されます）';
+      Logger.log('出稿コミット管理表: ' + commitManagementError + ' -> E列は据え置き');
+    } else {
+      try {
+        var commitManagementRaw = readSheetValues(CONFIG.SOURCES.COMMIT_MANAGEMENT.spreadsheetId,
+          CONFIG.SOURCES.COMMIT_MANAGEMENT.sheetName);
+        var commitManagementRecords = parseCommitManagementRows(commitManagementRaw);
+        commitFlagLookup = buildCommitFlagLookup(commitManagementRecords);
+        var committedNameCount = 0;
+        commitFlagLookup.forEach(function (entry) { if (entry.committed) committedNameCount += 1; });
+        Logger.log('出稿コミット管理表: ' + commitManagementRecords.length + ' 行読み込み完了（タイトル名ユニーク '
+          + commitFlagLookup.size + ' 件、うちコミットフラグ ' + committedNameCount + ' 件 → E列「コミット」の対象）');
+      } catch (commitManagementFailure) {
+        commitManagementError = String(commitManagementFailure);
+        commitFlagLookup = new Map();
+        Logger.log('出稿コミット管理表: 読み込み失敗 -> E列は据え置きのまま処理を継続します。'
+          + commitManagementError);
+      }
+    }
+
     // ---- Nguồn cột I 掲載停止日付 (ghi một lần, join theo タイトルID) ----
     // Không tìm thấy file thì KHÔNG throw: cột I là cột ghi-một-lần nên "không có
     // dữ liệu mới" là trạng thái vô hại (giá trị đang có được giữ nguyên). Chỉ cảnh
@@ -243,6 +322,50 @@ function runGas1() {
       }
 
       work.suspensionDate = lookupSuspensionDate(work, suspensionLookup);
+
+      // ---- Cột R 先行終了日（延長）+ cột S 先行終了日（最終確定）----
+      // Nguồn lỗi -> gán lại CHÍNH giá trị đang có trên sheet (match.existing), thay vì
+      // đặt cờ "bỏ qua" rồi phải kiểm cờ đó ở cả customerIsEqualFn lẫn
+      // customerRecordToRow. Record khi đó mô tả đúng những gì sheet đang có, nên diff
+      // tự kết luận "không đổi" và không dòng nào bị ghi lại — cùng cách xử lý mà cột K
+      // của コピーライトマスタ đang dùng. Dòng MỚI (match.existing === null) nhận '' vì
+      // không có gì để giữ.
+      //
+      // S vẫn được TÍNH LẠI trong cả 2 nhánh (không phải copy từ sheet): công thức của
+      // nó là R || Q, và Q có thể vừa đổi hôm nay dù nguồn R không đọc được. Tính lại
+      // từ R-đang-giữ-nguyên + Q-mới cho ra giá trị đúng ở cả 2 trường hợp.
+      if (preEndExtensionError !== null) {
+        work.preEndExtended = match.existing ? match.existing.preEndExtended : '';
+      } else {
+        work.preEndExtended = lookupPreEndExtension(work, preEndExtensionLookup);
+      }
+      work.preEndFinal = resolvePreEndFinal(work.preEnd, work.preEndExtended);
+
+      // ---- Cột T/U 大量無料開始日・終了日 ---- (cùng cơ chế giữ nguyên như trên)
+      if (massFreeError !== null) {
+        work.massFreeStart = match.existing ? match.existing.massFreeStart : '';
+        work.massFreeEnd = match.existing ? match.existing.massFreeEnd : '';
+      } else {
+        var massFreePeriod = lookupMassFreePeriod(work, massFreeLookup);
+        work.massFreeStart = massFreePeriod.start;
+        work.massFreeEnd = massFreePeriod.end;
+      }
+
+      // ---- Cột E タイトル区分 ---- (cùng cơ chế giữ nguyên như trên)
+      if (commitManagementError !== null) {
+        work.titleCategory = match.existing ? match.existing.titleCategory : '';
+      } else {
+        work.titleCategory = lookupTitleCategory(work, commitFlagLookup);
+      }
+
+      // ---- Cột J LP制作 ----
+      // KHÔNG có nhánh "nguồn lỗi" vì cột này không phụ thuộc nguồn ngoài nào: nó chỉ
+      // đọc work.genre (CMS) và work.logoJudgement (レギュレーション), cả 2 đều là nguồn
+      // BẮT BUỘC — không đọc được thì cả lần chạy đã dừng từ Bước 1.
+      //
+      // Trả về '' nghĩa là chưa phán định được; io.js giữ nguyên ô thay vì xoá, và
+      // buildLpProductionWarningRows() ghi 1 dòng cảnh báo cho từng tác phẩm như vậy.
+      work.lpProduction = resolveLpProduction(work);
     });
 
     // ---- Bước 7-8: cấp số + diff + ghi ----
@@ -281,7 +404,24 @@ function runGas1() {
         && sameValue(a.logoJudgement, b.logoJudgement)
         && sameDateValue(a.preStart, b.preStart)
         && sameDateValue(a.preEnd, b.preEnd)
-        && sameWriteOnceValue(a.suspensionDate, b.suspensionDate);
+        && sameWriteOnceValue(a.suspensionDate, b.suspensionDate)
+        // 4 cột R/S/T/U đều là NGÀY -> sameDateValue(), không phải sameValue(): giá trị
+        // ghi ra là Date thật, và String(Date) mang cả giờ + timezone nên so bằng chuỗi
+        // sẽ churn vĩnh viễn (lý do đầy đủ trong JSDoc sameDateValue ở common.js).
+        // KHÔNG dùng sameWriteOnceValue() như cột I: 4 cột này được tính lại mỗi lần
+        // chạy và PHẢI ghi đè được, kể cả ghi rỗng khi tác phẩm bị rút khỏi nguồn.
+        && sameDateValue(a.preEndExtended, b.preEndExtended)
+        && sameDateValue(a.preEndFinal, b.preEndFinal)
+        && sameDateValue(a.massFreeStart, b.massFreeStart)
+        && sameDateValue(a.massFreeEnd, b.massFreeEnd)
+        // Cột E: chuỗi thuần, ghi đè bình thường -> sameValue().
+        && sameValue(a.titleCategory, b.titleCategory)
+        // Cột J: sameKeepWhenBlankValue() — incoming rỗng (未判定) coi là "không đổi"
+        // để ô không bị xoá. PHẢI khớp với điều kiện ghi trong customerRecordToRow():
+        // nếu ở đây dùng sameValue() thì dòng chỉ khác mỗi J-rỗng sẽ bị đánh dấu
+        // "cần update" mỗi lần chạy rồi ghi ra đúng giá trị cũ — churn vĩnh viễn.
+        // CHÚ Ý THỨ TỰ: a là existing, b là incoming (xem JSDoc trong common.js).
+        && sameKeepWhenBlankValue(a.lpProduction, b.lpProduction);
     };
     var customerDiff = diffUpsertFromMatches(numberedMatches, customerIsEqualFn);
     Logger.log('顧客作品マスタ 集計: 追加 ' + customerDiff.toAdd.length + ' 件 / 更新 ' + customerDiff.toUpdate.length
@@ -379,6 +519,14 @@ function runGas1() {
       { key: 'general', label: '②一般面出稿NG' },
       { key: 'logoJudgement', label: '③シーモアロゴ判定' },
       { key: 'suspensionDate', label: '掲載停止日付', compare: sameWriteOnceValue },
+      { key: 'preEndExtended', label: '先行終了日（延長）', compare: sameDateValue },
+      { key: 'preEndFinal', label: '先行終了日（最終確定）', compare: sameDateValue },
+      { key: 'massFreeStart', label: '大量無料開始日', compare: sameDateValue },
+      { key: 'massFreeEnd', label: '大量無料終了日', compare: sameDateValue },
+      { key: 'titleCategory', label: 'タイトル区分' },
+      // compare PHẢI trùng với customerIsEqualFn ở trên: dùng sameValue() ở đây sẽ log
+      // "必要 -> (trống)" cho mọi tác phẩm 未判定, trong khi ô thật không hề bị đổi.
+      { key: 'lpProduction', label: 'LP制作', compare: sameKeepWhenBlankValue },
     ], runAt);
     var copyrightChangeRows = buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate, [
       { key: 'individualCopyright', label: 'タイトル個別コピーライト' },
@@ -395,9 +543,16 @@ function runGas1() {
       .concat(buildOrphanWarningRows(existingCustomerRows, filtered.orphanOffsets, runAt))
       .concat(buildNgTitleWarningRows(numberedCustomerRows, ngTitleLookup, runAt))
       .concat(buildSuspensionWarningRows(numberedCustomerRows, suspensionLookup, suspensionFileName, runAt, suspensionError))
-      .concat(buildCopyrightWarningRows(copyrightWarnings, runAt, publisherCopyrightError));
+      .concat(buildCopyrightWarningRows(copyrightWarnings, runAt, publisherCopyrightError))
+      .concat(buildPreEndExtensionWarningRows(numberedCustomerRows, preEndExtensionLookup, runAt, preEndExtensionError))
+      .concat(buildMassFreeWarningRows(numberedCustomerRows, massFreeLookup, runAt, massFreeError))
+      .concat(buildTitleCategoryWarningRows(numberedCustomerRows, commitFlagLookup, runAt, commitManagementError))
+      .concat(buildLpProductionWarningRows(numberedCustomerRows, runAt));
     appendWarningRows(warningRows);
-    var warningCounts = { match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0 };
+    var warningCounts = {
+      match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0,
+      preEndExtension: 0, massFree: 0, titleCategory: 0, lpProduction: 0,
+    };
     warningRows.forEach(function (row) {
       if (row.kind === WARNING_KIND_MATCH) warningCounts.match += 1;
       else if (row.kind === WARNING_KIND_AMBIGUOUS) warningCounts.ambiguous += 1;
@@ -405,10 +560,18 @@ function runGas1() {
       else if (row.kind === WARNING_KIND_NG_TITLE) warningCounts.ngTitle += 1;
       else if (row.kind === WARNING_KIND_SUSPENSION) warningCounts.suspension += 1;
       else if (row.kind === WARNING_KIND_COPYRIGHT) warningCounts.copyright += 1;
+      else if (row.kind === WARNING_KIND_PRE_END_EXTENSION) warningCounts.preEndExtension += 1;
+      else if (row.kind === WARNING_KIND_MASS_FREE) warningCounts.massFree += 1;
+      else if (row.kind === WARNING_KIND_TITLE_CATEGORY) warningCounts.titleCategory += 1;
+      else if (row.kind === WARNING_KIND_LP_PRODUCTION) warningCounts.lpProduction += 1;
     });
     Logger.log('GAS1警告 記録: ' + warningRows.length + ' 件（照合注意 ' + warningCounts.match
       + ' / 照合曖昧 ' + warningCounts.ambiguous + ' / 孤立行 ' + warningCounts.orphan
-      + ' / 外部出稿NG注意 ' + warningCounts.ngTitle + ' / 掲載停止注意 ' + warningCounts.suspension + '）');
+      + ' / 外部出稿NG注意 ' + warningCounts.ngTitle + ' / 掲載停止注意 ' + warningCounts.suspension
+      + ' / 先行延長注意 ' + warningCounts.preEndExtension
+      + ' / 大量無料注意 ' + warningCounts.massFree
+      + ' / タイトル区分注意 ' + warningCounts.titleCategory
+      + ' / LP制作注意 ' + warningCounts.lpProduction + '）');
 
     // ---- Bước 12: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {
@@ -429,6 +592,8 @@ function runGas1() {
       ngTitleNoticeCount: warningCounts.ngTitle,
       suspensionNoticeCount: warningCounts.suspension,
       copyrightNoticeCount: warningCounts.copyright,
+      preEndExtensionNoticeCount: warningCounts.preEndExtension,
+      massFreeNoticeCount: warningCounts.massFree,
       irregularTitles: irregularTitles,
       errors: errors,
     });
@@ -513,6 +678,42 @@ function probe_readNgTitles() {
   var records = parseNgTitles(raw);
   Logger.log('Tổng số dòng NG title: ' + records.length);
   Logger.log(JSON.stringify(records.slice(0, 3), null, 2));
+}
+
+/**
+ * Chạy thử: đọc 出稿コミット管理表, in ra phân bố các giá trị C列 + số tên mang cờ コミット.
+ *
+ * Phân bố C列 là thứ đáng nhìn nhất: nó cho thấy ngay 「4.既存作品（出稿コミット）」 (và
+ * mọi cách viết mới mà 安蒜 thêm vào) đang có bao nhiêu dòng KHÔNG được tính là コミット —
+ * xem quyết định 2 ở đầu NGUỒN 7 trong sources.js.
+ */
+function probe_readCommitManagement() {
+  var cfg = CONFIG.SOURCES.COMMIT_MANAGEMENT;
+  if (normalizeJapaneseText(cfg.spreadsheetId) === '') {
+    Logger.log('CONFIG.SOURCES.COMMIT_MANAGEMENT.spreadsheetId が未設定です。');
+    return;
+  }
+  var raw = readSheetValues(cfg.spreadsheetId, cfg.sheetName);
+  var records = parseCommitManagementRows(raw);
+  var lookup = buildCommitFlagLookup(records);
+
+  var byCategory = {};
+  records.forEach(function (r) {
+    var key = normalizeJapaneseText(r.titleCategory) || '(空欄)';
+    byCategory[key] = (byCategory[key] || 0) + 1;
+  });
+  var committedNames = 0;
+  var multiCategoryNames = 0;
+  lookup.forEach(function (entry) {
+    if (entry.committed) committedNames += 1;
+    if (entry.rowCount >= 2 && entry.categories.length >= 2) multiCategoryNames += 1;
+  });
+
+  Logger.log(records.length + ' 行 / タイトル名ユニーク ' + lookup.size + ' 件');
+  Logger.log('コミットフラグ対象（E列「コミット」）: ' + committedNames + ' 件');
+  Logger.log('同名で区分が複数ある タイトル名: ' + multiCategoryNames + ' 件（GAS1警告 の タイトル区分注意）');
+  Logger.log('C列 タイトル区分 の内訳: ' + JSON.stringify(byCategory, null, 2));
+  Logger.log('コミット判定に使う値: ' + JSON.stringify(COMMIT_FLAG_VALUES));
 }
 
 /** Chạy thử: đọc 出版社別コピーライトマスタ, in ra vài quy tắc + số dòng không tự sinh được. */

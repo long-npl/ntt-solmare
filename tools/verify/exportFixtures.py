@@ -31,6 +31,15 @@ TARGETS = [
     # của ソル — khi nó được chuyển sang spreadsheet thật thì đổi đường dẫn ở đây.
     ('publisherCopyright', 'example/【ソル】タイトルマスタ　ガワ作成 0803 .xlsx', '出版社別コピーライトマスタ'),
     ('copyrightMasterGawa', 'example/【池永社内】コピーライトマスタ0804.xlsx', 'コピーライトマスタ'),
+    # Nguồn cột R 先行終了日（延長）. Sheet có 3 hàng header (hàng 3 mới là 1回目〜7回目).
+    ('preEndExtension', 'example/【安蒜社内】【先行作品】独占期間の延長（代理店共有）.xlsx', 'Sheet1'),
+    # Nguồn cột T/U 大量無料開始日・終了日. File có 8 sheet — sheet ĐÚNG là ★出稿回答シート
+    # (H列 キャンペーン開始日 / I列 キャンペーン終了日 theo spec). 2 sheet khác cũng có cặp cột
+    # cùng tên nhưng lệch vị trí, xem CONFIG.SOURCES.MASS_FREE trong src/config.js.
+    ('massFree', 'example/【安蒜社内】大量無料希望作品リスト_CA様.xlsx', '★出稿回答シート'),
+    # Nguồn cột E タイトル区分. File chỉ có đúng 1 sheet.
+    ('commitManagement', 'example/【安蒜社内】出稿コミット管理表（新作・既存・キャン強化）.xlsx',
+     '広告出稿必須タイトル'),
 ]
 
 

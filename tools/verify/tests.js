@@ -969,8 +969,238 @@ function test_dataset(ctx) {
     });
 }
 
+// ==============================================================================
+// CỘT E タイトル区分 (nguồn 出稿コミット管理表) + CỘT J LP制作 (suy ra tại chỗ)
+// Quy tắc user chốt 2026-08-13 — xem NGUỒN 7 trong src/sources.js và
+// resolveLpProduction() trong src/master.js.
+// ==============================================================================
+function test_titleCategoryAndLp(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    // Header thật của sheet 広告出稿必須タイトル (hàng 1), copy nguyên văn kể cả \n.
+    var HEADER = ['記入日', '出稿開始\n希望日', 'タイトル区分', 'タイトル\nID', 'CMS\nID', 'タイトル名',
+      '作家名', 'ジャンル', '出版社', 'レーベル', '先行開始日', '先行終了日'];
+    var COMMIT = '2.先行配信（出稿コミット）';
+
+    function row(category, titleName, titleId) {
+      return ['', '', category, titleId === undefined ? '' : titleId, '', titleName, '', '', '', '', '', ''];
+    }
+
+    // ---- parse: bỏ dòng thiếu タイトル名, đọc được cả タイトルID/CMS ID ----
+    var rows = [HEADER,
+      row(COMMIT, 'アルファ'),
+      row('1.協業レーベル', 'ベータ', 209381),
+      row(COMMIT, ''),                       // thiếu tên -> bỏ
+      row('', 'ガンマ'),                      // không có cờ -> vẫn parse ra
+    ];
+    var records = src.parseCommitManagementRows(rows);
+    check('commit: bo dong thieu タイトル名', records.length, 3);
+    check('commit: doc dung 区分 + ten', [records[0].titleCategory, records[0].titleName],
+      [COMMIT, 'アルファ']);
+    check('commit: doc duoc タイトルID khi co', records[1].titleId, 209381);
+
+    // Thiếu 1 trong 2 cột bắt buộc -> throw ngay, không im lặng bỏ qua cả nguồn.
+    var threw = false;
+    try { src.parseCommitManagementRows([['記入日', 'タイトル名'], ['', 'アルファ']]); }
+    catch (e) { threw = true; }
+    check('commit: thieu cot タイトル区分 -> throw', threw, true);
+
+    // ---- lookup: chỉ 「2.先行配信（出稿コミット）」 là cờ コミット ----
+    var lookup = src.buildCommitFlagLookup(records);
+    check('commit: 1.協業レーベル KHONG phai co コミット',
+      lookup.get(src.normalizeJapaneseText('ベータ')).committed, false);
+    check('commit: 「4.既存作品（出稿コミット）」 KHONG duoc tinh (32 dong tren du lieu that)',
+      src.isCommitFlagValue(src.normalizeJapaneseText('4.既存作品（出稿コミット）')), false);
+    // Cái bẫy NFKC: ô thật chứa ngoặc full-width, giá trị đã chuẩn hoá thì không.
+    // Cả 2 cách viết đều phải nhận ra là cờ コミット.
+    check('commit: nhan co du ngoac full-width hay nua-rong',
+      [src.isCommitFlagValue(src.normalizeJapaneseText('2.先行配信（出稿コミット）')),
+        src.isCommitFlagValue('2.先行配信(出稿コミット)')],
+      [true, true]);
+
+    // ---- tên trùng: MỘT dòng mang cờ là đủ ----
+    var dupeLookup = src.buildCommitFlagLookup(src.parseCommitManagementRows([HEADER,
+      row('1.協業レーベル', 'デルタ'),
+      row(COMMIT, 'デルタ'),
+      row('8.大量無料', 'デルタ'),
+    ]));
+    var delta = dupeLookup.get(src.normalizeJapaneseText('デルタ'));
+    check('commit: ten trung 3 dong, 1 dong co co -> committed', delta.committed, true);
+    check('commit: dem dung so dong / so dong mang co', [delta.rowCount, delta.commitRowCount], [3, 1]);
+    check('commit: giu du danh sach 区分 de dung canh bao', delta.categories.length, 3);
+
+    // ---- khoá join chuẩn hoá NFKC + 〜/～ (cùng cách với tầng 3 của cascade) ----
+    var waveLookup = src.buildCommitFlagLookup(src.parseCommitManagementRows([HEADER,
+      row(COMMIT, '落城の美姫〜甘い執着〜'),
+    ]));
+    check('commit: join theo ten da chuan hoa (〜 vs ～)',
+      src.lookupTitleCategory({ titleName: '落城の美姫～甘い執着～' }, waveLookup), 'コミット');
+
+    // ---- E không bao giờ trống ----
+    check('commit: tra ra co -> コミット',
+      src.lookupTitleCategory({ titleName: 'アルファ' }, lookup), 'コミット');
+    check('commit: khong tra ra -> 独占 (KHONG phai rong)',
+      src.lookupTitleCategory({ titleName: 'この作品は存在しない' }, lookup), '独占');
+    check('commit: nguon rong -> moi tac pham deu 独占',
+      src.lookupTitleCategory({ titleName: 'アルファ' }, new Map()), '独占');
+
+    // ---- LP制作: ジャンル thắng ロゴ判定 (thứ tự user chốt) ----
+    check('LP: TL + ロゴあり -> 必要 (ジャンル xet TRUOC)',
+      src.resolveLpProduction({ genre: 'TL', logoJudgement: 'ロゴあり' }), '必要');
+    check('LP: BLマンガ + ロゴあり -> 必要',
+      src.resolveLpProduction({ genre: 'BLマンガ', logoJudgement: 'ロゴあり' }), '必要');
+    check('LP: tien to bat duoc bien the thuc te (TLコミック / BLコミック / TL（R18）)',
+      ['TLコミック', 'BLコミック', 'TL（R18）'].map(function (g) {
+        return src.resolveLpProduction({ genre: g, logoJudgement: 'ロゴあり' });
+      }), ['必要', '必要', '必要']);
+    check('LP: ＴＬ full-width + tl thuong deu bat duoc',
+      [src.resolveLpProduction({ genre: 'ＴＬ', logoJudgement: 'ロゴあり' }),
+        src.resolveLpProduction({ genre: 'tl', logoJudgement: 'ロゴあり' })], ['必要', '必要']);
+
+    // ---- LP制作: phần còn lại mới xét ロゴ判定 ----
+    check('LP: 女性 + ロゴなし -> 必要',
+      src.resolveLpProduction({ genre: '女性', logoJudgement: 'ロゴなし' }), '必要');
+    check('LP: 女性 + ロゴあり -> 不要',
+      src.resolveLpProduction({ genre: '女性', logoJudgement: 'ロゴあり' }), '不要');
+    check('LP: 女性 + ロゴ判定 trong (未判定) -> rong, KHONG phai 不要',
+      src.resolveLpProduction({ genre: '女性', logoJudgement: '' }), '');
+    check('LP: ca 2 truong trong -> rong',
+      src.resolveLpProduction({ genre: '', logoJudgement: undefined }), '');
+
+    // ---- sameKeepWhenBlankValue: incoming rỗng = không đổi, nhưng có giá trị thì ghi đè ----
+    check('LP diff: incoming rong -> coi la khong doi (giu nguyen o)',
+      src.sameKeepWhenBlankValue('必要', ''), true);
+    check('LP diff: 必要 -> 不要 PHAI duoc coi la doi (khac sameWriteOnceValue)',
+      [src.sameKeepWhenBlankValue('必要', '不要'), src.sameWriteOnceValue('必要', '不要')],
+      [false, true]);
+    check('LP diff: o dang trong + incoming co gia tri -> doi',
+      src.sameKeepWhenBlankValue('', '必要'), false);
+
+    // ---- Cảnh báo ----
+    var runAt = new Date('2026-08-13T00:00:00Z');
+    check('canh bao: nguon loi -> dung 1 dong, E列 giu nguyen',
+      src.buildTitleCategoryWarningRows([{ titleNo: 1, titleName: 'アルファ' }], new Map(), runAt, 'ID chưa cấu hình')
+        .map(function (r) { return r.kind; }),
+      ['タイトル区分注意']);
+    check('canh bao: ten trung cung 1 区分 -> KHONG canh bao',
+      src.buildTitleCategoryWarningRows([{ titleNo: 1, titleName: 'イプシロン' }],
+        src.buildCommitFlagLookup(src.parseCommitManagementRows([HEADER,
+          row(COMMIT, 'イプシロン'), row(COMMIT, 'イプシロン')])), runAt, null).length,
+      0);
+    check('canh bao: ten trung nhieu 区分 -> 1 dong',
+      src.buildTitleCategoryWarningRows([{ titleNo: 1, titleName: 'デルタ' }], dupeLookup, runAt, null).length,
+      1);
+    check('canh bao: 独占 binh thuong (khong co tren nguon) -> KHONG canh bao',
+      src.buildTitleCategoryWarningRows([{ titleNo: 1, titleName: 'この作品は存在しない' }], lookup, runAt, null).length,
+      0);
+    check('canh bao LP: chi bao tac pham chua phan dinh duoc',
+      src.buildLpProductionWarningRows([
+        { titleNo: 1, titleName: 'A', genre: '女性', lpProduction: '' },
+        { titleNo: 2, titleName: 'B', genre: 'TL', lpProduction: '必要' },
+      ], runAt).map(function (r) { return r.titleNo; }),
+      [1]);
+}
+
+// ==============================================================================
+// ĐỐI CHIẾU DỮ LIỆU THẬT — cột E/J trên 4.217 dòng 出稿コミット管理表 (2026-08-12)
+// và 5.678 dòng CMS. Cùng nguyên tắc với test_dataset: số không khớp thì tìm hiểu
+// nguyên nhân trước, đừng sửa expected cho hết đỏ.
+// ==============================================================================
+function test_titleCategoryDataset(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    var commitRows = ctx.fixtures.load('commitManagement');
+    var records = src.parseCommitManagementRows(commitRows);
+    // 4.217 dòng có dữ liệu, 1 dòng thiếu タイトル名 -> 4.216.
+    check('出稿コミット管理表: so dong co タイトル名 (do 2026-08-12)', records.length, 4216);
+
+    var byCategory = {};
+    records.forEach(function (r) {
+      var key = src.normalizeJapaneseText(r.titleCategory) || '(空欄)';
+      byCategory[key] = (byCategory[key] || 0) + 1;
+    });
+    // 「4.既存作品（出稿コミット）」 CŨNG chứa chữ 出稿コミット nhưng KHÔNG được tính —
+    // con số 32 ở đây là để lần sau đổi ý thì thấy ngay ảnh hưởng bao nhiêu dòng.
+    // Tra bằng khoá ĐÃ chuẩn hoá (ngoặc nửa-rộng), không phải chuỗi nguyên văn.
+    //
+    // 3.098 chứ không phải 3.099: sheet thật có ĐÚNG 1 dòng mang cờ コミット nhưng bỏ
+    // trống タイトル名 (dòng 「ダヨオ」/ソルマーレ編集部, ô CMS ID bị gõ nhầm tên tác giả).
+    // Không có khoá join thì dòng đó không ứng được với tác phẩm nào -> bị bỏ ở
+    // parseCommitManagementRows(). Đây là dòng DUY NHẤT bị bỏ trên cả 4.217 dòng.
+    check('出稿コミット管理表: so dong mang co 2.先行配信（出稿コミット）',
+      byCategory[src.normalizeJapaneseText('2.先行配信（出稿コミット）')], 3098);
+    check('出稿コミット管理表: so dong 4.既存作品（出稿コミット） bi loai khoi co コミット',
+      byCategory[src.normalizeJapaneseText('4.既存作品（出稿コミット）')], 32);
+
+    var lookup = src.buildCommitFlagLookup(records);
+    // 4.118 tên duy nhất + 98 dòng thừa (66 tên bị trùng) = 4.216 dòng đã parse.
+    check('出稿コミット管理表: so タイトル名 duy nhat', lookup.size, 4118);
+    var dupExtraRows = 0;
+    var multiCategory = 0;
+    lookup.forEach(function (entry) {
+      if (entry.rowCount > 1) dupExtraRows += entry.rowCount - 1;
+      if (entry.rowCount >= 2 && entry.categories.length >= 2) multiCategory += 1;
+    });
+    check('出稿コミット管理表: ten duy nhat + dong thua = tong dong da parse',
+      lookup.size + dupExtraRows, records.length);
+    // 28/66 tên trùng có nhiều hơn 1 区分 -> đúng 28 dòng タイトル区分注意 (chỉ cho tác
+    // phẩm thật sự vào master, nên con số trên tab cảnh báo sẽ <= 28).
+    check('出稿コミット管理表: ten trung co nhieu 区分 -> nguon canh bao タイトル区分注意',
+      multiCategory, 28);
+
+    // ---- Áp lên đúng 1.730 tác phẩm thật sự vào master ----
+    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup);
+    var kept = works.filter(function (w) { return src.isWorkEligible(w); });
+    check('vao master: 1.730 tac pham (khop test_dataset)', kept.length, 1730);
+
+    var categoryCounts = { コミット: 0, 独占: 0 };
+    var lpCounts = { 必要: 0, 不要: 0, '': 0 };
+    var lpInputs = { tlbl: 0, otherNoLogo: 0, otherWithLogo: 0, otherNoJudgement: 0 };
+    kept.forEach(function (w) {
+      categoryCounts[src.lookupTitleCategory(w, lookup)] += 1;
+      lpCounts[src.resolveLpProduction(w)] += 1;
+
+      var genre = src.normalizeJapaneseText(w.genre).toUpperCase();
+      if (genre.indexOf('TL') === 0 || genre.indexOf('BL') === 0) { lpInputs.tlbl += 1; return; }
+      var logo = src.normalizeJapaneseText(w.logoJudgement);
+      if (logo === 'ロゴなし') lpInputs.otherNoLogo += 1;
+      else if (logo === 'ロゴあり') lpInputs.otherWithLogo += 1;
+      else lpInputs.otherNoJudgement += 1;
+    });
+
+    check('E列: コミット + 独占 = 1.730, khong dong nao trong',
+      categoryCounts['コミット'] + categoryCounts['独占'], 1730);
+    check('E列: phan bo コミット / 独占',
+      [categoryCounts['コミット'], categoryCounts['独占']], [635, 1095]);
+
+    // 2 check dưới đây đi cùng nhau: check thứ 2 chốt CON SỐ, check thứ nhất chốt
+    // NGUỒN GỐC của con số đó. Nếu ai đó đảo thứ tự xét (ロゴ判定 trước ジャンル) thì
+    // 62 tác phẩm TL/BL đang mang ロゴあり sẽ chạy từ 必要 sang 不要 — tổng vẫn là
+    // 1.730 nên chỉ check tổng sẽ không bắt được, nhưng phép cộng dưới đây thì có.
+    check('J列: 必要 = (TL/BL) + (khac × ロゴなし), 不要 = (khac × ロゴあり)',
+      [lpInputs.tlbl + lpInputs.otherNoLogo, lpInputs.otherWithLogo],
+      [lpCounts['必要'], lpCounts['不要']]);
+    check('J列: phan bo 必要 / 不要 / chua phan dinh',
+      [lpCounts['必要'], lpCounts['不要'], lpCounts['']], [578, 1152, 0]);
+    // 281 TL/BL, trong đó 62 mang ロゴあり — chính là số tác phẩm mà thứ tự xét
+    // (ジャンル trước ロゴ判定) làm thay đổi kết quả.
+    check('J列: 62 tac pham TL/BL mang ロゴあり — 必要 nho thu tu xet',
+      [lpInputs.tlbl, lpInputs.tlbl - 219], [281, 62]);
+    // 0 tác phẩm chưa phán định được: mọi dòng vào master đều là 判定済み và
+    // レギュレーション thật không có dòng 判定済み nào bỏ trống ③シーモアロゴ判定. Nghĩa là
+    // tab GAS1警告 hôm nay có 0 dòng LP制作注意 — nhánh đó là phòng xa, không phải
+    // nhánh đang chạy.
+    check('J列: khong tac pham nao roi vao nhanh chua phan dinh (hom nay)',
+      lpInputs.otherNoJudgement, 0);
+}
+
 module.exports = {
   unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
-    test_copyright, test_warnings, test_suspension],
-  data: [test_dataset],
+    test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp],
+  data: [test_dataset, test_titleCategoryDataset],
 };

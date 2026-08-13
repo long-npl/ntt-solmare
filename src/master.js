@@ -85,6 +85,64 @@ function buildCustomerWorkRows(cmsRecords, regulationLookup) {
 }
 
 
+// ------------------------------------------------------------------ LP制作 (cột J)
+
+var LP_PRODUCTION_REQUIRED = '必要';
+var LP_PRODUCTION_NOT_REQUIRED = '不要';
+
+// 2 ジャンル bắt buộc phải làm LP, so theo TIỀN TỐ (user chốt 2026-08-13).
+//
+// VÌ SAO TIỀN TỐ chứ không phải danh sách 4 giá trị 「TL」「TLマンガ」「BL」「BLマンガ」
+// như spec viết: dữ liệu thật (5.649 dòng) còn có TLコミック (2), BLコミック (5),
+// TL（R18）(2) — cùng một thể loại, chỉ khác cách viết đuôi. Liệt kê cứng 4 giá trị
+// thì 9 tác phẩm đó im lặng không được đánh dấu 必要, và mỗi cách viết mới của 池永
+// lại là một lần sửa code.
+//
+// So sau normalizeJapaneseText() + toUpperCase(): NFKC đã gộp ＴＬ full-width về TL,
+// toUpperCase() lo nốt trường hợp gõ thường (tl/bl).
+var LP_GENRE_PREFIXES = ['TL', 'BL'];
+
+var LOGO_JUDGEMENT_NONE = 'ロゴなし';
+var LOGO_JUDGEMENT_PRESENT = 'ロゴあり';
+
+/**
+ * Quy tắc cột J LP制作 (user chốt 2026-08-13).
+ *
+ * THỨ TỰ XÉT LÀ MỘT PHẦN CỦA QUY TẮC, không phải chi tiết cài đặt — 2 điều kiện
+ * đầu tiên của spec mâu thuẫn nhau ở ca "ジャンル=TL VÀ ロゴあり" và user đã chốt:
+ * xét ジャンル TRƯỚC, ロゴ判定 chỉ được xét cho phần CÒN LẠI.
+ *
+ *   1. ジャンル bắt đầu bằng TL/BL        -> 「必要」 (bỏ qua ロゴ判定 hoàn toàn,
+ *                                            đúng ghi chú 「ロゴ有無関係なし」)
+ *   2. còn lại, ③シーモアロゴ判定 = ロゴなし -> 「必要」
+ *   3. còn lại, ③シーモアロゴ判定 = ロゴあり -> 「不要」
+ *   4. còn lại (ロゴ判定 trống = 未判定)     -> '' — CHƯA PHÁN ĐỊNH ĐƯỢC
+ *
+ * Nhánh 4 KHÔNG phải "phán định ra là rỗng": tác phẩm 未判定 レギュレーション thì
+ * chưa đủ dữ liệu để nói 必要 hay 不要. Đường ghi (io.js) coi '' là "giữ nguyên ô",
+ * không xoá giá trị 営業 gõ tay — xem sameKeepWhenBlankValue() trong common.js.
+ *
+ * ジャンル lấy từ CMS (cột M của master), ③シーモアロゴ判定 lấy từ レギュレーション
+ * (cột H). CẢ HAI đều là cột của chính 顧客作品マスタ, KHÔNG phải của
+ * 出稿コミット管理表 — sheet đó không hề có cột ロゴ判定 nào (chữ cái Ｍ/Ｈ trong spec
+ * là chữ cái cột của 顧客作品マスタ).
+ *
+ * @param {{genre: *, logoJudgement: *}} work - 1 phần tử từ buildCustomerWorkRows()
+ * @returns {string} '必要' | '不要' | '' (chưa phán định được)
+ */
+function resolveLpProduction(work) {
+  var genre = normalizeJapaneseText(work.genre).toUpperCase();
+  for (var i = 0; i < LP_GENRE_PREFIXES.length; i++) {
+    if (genre.indexOf(LP_GENRE_PREFIXES[i]) === 0) return LP_PRODUCTION_REQUIRED;
+  }
+
+  var logo = normalizeJapaneseText(work.logoJudgement);
+  if (logo === LOGO_JUDGEMENT_NONE) return LP_PRODUCTION_REQUIRED;
+  if (logo === LOGO_JUDGEMENT_PRESENT) return LP_PRODUCTION_NOT_REQUIRED;
+  return '';
+}
+
+
 // ==============================================================================
 // PHẦN 2 — LỌC + KHỚP DÒNG MASTER (một lượt, 2 phase)
 // ==============================================================================
@@ -566,6 +624,10 @@ var WARNING_KIND_ORPHAN = '孤立行';
 var WARNING_KIND_NG_TITLE = '外部出稿NG注意';
 var WARNING_KIND_SUSPENSION = '掲載停止注意';
 var WARNING_KIND_COPYRIGHT = 'コピーライト注意';
+var WARNING_KIND_PRE_END_EXTENSION = '先行延長注意';
+var WARNING_KIND_MASS_FREE = '大量無料注意';
+var WARNING_KIND_TITLE_CATEGORY = 'タイトル区分注意';
+var WARNING_KIND_LP_PRODUCTION = 'LP制作注意';
 
 /**
  * Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告.
@@ -789,6 +851,202 @@ function buildSuspensionWarningRows(records, suspensionLookup, suspensionFileNam
         'タイトルID ' + key + ' を ' + group.length + ' 作品が共有 → 同じ掲載停止日付「'
         + suspensionLookup.get(key) + '」が入ります: ' + names));
     });
+  });
+  return rows;
+}
+
+/**
+ * 先行延長注意 — cảnh báo của nguồn 5 (cột R/S).
+ *
+ * 3 tình huống, mỗi tình huống là một cách cột R có thể SAI MÀ KHÔNG AI BIẾT:
+ *
+ * 1. Nguồn đọc không được -> R+S giữ nguyên. Phải báo, vì cột R là cột GAS ghi đè:
+ *    "giữ nguyên" nhìn giống "không có gì thay đổi", và nếu nguồn mất quyền truy cập
+ *    vĩnh viễn thì cột R sẽ đứng yên mãi mà trông vẫn bình thường.
+ *
+ * 2. Ô CÓ NỘI DUNG nhưng KHÔNG PHẢI 期日, nằm ở lần 回目 SAU lần đã thắng. Đây là
+ *    tình huống đáng xem nhất: 'NG'/'一旦無期限先行'/'2025年2月予定' ở 2回目 nghĩa là
+ *    thông tin MỚI NHẤT về tác phẩm đó không dùng được, nên cột R đang mang ngày CŨ
+ *    hơn thực tế. Gộp theo nội dung ô để 149 ô 'NG' không sinh 149 dòng cảnh báo.
+ *
+ * 3. Nhiều tác phẩm trên master dùng chung 1 タイトルID -> cùng nhận một ngày gia hạn.
+ *    Cùng bản chất với cảnh báo 掲載停止注意 (có thật: 2 phiên bản タテヨミ/フルカラー của
+ *    cùng tác phẩm dùng chung ID).
+ *
+ * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
+ * @param {Map<string, object>} extensionLookup - buildPreEndExtensionLookup(), Map rỗng nếu nguồn lỗi
+ * @param {Date} runAt
+ * @param {string|null} [errorMessage] - Nội dung lỗi nếu bước đọc nguồn này THẤT BẠI
+ * @returns {Array<object>}
+ */
+function buildPreEndExtensionWarningRows(records, extensionLookup, runAt, errorMessage) {
+  var rows = [];
+  if (errorMessage) {
+    rows.push(warningRow(runAt, WARNING_KIND_PRE_END_EXTENSION, '', '', '',
+      '【先行作品】独占期間の延長 を読めませんでした → 先行終了日（延長）R列・（最終確定）S列は今回据え置き'
+      + '（処理は継続）: ' + errorMessage));
+    return rows;
+  }
+
+  // --- (2) ô không phải 期日 ở lần 回目 SAU lần thắng, gộp theo nội dung ---
+  var skippedGroups = new Map();
+  // --- (3) nhóm tác phẩm dùng chung 1 タイトルID ---
+  var byTitleId = new Map();
+
+  records.forEach(function (record) {
+    if (!isDigits(record.titleId)) return;
+    var key = normalizeJapaneseText(record.titleId);
+    var found = extensionLookup.get(key);
+    if (found === undefined) return;
+
+    if (!byTitleId.has(key)) byTitleId.set(key, []);
+    byTitleId.get(key).push(record);
+
+    (found.skipped || []).forEach(function (skipped) {
+      var text = normalizeJapaneseText(skipped.value);
+      var groupKey = skipped.roundName + ' ' + text;
+      if (!skippedGroups.has(groupKey)) {
+        skippedGroups.set(groupKey, {
+          roundName: skipped.roundName, value: skipped.value,
+          usedRoundName: found.roundName, titleNames: [], count: 0,
+        });
+      }
+      var group = skippedGroups.get(groupKey);
+      group.count += 1;
+      if (group.titleNames.length < 3) group.titleNames.push(record.titleName);
+    });
+  });
+
+  skippedGroups.forEach(function (group) {
+    rows.push(warningRow(runAt, WARNING_KIND_PRE_END_EXTENSION, '', '', '',
+      group.roundName + 'が期日ではないため R列に反映していません（' + group.count + ' 件）: 「'
+      + String(group.value).replace(/\n/g, ' / ') + '」→ R列は ' + group.usedRoundName
+      + ' の期日のまま。例: ' + group.titleNames.join(' / ')));
+  });
+
+  byTitleId.forEach(function (group, key) {
+    if (group.length < 2) return;
+    var names = group.map(function (record) { return record.titleName; }).join(' / ');
+    group.forEach(function (record) {
+      rows.push(warningRow(runAt, WARNING_KIND_PRE_END_EXTENSION, record.titleNo, record.titleId, record.titleName,
+        'タイトルID ' + key + ' を ' + group.length + ' 作品が共有 → 同じ先行終了日（延長）「'
+        + extensionLookup.get(key).value + '」が入ります: ' + names));
+    });
+  });
+  return rows;
+}
+
+/**
+ * 大量無料注意 — cảnh báo của nguồn 6 (cột T/U).
+ *
+ * 1. Chưa có spreadsheetId / đọc không được -> T+U giữ nguyên. Trạng thái "chưa cấu
+ *    hình" ĐƯỢC BÁO MỖI LẦN CHẠY một cách cố ý: nếu chỉ ghi vào Logger.log thì cột
+ *    T/U trống vĩnh viễn mà không ai nhớ là còn thiếu một ID.
+ *
+ * 2. Một タイトルID có NHIỀU dòng chiến dịch -> T/U là mốc đầu và mốc cuối của cả
+ *    chuỗi (quy tắc user chốt). Đây KHÔNG phải lỗi — nhưng nó là chỗ duy nhất mà
+ *    một cặp ngày trên master không ứng với bất kỳ dòng nào của nguồn, nên người
+ *    đối chiếu bằng mắt cần biết. Chỉ báo khi >= 2 dòng và chỉ 1 dòng/ID.
+ *
+ * 3. Có dòng bị loại vì 出稿回答 = ✕ -> ghi rõ số dòng bị loại, để việc thu hẹp kỳ
+ *    大量無料 không trông giống lỗi dữ liệu.
+ *
+ * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
+ * @param {Map<string, object>} massFreeLookup - buildMassFreeLookup(), Map rỗng nếu nguồn lỗi
+ * @param {Date} runAt
+ * @param {string|null} [errorMessage] - Lỗi đọc nguồn, hoặc thông báo "chưa cấu hình ID"
+ * @returns {Array<object>}
+ */
+function buildMassFreeWarningRows(records, massFreeLookup, runAt, errorMessage) {
+  var rows = [];
+  if (errorMessage) {
+    rows.push(warningRow(runAt, WARNING_KIND_MASS_FREE, '', '', '',
+      '大量無料希望作品リスト_CA様 を読めませんでした → 大量無料開始日 T列・終了日 U列は今回据え置き'
+      + '（処理は継続）: ' + errorMessage));
+    return rows;
+  }
+
+  records.forEach(function (record) {
+    if (!isDigits(record.titleId)) return;
+    var found = massFreeLookup.get(normalizeJapaneseText(record.titleId));
+    if (found === undefined) return;
+    var notes = [];
+    if (found.rowCount >= 2) {
+      notes.push(found.rowCount + ' 件のキャンペーン行を1つの期間に集約（最小の開始日〜最大の終了日）');
+    }
+    if (found.rejectedCount > 0) {
+      notes.push('出稿回答が✕の ' + found.rejectedCount + ' 行を除外');
+    }
+    if (notes.length === 0) return;
+    rows.push(warningRow(runAt, WARNING_KIND_MASS_FREE, record.titleNo, record.titleId, record.titleName,
+      notes.join(' / ') + ' → T列「' + found.start + '」U列「' + found.end + '」'));
+  });
+  return rows;
+}
+
+/**
+ * タイトル区分注意 — 2 tình huống của nguồn 出稿コミット管理表 (cột E).
+ *
+ * 1. Nguồn đọc không được / chưa cấu hình ID -> 1 dòng, cột E được giữ nguyên.
+ *
+ * 2. Một タイトル名 có NHIỀU dòng trên nguồn với NHIỀU 区分 khác nhau -> tác phẩm đó
+ *    được コミット chỉ nhờ một trong số các dòng (quy tắc "có dòng nào cam kết
+ *    không"). Trên dữ liệu thật có 64 tên trùng, và đây là chỗ duy nhất mà giá trị
+ *    cột E không ứng 1-1 với một dòng nguồn nào — người đối chiếu bằng mắt cần biết.
+ *    Chỉ báo khi tên đó THẬT SỰ có >1 cách phân loại; trùng tên mà cùng 区分 thì
+ *    không có gì để nghi ngờ.
+ *
+ * CỐ TÌNH KHÔNG báo "không tìm thấy trên nguồn": phần lớn tác phẩm của master không
+ * nằm trong 出稿コミット管理表 và đó chính là định nghĩa của 独占 — báo hết sẽ thành
+ * vài nghìn dòng cảnh báo cho một trạng thái bình thường.
+ *
+ * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
+ * @param {Map<string, object>} commitFlagLookup - buildCommitFlagLookup(), Map rỗng nếu nguồn lỗi
+ * @param {Date} runAt
+ * @param {string|null} [errorMessage] - Lỗi đọc nguồn, hoặc thông báo "chưa cấu hình ID"
+ * @returns {Array<object>}
+ */
+function buildTitleCategoryWarningRows(records, commitFlagLookup, runAt, errorMessage) {
+  var rows = [];
+  if (errorMessage) {
+    rows.push(warningRow(runAt, WARNING_KIND_TITLE_CATEGORY, '', '', '',
+      '出稿コミット管理表（新作・既存・キャン強化）を読めませんでした → タイトル区分 E列は今回据え置き'
+      + '（処理は継続）: ' + errorMessage));
+    return rows;
+  }
+
+  records.forEach(function (record) {
+    var found = commitFlagLookup.get(normalizeJapaneseText(record.titleName));
+    if (found === undefined) return;
+    if (found.rowCount < 2 || found.categories.length < 2) return;
+    rows.push(warningRow(runAt, WARNING_KIND_TITLE_CATEGORY, record.titleNo, record.titleId, record.titleName,
+      '出稿コミット管理表に同名 ' + found.rowCount + ' 行（区分: ' + found.categories.join('・') + '）'
+      + ' → うち ' + found.commitRowCount + ' 行がコミットフラグのため E列「'
+      + (found.committed ? TITLE_CATEGORY_COMMIT : TITLE_CATEGORY_EXCLUSIVE) + '」'));
+  });
+  return rows;
+}
+
+/**
+ * LP制作注意 — tác phẩm mà resolveLpProduction() trả về '' (nhánh 4: ジャンル không
+ * phải TL/BL và ③シーモアロゴ判定 đang 未判定).
+ *
+ * Cột J của những dòng này được GIỮ NGUYÊN chứ không bị xoá, nên nếu không cảnh báo
+ * thì việc "GAS chưa từng phán định được tác phẩm này" là hoàn toàn vô hình — ô có
+ * thể đang mang giá trị 営業 gõ tay từ nhiều tháng trước mà không ai biết nó chưa
+ * bao giờ được kiểm lại.
+ *
+ * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo và lpProduction)
+ * @param {Date} runAt
+ * @returns {Array<object>}
+ */
+function buildLpProductionWarningRows(records, runAt) {
+  var rows = [];
+  records.forEach(function (record) {
+    if (normalizeJapaneseText(record.lpProduction) !== '') return;
+    rows.push(warningRow(runAt, WARNING_KIND_LP_PRODUCTION, record.titleNo, record.titleId, record.titleName,
+      'ジャンル「' + normalizeJapaneseText(record.genre) + '」が TL/BL 以外 かつ ③シーモアロゴ判定が未判定'
+      + ' → LP制作 J列は判定できず据え置き'));
   });
   return rows;
 }
