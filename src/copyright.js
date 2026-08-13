@@ -37,13 +37,22 @@ var PUBLISHER_COPYRIGHT_REQUIRED_HEADERS = ['出版社', '雑誌名/レーベル
 // '02：個別ルール' (11 dòng) là quy tắc con người phải tự viết cho từng tác phẩm.
 var PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX = '01';
 
+// Cột L `(出版社)事前確認` -> cột Q 出版社事前確認 của コピーライトマスタ (user bổ sung
+// 2026-08-13: "出版社コピーライトマスタのL列の情報をコピーライトマスタに入れ忘れていた").
+//
+// Tên viết ĐỦ chứ không dùng colByPrefix('(出版社)'): sheet có 2 cột bắt đầu bằng
+// tiền tố đó — L `(出版社)事前確認` và M `(出版社)使用画像の報告` — nên tiền tố này
+// nhập nhằng. Ô thật có '\n' trước 事前確認 nhưng normalizeHeaderText() bỏ newline.
+var PUBLISHER_PRE_CONFIRMATION_HEADER = '(出版社)事前確認';
+
 /**
  * Parse sheet 出版社別コピーライトマスタ.
  *
- * Chỉ đọc 4 cột cần cho việc sinh bản quyền. Các cột còn lại (危険, 要注意作品あり,
- * 順番指定, 3 cột 事前確認, その他注意, 要注意作品, 別紙参照) là thông tin cho con
- * người trong quy trình duyệt creative — CỐ TÌNH không đọc, để không ai tưởng GAS
- * đang xử lý chúng.
+ * Đọc 4 cột cần cho việc sinh bản quyền + cột 事前確認 (chỉ chuyển tiếp nguyên văn,
+ * không tham gia việc sinh bản quyền). Các cột còn lại (危険, 要注意作品あり, 順番指定,
+ * 2 cột 事前確認 khác, その他注意, 要注意作品, 別紙参照) là thông tin cho con người
+ * trong quy trình duyệt creative — CỐ TÌNH không đọc, để không ai tưởng GAS đang xử
+ * lý chúng.
  *
  * KHÔNG đọc cột 著者名区切り方 (N): user chốt 2026-08-04 bỏ qua cột này. Lý do thực
  * tế: cột đó nói cách NỐI NHIỀU tác giả, nhưng CMS chỉ cấp MỘT chuỗi tác giả đã
@@ -54,7 +63,8 @@ var PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX = '01';
  * đúng, vì tên người là thứ không được đoán.
  *
  * @param {Array<Array<*>>} rawRows - Kết quả io.js: readSheetValues()
- * @returns {Array<{publisher: *, label: *, flag: *, template: *}>} Giá trị nguyên văn
+ * @returns {Array<{publisher: *, label: *, flag: *, template: *, preConfirmation: *}>}
+ *   Giá trị nguyên văn
  */
 function parsePublisherCopyrightRules(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, PUBLISHER_COPYRIGHT_REQUIRED_HEADERS);
@@ -65,6 +75,11 @@ function parsePublisherCopyrightRules(rawRows) {
   // Header thật là 'テンプレート\n(タイトルマスタで参照)' — phần trong ngoặc là ghi
   // chú, tra bằng tiền tố cho bền với việc sửa lời ghi chú đó.
   var colTemplate = colByPrefix(idx, 'テンプレート');
+  // tryCol() chứ không col(): cột 事前確認 chỉ nuôi cột Q — một cột thông tin. Mất
+  // nó mà throw ở đây thì cả parse hỏng -> publisherCopyrightError -> cột K của
+  // 1.303 tác phẩm bị 据え置き theo. Đánh đổi sai. Mất cột thì Q rỗng + 1 dòng cảnh
+  // báo (main.js đếm số quy tắc có 事前確認, = 0 nghĩa là cột đã bị đổi tên).
+  var colPreConfirmation = tryCol(idx, PUBLISHER_PRE_CONFIRMATION_HEADER);
 
   var records = [];
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
@@ -76,6 +91,7 @@ function parsePublisherCopyrightRules(rawRows) {
       label: row[colLabel],
       flag: row[colFlag],
       template: row[colTemplate],
+      preConfirmation: colPreConfirmation === undefined ? '' : row[colPreConfirmation],
     });
   }
   return records;
@@ -332,6 +348,32 @@ function resolvePublisherCopyright(work, rulesLookup) {
   }
 
   return { value: applied.value, reason: COPYRIGHT_REASON_OK, rule: rule, detail: '' };
+}
+
+/**
+ * Tra 出版社事前確認 (cột Q của コピーライトマスタ) cho 1 tác phẩm.
+ *
+ * Dùng ĐÚNG cơ chế tra 2 tầng của resolvePublisherCopyright() — (出版社 + レーベル)
+ * trước, rồi (出版社) — vì đây là cùng một dòng quy tắc: 集英社 và 集英社+ブリンク là
+ * 2 dòng riêng và có thể khác nhau ở cột 事前確認 y như khác nhau ở template.
+ *
+ * KHÁC resolvePublisherCopyright() ở một điểm quan trọng: hàm này KHÔNG quan tâm
+ * 自動化フラグ hay template có dùng được không. 「02：個別ルール」 nghĩa là bản quyền
+ * phải viết tay, KHÔNG có nghĩa là NXB đó miễn kiểm duyệt trước — trả rỗng ở những
+ * dòng đó sẽ là nói sai. Chỉ khi NXB không có dòng quy tắc nào thì mới không biết.
+ *
+ * Giá trị trả về là NGUYÊN VĂN của ô (必要 / 不要 / rỗng), không map lại: cột Q chỉ
+ * chuyển tiếp thông tin cho con người đọc.
+ *
+ * @param {{publisher: *, label: *}} work
+ * @param {Map<string, object>} rulesLookup - buildPublisherCopyrightLookup()
+ * @returns {*} Giá trị cột L, hoặc '' nếu không có dòng quy tắc / ô trống
+ */
+function resolvePublisherPreConfirmation(work, rulesLookup) {
+  var rule = rulesLookup.get(publisherCopyrightKey(work.publisher, work.label));
+  if (rule === undefined) rule = rulesLookup.get(publisherCopyrightKey(work.publisher, ''));
+  if (rule === undefined) return '';
+  return rule.preConfirmation === null || rule.preConfirmation === undefined ? '' : rule.preConfirmation;
 }
 
 /**

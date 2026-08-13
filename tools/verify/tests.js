@@ -1199,8 +1199,140 @@ function test_titleCategoryDataset(ctx) {
       lpInputs.otherNoJudgement, 0);
 }
 
+// ==============================================================================
+// CỘT Q 出版社事前確認 của コピーライトマスタ (nguồn: cột L của 出版社別コピーライトマスタ)
+// User bổ sung 2026-08-13 — cột này trước đó bị bỏ sót.
+// ==============================================================================
+function test_preConfirmation(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    // Header thật hàng 15 của 出版社別コピーライトマスタ (E→R), copy nguyên văn kể cả \n.
+    // Cột L là '(出版社)\n事前確認'; cột M cũng bắt đầu bằng '(出版社)' — đó là lý do
+    // parse phải dùng tên đầy đủ chứ không phải colByPrefix('(出版社)').
+    var HEADER = ['', '', '', '', '出版社', '危険', '雑誌名/レーベル', '自動化フラグ', '要注意\n作品あり',
+      '順番指定', '(CL)\nC表記の\n事前確認', '(出版社)\n事前確認',
+      '(出版社)\n使用画像の報告\n※テキストファイルを入れる', '著者名\n区切り方',
+      'テンプレート\n(タイトルマスタで参照)'];
+
+    function rule(publisher, label, flag, preConfirmation, template) {
+      return ['', '', '', '', publisher, '', label, flag, '', '', '01：なし', preConfirmation, '', '・',
+        template];
+    }
+
+    var rows = [HEADER,
+      rule('集英社', '', '01：自動化', '必要', '©.集英社/作家名/タイトル名'),
+      rule('集英社', 'ブリンク', '01：自動化', '不要', '『タイトル名』©著者名／ホーム社'),
+      rule('個別出版', '', '02：個別ルール', '必要', '個別に確認してください'),
+      rule('空欄出版', '', '01：自動化', '', '『タイトル名』©著者名／空欄出版'),
+    ];
+    var rules = src.parsePublisherCopyrightRules(rows);
+    var lookup = src.buildPublisherCopyrightLookup(rules);
+
+    check('事前確認: doc dung cot L (khong nham sang cot M 使用画像の報告)',
+      rules.map(function (r) { return r.preConfirmation; }), ['必要', '不要', '必要', '']);
+
+    // Tra 2 tầng giống hệt bản quyền: dòng có レーベル phải thắng dòng chỉ có 出版社.
+    check('事前確認: (出版社+レーベル) thang (出版社)',
+      src.resolvePublisherPreConfirmation({ publisher: '集英社', label: 'ブリンク' }, lookup), '不要');
+    check('事前確認: khong co レーベル -> dung dong 出版社',
+      src.resolvePublisherPreConfirmation({ publisher: '集英社', label: '' }, lookup), '必要');
+    check('事前確認: レーベル la khong biet -> lui ve dong 出版社',
+      src.resolvePublisherPreConfirmation({ publisher: '集英社', label: '存在しないレーベル' }, lookup), '必要');
+
+    // Điểm khác biệt cốt lõi so với cột K: 02：個別ルール vẫn phải trả ra 事前確認.
+    var manual = { publisher: '個別出版', label: '', titleName: 'タイトル', author: '著者' };
+    check('事前確認: 02：個別ルール -> cot K KHONG sinh duoc',
+      src.resolvePublisherCopyright(manual, lookup).value, null);
+    check('事前確認: 02：個別ルール -> cot Q VAN co gia tri (khac cot K)',
+      src.resolvePublisherPreConfirmation(manual, lookup), '必要');
+
+    check('事前確認: NXB khong co dong quy tac -> rong',
+      src.resolvePublisherPreConfirmation({ publisher: 'どこにもない出版社', label: '' }, lookup), '');
+    check('事前確認: o nguon de trong -> rong',
+      src.resolvePublisherPreConfirmation({ publisher: '空欄出版', label: '' }, lookup), '');
+
+    // Cột nguồn bị đổi tên -> tryCol() trả undefined, parse KHÔNG throw (cột K phải
+    // tiếp tục sinh được), mọi rule nhận ''.
+    var renamedHeader = HEADER.slice();
+    renamedHeader[11] = '(出版社)\n事前チェック';
+    var renamed = src.parsePublisherCopyrightRules([renamedHeader, rule('集英社', '', '01：自動化', '必要', '©集英社')]);
+    check('事前確認: cot nguon doi ten -> parse van chay, gia tri rong',
+      [renamed.length, renamed[0].preConfirmation, renamed[0].template], [1, '', '©集英社']);
+
+    // ---- Cảnh báo ----
+    var runAt = new Date('2026-08-13T00:00:00Z');
+    check('canh bao: chua co cot Q -> 1 dong',
+      src.buildPreConfirmationWarningRows(false, rules, runAt).map(function (r) { return r.kind; }),
+      ['出版社事前確認注意']);
+    check('canh bao: co cot Q va nguon binh thuong -> 0 dong',
+      src.buildPreConfirmationWarningRows(true, rules, runAt).length, 0);
+    check('canh bao: co cot Q nhung MOI rule deu rong -> 1 dong (cot nguon doi ten)',
+      src.buildPreConfirmationWarningRows(true, renamed, runAt).length, 1);
+    check('canh bao: nguon loi (0 rule) -> khong bao nham "doi ten"',
+      src.buildPreConfirmationWarningRows(true, [], runAt).length, 0);
+}
+
+// ==============================================================================
+// ĐỐI CHIẾU DỮ LIỆU THẬT — cột Q trên 381 quy tắc NXB × 1.730 tác phẩm vào master
+// ==============================================================================
+function test_preConfirmationDataset(ctx) {
+
+    var src = ctx.src;
+    var check = ctx.check;
+
+    var rules = src.parsePublisherCopyrightRules(ctx.fixtures.load('publisherCopyright'));
+    var lookup = src.buildPublisherCopyrightLookup(rules);
+
+    var ruleCounts = { 必要: 0, 不要: 0, '': 0 };
+    rules.forEach(function (r) { ruleCounts[src.normalizeJapaneseText(r.preConfirmation)] += 1; });
+    check('出版社別コピーライトマスタ: 381 quy tac', rules.length, 381);
+    check('出版社別コピーライトマスタ: phan bo (出版社)事前確認 必要 / 不要 / trong',
+      [ruleCounts['必要'], ruleCounts['不要'], ruleCounts['']], [268, 105, 8]);
+
+    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup)
+      .filter(function (w) { return src.isWorkEligible(w); });
+    check('vao master: 1.730 tac pham (khop test_dataset)', works.length, 1730);
+
+    var qCounts = { 必要: 0, 不要: 0, '': 0 };
+    var noCopyrightButHasQ = 0;
+    works.forEach(function (w) {
+      var q = src.normalizeJapaneseText(src.resolvePublisherPreConfirmation(w, lookup));
+      qCounts[q] += 1;
+      if (src.resolvePublisherCopyright(w, lookup).value === null && q !== '') noCopyrightButHasQ += 1;
+    });
+    check('Q列: phan bo 必要 / 不要 / trong', [qCounts['必要'], qCounts['不要'], qCounts['']],
+      [1013, 472, 245]);
+
+    // Ô Q trống đến từ HAI nguyên nhân khác nhau, và phép cộng dưới đây chốt tỉ lệ
+    // giữa chúng:
+    //   241 — NXB không có dòng quy tắc nào (cùng tập với lý do ルール無し của cột K)
+    //     4 — CÓ dòng quy tắc nhưng ô (出版社)事前確認 của dòng đó bỏ trống
+    //         (8/381 quy tắc như vậy, chỉ 4 trong số đó có tác phẩm vào master)
+    // Gộp 2 thứ này lại thành "Q trống = không có quy tắc" là sai: nhóm thứ hai là
+    // ô 営業 quên điền ở NGUỒN, sửa được; nhóm thứ nhất thì phải thêm cả dòng quy tắc.
+    var noRule = works.filter(function (w) {
+      return src.resolvePublisherCopyright(w, lookup).reason === src.COPYRIGHT_REASON_NO_RULE;
+    }).length;
+    var ruleFoundButBlank = works.filter(function (w) {
+      if (src.normalizeJapaneseText(src.resolvePublisherPreConfirmation(w, lookup)) !== '') return false;
+      return src.resolvePublisherCopyright(w, lookup).reason !== src.COPYRIGHT_REASON_NO_RULE;
+    }).length;
+    check('Q列: o trong = (NXB khong co quy tac) + (quy tac co nhung o nguon trong)',
+      [noRule, ruleFoundButBlank, noRule + ruleFoundButBlank], [241, 4, qCounts['']]);
+
+    // Con số quan trọng nhất của thiết kế: 186 tác phẩm KHÔNG sinh được cột K
+    // (02：個別ルール hoặc template hỏng) nhưng VẪN có 事前確認. Nếu ai đó "đơn giản
+    // hoá" bằng cách chỉ lấy Q khi cột K sinh được, 186 tác phẩm này sẽ mất giá trị
+    // kiểm duyệt trước — sai theo hướng nguy hiểm.
+    check('Q列: 186 tac pham cot K khong sinh duoc nhung Q van co gia tri',
+      noCopyrightButHasQ, 186);
+}
+
 module.exports = {
   unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
-    test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp],
-  data: [test_dataset, test_titleCategoryDataset],
+    test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp, test_preConfirmation],
+  data: [test_dataset, test_titleCategoryDataset, test_preConfirmationDataset],
 };

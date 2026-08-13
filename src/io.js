@@ -364,6 +364,18 @@ var COPYRIGHT_REQUIRED_HEADERS = [
   'タイトル個別コピーライト(あれば優先使用)', '出版社コピーライト',
 ];
 
+// Cột Q 出版社事前確認 (user bổ sung 2026-08-13, nguồn: cột L của 出版社別コピーライトマスタ).
+//
+// CỐ TÌNH KHÔNG nằm trong COPYRIGHT_REQUIRED_HEADERS: cột này CHƯA TỒN TẠI trên
+// ガワ hiện tại (nó dừng ở P コピーライト_過去分5) và 池永 phải thêm tay. Đưa vào danh
+// sách bắt buộc thì mọi lần chạy sẽ throw ngay ở resolveMasterHeader() cho tới lúc
+// cột được thêm — tức là một cột thông tin phụ chặn đứng cả 2 master.
+//
+// Vì vậy nó được tra bằng tryCol(): có cột thì GAS ghi, chưa có thì bỏ qua + 1 dòng
+// GAS1警告 mỗi lần chạy. Thêm cột với ĐÚNG tên này là đủ để kích hoạt, không phải
+// sửa code. Tên lấy theo ô AA của sheet タイトルマスタ trong ガワ (giá trị 必要/不要).
+var COPYRIGHT_PRE_CONFIRMATION_HEADER = '出版社事前確認';
+
 /**
  * Tên header thật của 1 cột lịch sử trên sheet (slot=1 -> 'コピーライト_過去分1').
  *
@@ -386,12 +398,22 @@ function copyrightHistoryHeaderName(slot) {
  * đó — cùng lý do với readCustomerWorkMaster(): công thức rowOffset + 2 ngầm giả
  * định header ở hàng 1, sai với ガワ mới (header hàng 15).
  *
- * @returns {Array<{
+ * TRẢ VỀ OBJECT chứ không phải mảng records như trước: người gọi cần biết cột Q
+ * 出版社事前確認 đã tồn tại trên sheet chưa, và ĐÂY là nơi duy nhất biết được điều đó
+ * mà không phải đọc sheet thêm một lần nữa.
+ *
+ * VÌ SAO PHẢI BIẾT TRƯỚC KHI DIFF (không phải lúc ghi): cột chưa tồn tại thì mọi
+ * record đọc lên đều có preConfirmation = '' trong khi giá trị vừa tra được là
+ * 必要/不要 — nếu cứ đem so thì cả 1.303 dòng bị coi là "cần update" ở MỌI lần chạy,
+ * ghi lại y nguyên nội dung cũ và đổ 1.303 dòng vô nghĩa vào GAS1変更詳細. runGas1()
+ * dùng cờ này để bỏ hẳn field đó ra khỏi phép so khi cột chưa có.
+ *
+ * @returns {{hasPreConfirmationColumn: boolean, records: Array<{
  *   titleNo: *, cmsId: *, titleId: *, titleName: string, author: string,
  *   genre: string, publisher: string, label: string,
- *   individualCopyright: *, publisherCopyright: *,
+ *   individualCopyright: *, publisherCopyright: *, preConfirmation: *,
  *   copyrightHistory: Array<*>, sheetRow: number
- * }>}
+ * }>}}
  */
 function readCopyrightMaster() {
   var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
@@ -407,6 +429,8 @@ function readCopyrightMaster() {
   var colLabel = col(idx, 'レーベル名');
   var colIndividual = col(idx, 'タイトル個別コピーライト(あれば優先使用)');
   var colPublisherCopyright = col(idx, '出版社コピーライト');
+  // undefined khi cột Q chưa được thêm vào sheet — xem COPYRIGHT_PRE_CONFIRMATION_HEADER.
+  var colPreConfirmation = tryCol(idx, COPYRIGHT_PRE_CONFIRMATION_HEADER);
   var historyCols = [];
   for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
     historyCols.push(col(idx, copyrightHistoryHeaderName(h)));
@@ -432,19 +456,23 @@ function readCopyrightMaster() {
       label: row[colLabel],
       individualCopyright: row[colIndividual],
       publisherCopyright: row[colPublisherCopyright],
+      preConfirmation: colPreConfirmation === undefined ? '' : row[colPreConfirmation],
       copyrightHistory: history,
       sheetRow: i + 1,
     });
   }
-  return records;
+  return {
+    hasPreConfirmationColumn: colPreConfirmation !== undefined,
+    records: records,
+  };
 }
 
 /**
  * Chuyển 1 copyright record thành mảng giá trị theo đúng vị trí cột thật.
  *
- * Khác customerRecordToRow(): ở đây KHÔNG cần dựng từ bản copy dòng cũ, vì cả 15
- * cột của master này đều do GAS ghi — không có cột nào của người nhập tay để mà
- * bảo toàn. Cột A (đệm) vẫn được để trống đúng như trên sheet.
+ * Khác customerRecordToRow(): ở đây KHÔNG cần dựng từ bản copy dòng cũ, vì MỌI cột
+ * của master này đều do GAS ghi — không có cột nào của người nhập tay để mà bảo
+ * toàn. Cột A (đệm) vẫn được để trống đúng như trên sheet.
  *
  * @param {object} record - Copyright record (từ main.js, sau shiftCopyrightHistory())
  * @param {Map<string,number>} headerIndex
@@ -468,6 +496,13 @@ function copyrightRecordToRow(record, headerIndex, columnCount) {
   row[col(headerIndex, '出版社コピーライト')] = record.publisherCopyright || '';
   for (var h = 1; h <= CONFIG.COPYRIGHT_HISTORY_SLOTS; h++) {
     row[col(headerIndex, copyrightHistoryHeaderName(h))] = record.copyrightHistory[h - 1] || '';
+  }
+  // Cột Q 出版社事前確認 — chỉ ghi khi cột thật sự tồn tại trên sheet. Chưa có cột thì
+  // bỏ qua im lặng ở ĐÂY là đúng: cảnh báo đã được main.js ghi 1 lần cho cả lần chạy
+  // (báo ở đây sẽ thành 1.303 dòng giống hệt nhau).
+  var colPreConfirmation = tryCol(headerIndex, COPYRIGHT_PRE_CONFIRMATION_HEADER);
+  if (colPreConfirmation !== undefined) {
+    row[colPreConfirmation] = record.preConfirmation || '';
   }
   return row;
 }

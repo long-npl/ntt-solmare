@@ -305,6 +305,10 @@ function runGas1() {
       } else {
         var resolved = resolvePublisherCopyright(work, publisherCopyrightLookup);
         work.publisherCopyright = resolved.value === null ? '' : resolved.value;
+        // Cột Q 出版社事前確認 — tra ĐỘC LẬP với việc sinh được bản quyền hay không:
+        // 「02：個別ルール」 nói bản quyền phải viết tay, không nói NXB miễn kiểm duyệt
+        // trước. Xem JSDoc resolvePublisherPreConfirmation() trong copyright.js.
+        work.preConfirmation = resolvePublisherPreConfirmation(work, publisherCopyrightLookup);
         if (resolved.reason !== COPYRIGHT_REASON_OK) {
           copyrightWarnings.push({
             record: work,
@@ -432,7 +436,14 @@ function runGas1() {
     // chung タイトルID) nên nó dùng chung タイトルNo với 顧客作品マスタ — đó là lý do
     // resolveNumbersFromMatches() phải chạy xong TRƯỚC khối này.
     var copyrightKeyFn = function (r) { return String(r.titleNo); };
-    var existingCopyrightRows = readCopyrightMaster();
+    var copyrightRead = readCopyrightMaster();
+    var existingCopyrightRows = copyrightRead.records;
+    // false = cột Q 出版社事前確認 chưa được thêm vào ガワ. Xem JSDoc readCopyrightMaster().
+    var hasPreConfirmationColumn = copyrightRead.hasPreConfirmationColumn;
+    if (!hasPreConfirmationColumn) {
+      Logger.log('コピーライトマスタ: 出版社事前確認 列が見つかりません -> Q列は書き込まず、差分比較からも除外します'
+        + '（列を追加すれば自動で有効化されます）');
+    }
     var existingCopyrightByTitleNo = new Map();
     existingCopyrightRows.forEach(function (r) {
       existingCopyrightByTitleNo.set(copyrightKeyFn(r), r);
@@ -444,6 +455,9 @@ function runGas1() {
       // mới thì để trống), thay vì xoá bản quyền đã sinh trước đó.
       if (work.publisherCopyrightSkipped) {
         work.publisherCopyright = prior === null ? '' : prior.publisherCopyright;
+        // Cột Q cùng nguồn với cột K nên cùng số phận: nguồn quy tắc đọc không được
+        // thì giữ nguyên giá trị đang có, KHÔNG xoá.
+        work.preConfirmation = prior === null ? '' : prior.preConfirmation;
       }
       var nextEffective = effectiveCopyright(work);
       var priorEffective = prior === null ? '' : effectiveCopyright(prior);
@@ -462,6 +476,7 @@ function runGas1() {
         label: work.label,
         individualCopyright: work.individualCopyright,
         publisherCopyright: work.publisherCopyright,
+        preConfirmation: work.preConfirmation,
         copyrightHistory: shifted.copyrightHistory,
       };
     });
@@ -472,6 +487,11 @@ function runGas1() {
     var copyrightIsEqualFn = function (a, b) {
       return sameValue(a.individualCopyright, b.individualCopyright)
         && sameValue(a.publisherCopyright, b.publisherCopyright)
+        // Cột Q: chuỗi 必要/不要 thuần, so bình thường — NHƯNG chỉ khi cột đã tồn
+        // tại. Chưa có cột thì vế existing luôn là '' còn vế incoming là 必要/不要,
+        // đem so sẽ kết luận cả 1.303 dòng "cần update" ở mọi lần chạy. Xem JSDoc
+        // readCopyrightMaster().
+        && (!hasPreConfirmationColumn || sameValue(a.preConfirmation, b.preConfirmation))
         && sameValue(a.titleId, b.titleId)
         && sameValue(a.titleName, b.titleName)
         && sameValue(a.author, b.author)
@@ -528,10 +548,18 @@ function runGas1() {
       // "必要 -> (trống)" cho mọi tác phẩm 未判定, trong khi ô thật không hề bị đổi.
       { key: 'lpProduction', label: 'LP制作', compare: sameKeepWhenBlankValue },
     ], runAt);
-    var copyrightChangeRows = buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate, [
+    // Cột Q chỉ vào danh sách theo dõi khi nó tồn tại — cùng lý do với
+    // copyrightIsEqualFn ở trên (nếu không sẽ có 1.303 dòng log '(trống) -> 必要'
+    // mỗi lần chạy trong khi ô thật không hề được ghi).
+    var copyrightFieldDefs = [
       { key: 'individualCopyright', label: 'タイトル個別コピーライト' },
       { key: 'publisherCopyright', label: '出版社コピーライト' },
-    ], runAt);
+    ];
+    if (hasPreConfirmationColumn) {
+      copyrightFieldDefs.push({ key: 'preConfirmation', label: '出版社事前確認' });
+    }
+    var copyrightChangeRows = buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate,
+      copyrightFieldDefs, runAt);
     var allChangeRows = customerChangeRows.concat(copyrightChangeRows);
     appendChangeDetailRows(allChangeRows);
     Logger.log('GAS1変更詳細 記録: ' + allChangeRows.length + ' フィールド分');
@@ -547,11 +575,16 @@ function runGas1() {
       .concat(buildPreEndExtensionWarningRows(numberedCustomerRows, preEndExtensionLookup, runAt, preEndExtensionError))
       .concat(buildMassFreeWarningRows(numberedCustomerRows, massFreeLookup, runAt, massFreeError))
       .concat(buildTitleCategoryWarningRows(numberedCustomerRows, commitFlagLookup, runAt, commitManagementError))
-      .concat(buildLpProductionWarningRows(numberedCustomerRows, runAt));
+      .concat(buildLpProductionWarningRows(numberedCustomerRows, runAt))
+      // publisherCopyrightRules là `var` khai báo trong khối try ở Bước 1 — nếu nguồn
+      // quy tắc đọc lỗi thì nó undefined, truyền mảng rỗng để hàm chỉ báo đúng việc
+      // thiếu cột Q (việc nguồn lỗi đã có dòng コピーライト注意 riêng).
+      .concat(buildPreConfirmationWarningRows(hasPreConfirmationColumn,
+        publisherCopyrightRules || [], runAt));
     appendWarningRows(warningRows);
     var warningCounts = {
       match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0,
-      preEndExtension: 0, massFree: 0, titleCategory: 0, lpProduction: 0,
+      preEndExtension: 0, massFree: 0, titleCategory: 0, lpProduction: 0, preConfirmation: 0,
     };
     warningRows.forEach(function (row) {
       if (row.kind === WARNING_KIND_MATCH) warningCounts.match += 1;
@@ -564,6 +597,7 @@ function runGas1() {
       else if (row.kind === WARNING_KIND_MASS_FREE) warningCounts.massFree += 1;
       else if (row.kind === WARNING_KIND_TITLE_CATEGORY) warningCounts.titleCategory += 1;
       else if (row.kind === WARNING_KIND_LP_PRODUCTION) warningCounts.lpProduction += 1;
+      else if (row.kind === WARNING_KIND_PRE_CONFIRMATION) warningCounts.preConfirmation += 1;
     });
     Logger.log('GAS1警告 記録: ' + warningRows.length + ' 件（照合注意 ' + warningCounts.match
       + ' / 照合曖昧 ' + warningCounts.ambiguous + ' / 孤立行 ' + warningCounts.orphan
@@ -571,7 +605,8 @@ function runGas1() {
       + ' / 先行延長注意 ' + warningCounts.preEndExtension
       + ' / 大量無料注意 ' + warningCounts.massFree
       + ' / タイトル区分注意 ' + warningCounts.titleCategory
-      + ' / LP制作注意 ' + warningCounts.lpProduction + '）');
+      + ' / LP制作注意 ' + warningCounts.lpProduction
+      + ' / 出版社事前確認注意 ' + warningCounts.preConfirmation + '）');
 
     // ---- Bước 12: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {
@@ -740,7 +775,10 @@ function probe_readCustomerMaster() {
 
 /** Chạy thử: đọc dữ liệu ĐANG có trên コピーライトマスタ, in ra 3 dòng đầu. */
 function probe_readCopyrightMaster() {
-  Logger.log(JSON.stringify(readCopyrightMaster().slice(0, 3), null, 2));
+  var read = readCopyrightMaster();
+  Logger.log('出版社事前確認 列（Q列）: ' + (read.hasPreConfirmationColumn ? 'あり' : 'なし → GAS は書き込みません'));
+  Logger.log(read.records.length + ' 行');
+  Logger.log(JSON.stringify(read.records.slice(0, 3), null, 2));
 }
 
 /**

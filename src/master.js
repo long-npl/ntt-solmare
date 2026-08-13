@@ -628,6 +628,7 @@ var WARNING_KIND_PRE_END_EXTENSION = '先行延長注意';
 var WARNING_KIND_MASS_FREE = '大量無料注意';
 var WARNING_KIND_TITLE_CATEGORY = 'タイトル区分注意';
 var WARNING_KIND_LP_PRODUCTION = 'LP制作注意';
+var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
 
 /**
  * Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告.
@@ -1024,6 +1025,48 @@ function buildTitleCategoryWarningRows(records, commitFlagLookup, runAt, errorMe
       + ' → うち ' + found.commitRowCount + ' 行がコミットフラグのため E列「'
       + (found.committed ? TITLE_CATEGORY_COMMIT : TITLE_CATEGORY_EXCLUSIVE) + '」'));
   });
+  return rows;
+}
+
+/**
+ * 出版社事前確認注意 — 2 tình huống làm cột Q của コピーライトマスタ không được điền.
+ *
+ * 1. Cột Q chưa tồn tại trên ガワ (trạng thái ĐANG DIỄN RA lúc viết hàm này: ガワ dừng
+ *    ở cột P コピーライト_過去分5, 池永 phải thêm tay). GAS không tự thêm cột — thêm cột
+ *    là đổi hình dạng sheet của người khác, và làm im lặng thì lần sau không ai biết
+ *    cột đó từ đâu ra.
+ *
+ * 2. Cột nguồn `(出版社)事前確認` biến mất khỏi 出版社別コピーライトマスタ (bị đổi tên).
+ *    Nhận ra bằng cách: có quy tắc nhưng KHÔNG quy tắc nào có giá trị 事前確認. Trên
+ *    dữ liệu thật 373/393 dòng có giá trị, nên 0 dòng nghĩa là cột đã mất chứ không
+ *    phải 営業 bỏ trống hết.
+ *
+ * KHÔNG cảnh báo cho từng tác phẩm không tra ra giá trị: NXB chưa có dòng quy tắc thì
+ * đã có sẵn dòng コピーライト注意「ルール無し」 rồi, thêm dòng nữa chỉ là lặp.
+ *
+ * @param {boolean} hasColumn - readCopyrightMaster().hasPreConfirmationColumn
+ * @param {Array<object>} rules - parsePublisherCopyrightRules(), mảng rỗng nếu nguồn lỗi
+ * @param {Date} runAt
+ * @returns {Array<object>}
+ */
+function buildPreConfirmationWarningRows(hasColumn, rules, runAt) {
+  var rows = [];
+  if (!hasColumn) {
+    rows.push(warningRow(runAt, WARNING_KIND_PRE_CONFIRMATION, '', '', '',
+      'コピーライトマスタに「出版社事前確認」列がありません → Q列は書き込まず、差分比較からも除外'
+      + '（処理は継続）。ガワに列を追加すれば自動で有効化されます'));
+  }
+
+  if (rules.length > 0) {
+    var withValue = rules.filter(function (rule) {
+      return normalizeJapaneseText(rule.preConfirmation) !== '';
+    }).length;
+    if (withValue === 0) {
+      rows.push(warningRow(runAt, WARNING_KIND_PRE_CONFIRMATION, '', '', '',
+        '出版社別コピーライトマスタ ' + rules.length + ' ルールすべてで「(出版社)事前確認」が空です'
+        + ' → 列名が変わった可能性があります（Q列は全行空欄になります）'));
+    }
+  }
   return rows;
 }
 
