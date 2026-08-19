@@ -265,3 +265,133 @@ function parseTitleMasterRows(rawRows) {
     rows: rows,
   };
 }
+
+/**
+ * So toàn bộ 顧客作品マスタ với vùng dữ liệu hiện có của タイトルマスタ, ra danh sách dòng
+ * cần update / cần append, cùng cảnh báo và log chi tiết.
+ *
+ * KHÔNG ghi gì cả — chỉ tính. Việc đặt mảng vào sheet là của writeTitleMaster() (io.js).
+ *
+ * VÌ SAO PHẢI DIFF chứ không ghi lại hết: ghi lại toàn bộ ~8.000 dòng mỗi lần chạy tốn
+ * quota, và quan trọng hơn là làm tab GAS2変更詳細 vô dụng — nó chỉ có giá trị khi mỗi dòng
+ * trong đó là một thay đổi thật.
+ *
+ * SO SÁNH THEO CỘT, KHÔNG THEO CẢ DÒNG: dòng dựng ra vốn đã bằng dòng cũ ở mọi cột GAS❷
+ * không sở hữu (xem titleRecordToRow), nên so cả dòng cũng ra cùng kết quả — nhưng so theo
+ * cột cho ra luôn TÊN CỘT đã đổi để ghi vào GAS2変更詳細.
+ *
+ * @param {{
+ *   customerRecords: Array<object>, copyrightLookup: Map<string,object>,
+ *   copyrightAvailable: boolean, preConfirmationAvailable: boolean,
+ *   existing: Array<object>, headerIndex: Map<string,number>,
+ *   columnCount: number, runAt: Date
+ * }} options
+ * @returns {{toUpdate: Array<object>, toAdd: Array<object>,
+ *   warnings: Array<object>, changeDetails: Array<object>}}
+ */
+function diffTitleMaster(options) {
+  var runAt = options.runAt;
+  var indexed = indexCustomerRecords(options.customerRecords, runAt);
+  var warnings = indexed.warnings.slice();
+  var changeDetails = [];
+  var toUpdate = [];
+  var toAdd = [];
+
+  var existingByKey = new Map();
+  options.existing.forEach(function (row) {
+    var key = titleNoKey(row.titleNo);
+    if (key !== '' && !existingByKey.has(key)) existingByKey.set(key, row);
+  });
+
+  var claimed = new Map();
+
+  indexed.records.forEach(function (record) {
+    var key = titleNoKey(record.titleNo);
+    var copyright = options.copyrightLookup.get(key) || null;
+
+    // Chỉ cảnh báo khi ĐỌC ĐƯỢC nguồn mà vẫn không thấy khoá. Nguồn đọc không được là
+    // sự cố của cả lần chạy, đã có 1 dòng log riêng — nhân nó lên 8.000 dòng cảnh báo
+    // sẽ chôn vùi những cảnh báo thật.
+    if (options.copyrightAvailable && !copyright) {
+      warnings.push(buildWarning(runAt, WARNING_KIND_NO_COPYRIGHT, record,
+        'Không tìm thấy タイトルNo này trên コピーライトマスタ — 3 cột S/T/AA để rỗng.'));
+    }
+
+    var previous = existingByKey.get(key);
+    var values = titleRecordToRow({
+      record: record,
+      copyright: copyright,
+      copyrightAvailable: options.copyrightAvailable,
+      preConfirmationAvailable: options.preConfirmationAvailable,
+      headerIndex: options.headerIndex,
+      columnCount: options.columnCount,
+      previousRow: previous ? previous.rawRow : undefined,
+      runAt: runAt,
+    });
+
+    if (!previous) {
+      toAdd.push({ values: values, record: record });
+      return;
+    }
+
+    claimed.set(key, true);
+    var changed = collectChangedColumns(previous.rawRow, values, options.headerIndex, runAt, record);
+    if (changed.length === 0) return;
+    changeDetails = changeDetails.concat(changed);
+    toUpdate.push({ sheetRow: previous.sheetRow, values: values, record: record });
+  });
+
+  // 孤立行 — KHÔNG xoá. GAS❷ không phân biệt được "tác phẩm đã bị gỡ khỏi master" với
+  // "một lần đọc nguồn ra thiếu dòng"; xoá là thao tác không hoàn tác được trên dữ liệu
+  // 営業 đang dùng để chọn tác phẩm, còn cảnh báo thì người ta xoá tay được.
+  options.existing.forEach(function (row) {
+    var key = titleNoKey(row.titleNo);
+    if (key === '' || claimed.has(key)) return;
+    warnings.push(buildWarning(runAt, WARNING_KIND_ORPHAN, row,
+      'Dòng này không còn タイトルNo tương ứng trên 顧客作品マスタ — GAS❷ để nguyên, cần người kiểm.'));
+  });
+
+  return {
+    toUpdate: toUpdate,
+    toAdd: toAdd,
+    warnings: warnings,
+    changeDetails: changeDetails,
+  };
+}
+
+/**
+ * Liệt kê những cột GAS❷ sở hữu đã thật sự đổi giá trị giữa dòng cũ và dòng vừa dựng.
+ *
+ * Cột `compare: 'date'` so bằng sameDateValue() (chỉ so năm-tháng-ngày) — bắt buộc, vì
+ * Sheets trả Date còn nguồn có thể trả chuỗi, và 2 spreadsheet lệch múi giờ sẽ cho 2
+ * instant khác nhau cho CÙNG một ngày lịch. So thẳng sẽ thành churn vĩnh viễn: mỗi lần
+ * chạy đều thấy "đã đổi" và ghi lại toàn bộ sheet.
+ *
+ * @param {Array<*>} previousRow
+ * @param {Array<*>} values
+ * @param {Map<string,number>} headerIndex
+ * @param {Date} runAt
+ * @param {object} record
+ * @returns {Array<{runAt: Date, titleNo: *, titleName: *, field: string, oldValue: *, newValue: *}>}
+ */
+function collectChangedColumns(previousRow, values, headerIndex, runAt, record) {
+  var changes = [];
+  TITLE_COLUMNS.forEach(function (column) {
+    var index = col(headerIndex, column.header);
+    var oldValue = previousRow[index];
+    var newValue = values[index];
+    var same = column.compare === 'date'
+      ? sameDateValue(oldValue, newValue)
+      : sameValue(oldValue, newValue);
+    if (same) return;
+    changes.push({
+      runAt: runAt,
+      titleNo: blankIfEmpty(record.titleNo),
+      titleName: blankIfEmpty(record.titleName),
+      field: column.header,
+      oldValue: blankIfEmpty(oldValue),
+      newValue: blankIfEmpty(newValue),
+    });
+  });
+  return changes;
+}

@@ -306,7 +306,118 @@ function test_titleKeys(ctx) {
     parsed.rows[0].rawRow[src.col(parsed.headerIndex, 'タイトル区分')], 'コミット');
 }
 
+// ==============================================================================
+// DIFF — gas2/titleMaster.js: diffTitleMaster
+// ==============================================================================
+
+function test_diff(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+  var header = titleHeaderRow();
+  var headerIndex = src.buildHeaderIndex(header);
+  var runAt = new Date(2026, 7, 19, 9, 30);
+
+  function put(row, name, value) { row[src.col(headerIndex, name)] = value; return row; }
+
+  function existingRow(rawRow) {
+    return { titleNo: 2, titleName: '社会人のカレ。', titleId: 36818, sheetRow: 16, rawRow: rawRow };
+  }
+
+  function runDiff(overrides) {
+    var options = {
+      customerRecords: [sampleCustomer()],
+      copyrightLookup: src.buildCopyrightLookup([sampleCopyright()]),
+      copyrightAvailable: true,
+      preConfirmationAvailable: true,
+      existing: [],
+      headerIndex: headerIndex,
+      columnCount: header.length,
+      runAt: runAt,
+    };
+    Object.keys(overrides || {}).forEach(function (k) { options[k] = overrides[k]; });
+    return src.diffTitleMaster(options);
+  }
+
+  // --- Dòng chưa có -> toAdd.
+  var added = runDiff({});
+  check('dong chua co -> 1 toAdd, 0 toUpdate',
+    [added.toAdd.length, added.toUpdate.length], [1, 0]);
+
+  // --- Dòng đã có, GIỐNG HỆT -> không ghi gì. Dựng existing từ chính kết quả append,
+  // rồi thay マスタ追加日 bằng ngày cũ (dòng cũ không bị đóng dấu lại).
+  var sameRow = added.toAdd[0].values.slice();
+  put(sameRow, 'マスタ追加日', new Date(2020, 7, 19));
+  var unchanged = runDiff({ existing: [existingRow(sameRow)] });
+  check('dong khong doi -> khong ghi gi, khong co changeDetail',
+    [unchanged.toAdd.length, unchanged.toUpdate.length, unchanged.changeDetails.length],
+    [0, 0, 0]);
+
+  // --- Ngày cùng giá trị nhưng khác KIỂU (chuỗi vs Date) -> vẫn coi là không đổi.
+  var stringDateRow = sameRow.slice();
+  put(stringDateRow, '先行開始日', '2026/3/27');
+  put(stringDateRow, '先行終了日', '2026/6/25');
+  var dateNoise = runDiff({ existing: [existingRow(stringDateRow)] });
+  check('chuoi 2026/3/27 vs Date cung ngay -> khong tinh la doi',
+    dateNoise.toUpdate.length, 0);
+
+  // --- Một cột đổi thật -> 1 toUpdate + 1 changeDetail đúng tên cột.
+  var changedRow = sameRow.slice();
+  put(changedRow, 'LP制作', '不要');
+  var changed = runDiff({ existing: [existingRow(changedRow)] });
+  check('doi 1 cot -> 1 toUpdate dung sheetRow',
+    [changed.toUpdate.length, changed.toUpdate[0].sheetRow], [1, 16]);
+  check('changeDetail ghi dung ten cot va 2 gia tri',
+    [changed.changeDetails.length, changed.changeDetails[0].field,
+      changed.changeDetails[0].oldValue, changed.changeDetails[0].newValue],
+    [1, 'LP制作', '不要', '必要']);
+
+  // --- マスタ追加日 write-once: dòng cũ có ngày khác runAt -> KHÔNG tính là đổi.
+  var oldStampRow = sameRow.slice();
+  put(oldStampRow, 'マスタ追加日', new Date(2019, 0, 1));
+  var stamp = runDiff({ existing: [existingRow(oldStampRow)] });
+  check('マスタ追加日 cu khac ngay chay -> khong bi ghi de',
+    [stamp.toUpdate.length, stamp.changeDetails.length], [0, 0]);
+
+  // --- Dòng cũ có マスタ追加日 TRỐNG -> vẫn để trống (chỉ đóng dấu lúc append).
+  var emptyStampRow = sameRow.slice();
+  put(emptyStampRow, 'マスタ追加日', '');
+  var emptyStamp = runDiff({ existing: [existingRow(emptyStampRow)] });
+  check('マスタ追加日 dang trong tren dong cu -> van de trong',
+    [emptyStamp.toUpdate.length, emptyStamp.changeDetails.length], [0, 0]);
+
+  // --- 孤立行: dòng trên タイトルマスタ không còn bên 顧客作品マスタ -> cảnh báo, KHÔNG xoá.
+  var orphan = runDiff({
+    existing: [
+      existingRow(sameRow),
+      { titleNo: 777, titleName: 'tác phẩm đã biến mất', titleId: 999, sheetRow: 17,
+        rawRow: blankRowOfLength(header.length) },
+    ],
+  });
+  check('孤立行 -> 1 canh bao, khong sinh toUpdate/toAdd nao cho no',
+    [orphan.warnings.length, orphan.warnings[0].kind, orphan.warnings[0].titleNo,
+      orphan.toUpdate.length, orphan.toAdd.length],
+    [1, '孤立行', 777, 0, 0]);
+
+  // --- コピーライト未登録: có bên 顧客 nhưng không có bên ©.
+  var noCopyright = runDiff({ copyrightLookup: new Map() });
+  check('タイトルNo khong co ben © -> canh bao コピーライト未登録',
+    [noCopyright.warnings.length, noCopyright.warnings[0].kind], [1, 'コピーライト未登録']);
+  check('van tao dong, chi 3 cot copyright ra rong',
+    noCopyright.toAdd[0].values[src.col(headerIndex, '出版社コピーライト')], '');
+
+  // --- Nguồn phụ đọc không được -> KHÔNG cảnh báo 未登録 cho từng dòng (nếu không thì
+  // một lần mất quyền truy cập sinh ra 8.000 dòng cảnh báo vô nghĩa), và giữ nguyên cột.
+  var keptRow = sameRow.slice();
+  put(keptRow, '出版社コピーライト', '© cũ trên sheet');
+  var unavailable = runDiff({
+    copyrightAvailable: false, preConfirmationAvailable: false, copyrightLookup: new Map(),
+    existing: [existingRow(keptRow)],
+  });
+  check('nguon © doc khong duoc -> khong canh bao tung dong, khong ghi de cot',
+    [unavailable.warnings.length, unavailable.toUpdate.length], [0, 0]);
+}
+
 module.exports = {
-  unit: [test_harness, test_sources, test_titleRow, test_titleKeys],
+  unit: [test_harness, test_sources, test_titleRow, test_titleKeys, test_diff],
   data: [],
 };
