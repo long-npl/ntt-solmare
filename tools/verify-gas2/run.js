@@ -32,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const PURE_FILES = ['gas2/common.js', 'gas2/config.js'];
+const PURE_FILES = ['gas2/common.js', 'gas2/config.js', 'gas2/sources.js'];
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
