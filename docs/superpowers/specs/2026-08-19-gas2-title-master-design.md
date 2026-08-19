@@ -251,12 +251,34 @@ Phần thật sự đọc/ghi sheet kiểm bằng `probe_*` chạy tay trong App
 | 1 | Chốt `M タイトルキー` do GAS ghi hay người nhập | Cột `M` |
 | 2 | Quy tắc `N 初回配信巻数` ("chỉ số tập cuối" nghĩa là gì) + đọc CMS | Cột `N` |
 | 3 | spreadsheetId + quy tắc so khớp `ジャンル` của `媒体除外マスタ` | Cột `AB~AK` |
+| 4 | Chạy `probe_readCopyrightMaster()` và ghi lại `hasPreConfirmation` | Cột `AA` có được ghi hay không |
 
 Không việc nào chặn triển khai: 12 cột đó để trống, GAS❷ vẫn chạy đủ và đúng cho 24 cột
-còn lại.
+còn lại. Việc 4 không chặn gì cả — cột `AA` tự động được ghi ngay khi cột
+`出版社事前確認` xuất hiện bên `コピーライトマスタ`, không phải sửa code.
 
 **Đã chốt 2026-08-19:** tên sheet đích là `タイトルマスタ` (§2); `E マスタ追加日` = ngày
 dòng được thêm vào master, write-once (§3.1).
+
+## 12. Ghi nhận sau khi triển khai (2026-08-19)
+
+Code đã viết xong và push lên project GAS❷; đã pull ngược về và diff để xác nhận 7 file
+trên remote khớp bản local. Ba điều phát hiện trong lúc làm, khác với giả định của spec:
+
+1. **`example/*.xlsx` của 2 master nguồn là ガワ rỗng.** `顧客作品マスタ0803.xlsx` parse ra
+   **0 record** (không dòng nào có `タイトル名`), `コピーライトマスタ0804.xlsx` ra 3 record
+   mà 2 là dòng chú thích. Vì vậy §10 nhóm test "đối chiếu ガワ thật" **không kiểm được số
+   lượng** — nó kiểm việc 3 danh sách tên cột bắt buộc khớp byte-chính-xác với sheet thật,
+   còn phép kiểm số lượng nằm ở `probe_dryRunDiff()` trên spreadsheet thật.
+
+2. **`tools/verify/exportFixtures.py` có một đường dẫn chết** (`publisherCopyright` trỏ vào
+   bản `0803` đã bị thay bằng `0819`), và nó throw nên giết luôn mọi fixture đứng sau. Đã
+   sửa để in `SKIP` rồi đi tiếp, trả exit code khác 0. **Chưa** trỏ lại sang file mới —
+   đó là quyết định về baseline test của GAS❶, không thuộc phạm vi việc này.
+
+3. **Thêm `tools/verify-gas2/smoke.js`** ngoài kế hoạch: chạy trọn `runGas2()` trên
+   `SpreadsheetApp` giả. `main.js` không có logic đáng test đơn vị, nhưng nó là chỗ lỗi
+   NỐI DÂY sống, và cách duy nhất khác để phát hiện là push rồi bấm chạy lên master thật.
 
 **Đã triển khai 2026-08-19** — branch `gas2-title-master`, xem
 [docs/gas2-so-do-don-gian.md](../../gas2-so-do-don-gian.md) (mô tả vận hành) và

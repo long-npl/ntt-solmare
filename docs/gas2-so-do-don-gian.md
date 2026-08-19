@@ -1,210 +1,201 @@
 # GAS❷ — Mô tả hiện trạng (bản 2026-08-19)
 
-Bản này mô tả **code đang có trên branch `gas2-title-master`**, không phải spec.
+Bản này mô tả **code đang có trong `gas2/`**, không phải spec. Spec thiết kế nằm ở
+`docs/superpowers/specs/2026-08-19-gas2-title-master-design.md`.
 
-**Một câu:** GAS❷ đọc **2 master do GAS❶ sinh ra**, ghi **24 trong 36 cột** của
-`タイトルマスタ` bằng cơ chế diff theo khoá `タイトルNo`, chạy **9:30 và 17:30** giờ Nhật,
-hoặc chạy tay `runGas2()` trong Apps Script editor.
+**Một câu:** GAS❷ đọc **2 master do GAS❶ sinh ra**, gộp lại rồi ghi **24 trong 36 cột**
+của `タイトルマスタ` bằng cơ chế diff theo khoá `タイトルNo`, chạy tự động **9:30 và 17:30**
+giờ Nhật, hoặc chạy tay `runGas2()` trong Apps Script editor.
 
-Bước trước nó là GAS❶ — xem [gas1-so-do-don-gian.md](gas1-so-do-don-gian.md).
+GAS❷ là một **Apps Script project RIÊNG**, không phải một hàm trong GAS❶:
+`scriptId 1hI2TqTyvB-D7KEoDSXcWtUx4mCG0HfiG-c5x551ovrGApqWzlEdAJZlU`.
 
 ---
 
-## 1. Hình quy trình
+## 1. Sơ đồ
 
 ```mermaid
 flowchart TD
-    CUS["① 顧客作品マスタ<br/>(nguồn CHÍNH — GAS❶ sinh ra)"]
-    CPY["② コピーライトマスタ<br/>(nguồn PHỤ — GAS❶ sinh ra)"]
+    CUST["顧客作品マスタ<br/>(output GAS❶ — nguồn CHÍNH)"]
+    COPY["コピーライトマスタ<br/>(output GAS❶ — nguồn PHỤ)"]
 
-    KEY{"KHOÁ = タイトルNo<br/>thiếu / trùng → bỏ dòng + cảnh báo"}
-    LOOK["TRA © theo タイトルNo<br/>không thấy → S/T/AA rỗng + cảnh báo"]
-    BUILD["DỰNG DÒNG từ BẢN COPY dòng cũ<br/>chỉ ghi đè 24 cột GAS❷ sở hữu"]
-    STAMP["E マスタ追加日<br/>chỉ đóng dấu khi THÊM dòng mới"]
-    DIFF["DIFF theo từng cột<br/>ngày so theo năm-tháng-ngày"]
+    KEY{"KHỚP DÒNG theo タイトルNo<br/>thiếu khoá / trùng khoá → cảnh báo, bỏ dòng"}
+    BUILD["DỰNG DÒNG<br/>bắt đầu từ BẢN COPY dòng cũ,<br/>chỉ ghi đè 24 cột GAS❷ sở hữu"]
+    DIFF["DIFF từng cột<br/>ngày so theo năm-tháng-ngày"]
 
     TM["★ タイトルマスタ (B~AK)<br/>+ ô 更新日"]
-    ORPH["dòng không còn bên 顧客作品マスタ<br/>→ KHÔNG xoá, chỉ cảnh báo 孤立行"]
     LOG["3 tab log trong chính タイトルマスタ<br/>GAS2ログ · GAS2警告 · GAS2変更詳細"]
+    ORPHAN["孤立行 → CẢNH BÁO,<br/>KHÔNG xoá dòng"]
 
-    CUS --> KEY --> BUILD
-    CPY --> LOOK --> BUILD
-    STAMP --> BUILD
-    BUILD --> DIFF --> TM
-    TM --> ORPH
-    DIFF --> LOG
-    ORPH --> LOG
+    CUST --> KEY
+    COPY -->|"S / T / AA"| BUILD
+    KEY --> BUILD --> DIFF
+    DIFF -->|"dòng mới"| TM
+    DIFF -->|"dòng đã đổi"| TM
+    DIFF -->|"dòng không đổi"| SKIP["không ghi gì"]
+    TM --> LOG
+    KEY --> LOG
+    DIFF --> ORPHAN --> LOG
 ```
 
 ## 2. Vào / ra
 
 | Vai trò | Spreadsheet | Sheet |
 |---|---|---|
-| Nguồn chính (chỉ đọc) | `顧客作品マスタ` `1ILmNpxl…` | `顧客作品マスタ` |
-| Nguồn phụ (chỉ đọc) | `コピーライトマスタ` `1lGybYJH…` | `コピーライトマスタ` |
-| Output (đọc + ghi) | `タイトルマスタ` `16Fw9Krv…` | `タイトルマスタ` |
+| Nguồn CHÍNH (chỉ đọc) | `1ILmNpxlDIa-J0XiNnRprsdYVcUUiIEt59Miwey214hU` | `顧客作品マスタ` |
+| Nguồn PHỤ (chỉ đọc) | `1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc` | `コピーライトマスタ` |
+| Output (đọc + ghi) | `16Fw9KrvKskewy9OAWqPegYXvhOkRPywatd512Ncn4rI` | `タイトルマスタ` |
 
 GAS❷ **không bao giờ ghi lên 2 master nguồn**.
 
-Layout `タイトルマスタ`: cột A là cột đệm trống, header **hàng 15**, dữ liệu từ **hàng 16**,
-dải cột **B~AK**. Ô `更新日` (hiện ở C5) nhận thời điểm chạy.
+Layout `タイトルマスタ`: cột A là cột đệm trống, **header ở hàng 15**, dữ liệu từ hàng 16,
+dải cột B~AK. Ô `C5` là `更新日` (GAS❷ đóng dấu giờ chạy vào đây). Code **không hardcode**
+hàng 15 hay chữ cái cột nào — mọi thứ tra theo tên header.
 
-Không chỗ nào trong code hardcode "hàng 15" hay chữ cái cột — hàng header dò bằng
-`findHeaderRowIndex()`, cột tra bằng `col(headerIndex, 'tên cột')`.
+## 3. 24 cột GAS❷ ghi
 
-## 3. Bảng 24 cột GAS❷ ghi
-
-| Cột | ← Nguồn |
+| Cột | Nguồn |
 |---|---|
-| `B タイトルNo` | 顧客作品マスタ `タイトルNo` — **khoá join** |
-| `C CMS ID` / `D タイトルID` | 顧客作品マスタ cùng tên |
-| `E マスタ追加日` | **Ngày chạy** — chỉ khi dòng được thêm mới (xem §4) |
-| `F タイトル区分` | 顧客作品マスタ `タイトル区分` |
-| `G` / `H` / `I` | `①広告出稿ポリシー` / `②一般面出稿NG` / `③シーモアロゴ判定` |
-| `J 掲載停止日付` / `K LP制作` / `L タイトル名` | 顧客作品マスタ cùng tên |
-| `O 作家名` / `P ジャンル` / `Q 出版社` / `R レーベル名` | 顧客作品マスタ cùng tên |
-| `S 出版社コピーライト` | コピーライトマスタ `出版社コピーライト` |
-| `T タイトル個別コピーライト(あれば優先使用)` | コピーライトマスタ cùng tên |
-| `U`〜`Z` các mốc ngày | 顧客作品マスタ `先行開始日` / `先行終了日` / `先行終了日（延長）` / `先行終了日（最終確定）` / `大量無料開始日` / `大量無料終了日` |
-| `AA 出版社事前確認` | コピーライトマスタ `出版社事前確認` |
+| B `タイトルNo` | 顧客作品マスタ — **khoá join** |
+| C `CMS ID` · D `タイトルID` | 顧客作品マスタ |
+| **E `マスタ追加日`** | **GAS❷ tự đóng dấu** — xem §4 |
+| F `タイトル区分` | 顧客作品マスタ |
+| G `①広告出稿ポリシー` · H `②一般面出稿NG` · I `③シーモアロゴ判定` | 顧客作品マスタ |
+| J `掲載停止日付` · K `LP制作` · L `タイトル名` | 顧客作品マスタ |
+| O `作家名` · P `ジャンル` · Q `出版社` · R `レーベル名` | 顧客作品マスタ |
+| **S `出版社コピーライト`** | コピーライトマスタ |
+| **T `タイトル個別コピーライト(あれば優先使用)`** | コピーライトマスタ |
+| U〜Z `各種掲出期間` (6 cột) | 顧客作品マスタ |
+| **AA `出版社事前確認`** | コピーライトマスタ |
 
-Toàn bộ là copy nguyên văn, **không có phép biến đổi nào** (trừ `E`). Mọi logic nghiệp vụ —
-lọc レギュレーション, sinh 出版社コピーライト, suy `先行終了日（最終確定）`, phán định `LP制作` —
-đã nằm ở GAS❶. Quy tắc đổi thì chỉ có một nơi phải sửa.
-
-Bảng này sống ở `TITLE_COLUMNS` trong [gas2/titleMaster.js](../gas2/titleMaster.js).
+**Không có phép biến đổi nào** — 23 cột là copy nguyên văn. Mọi logic nghiệp vụ (lọc
+レギュレーション, sinh 出版社コピーライト, suy `先行終了日（最終確定）`, phán định `LP制作`)
+nằm ở GAS❶. GAS❷ cố ý không lặp lại một mảnh nào: quy tắc đổi thì chỉ đúng một nơi phải sửa.
 
 ## 4. `E マスタ追加日` — cột duy nhất GAS❷ tự sinh
 
-Quy tắc: **ngày đưa dòng đó vào master**. Hôm nay GAS❷ thêm dòng thì `E` = hôm nay.
+Giá trị = **ngày dòng đó được thêm vào master**. Đây là cột **write-once**: chỉ đóng dấu
+đúng một lần, lúc dòng được append. Dòng đã có `E` thì các lần chạy sau không đụng tới.
 
-**Write-once:** chỉ ghi đúng một lần, lúc dòng được thêm. Dòng đã có `E` — kể cả giá trị
-người nhập tay từ trước — **không bao giờ bị ghi đè**.
-
-Vì sao không ghi lại mỗi lần chạy: `E` là dữ liệu lịch sử, không phải trạng thái. Ghi đè
-theo ngày chạy sẽ biến cả cột thành "hôm nay" ngay lần chạy đầu, xoá mất thông tin dòng
+Ghi đè mỗi lần chạy sẽ biến cả cột thành "hôm nay" ngay lần đầu, xoá mất thông tin dòng
 nào cũ dòng nào mới — đúng thứ duy nhất cột này dùng để trả lời.
 
-**Hệ quả cần biết:** dòng đã có trên sheet mà `E` đang **trống** thì sẽ trống mãi, vì GAS❷
-chỉ đóng dấu lúc thêm dòng. Muốn lấp phải điền tay một lần.
+**Hệ quả:** dòng đã có trên sheet mà `E` đang trống sẽ **trống mãi**. Muốn lấp phải điền tay.
 
 ## 5. 12 cột GAS❷ KHÔNG đụng tới
 
 `M タイトルキー`, `N 初回配信巻数`, `AB~AK 掲出可能媒体` (10 cột). Ai nhập tay vào đó thì
-giữ nguyên qua mọi lần chạy.
+giá trị được giữ nguyên qua mọi lần chạy — kể cả khi dòng bị update.
 
-Cơ chế bảo vệ: chúng **vắng mặt khỏi `TITLE_COLUMNS`**, và dòng ghi được dựng từ **bản
-copy của dòng cũ**. Không có danh sách "cấm ghi" nào riêng để đi lệch khỏi danh sách kia.
-Điều này cũng đúng với cột 池永 thêm về sau mà code chưa biết — nó được giữ nguyên.
+Cơ chế bảo vệ nằm ở chỗ dòng ghi được **dựng từ bản copy của dòng cũ** rồi mới ghi đè 24
+cột GAS❷ sở hữu. Nghĩa là **mọi cột 池永 thêm về sau cũng tự động được giữ**, không phải
+sửa code.
 
-Lý do từng cột còn treo:
+Lý do từng cột chưa có nguồn:
 
-| Cột | Còn thiếu gì |
+- `M タイトルキー` — hàng 13 của ガワ ghi `制御シート` (nhập tay), ghi chú hàng 29 lại ghi
+  `→GASで更新`. Hai chỗ mâu thuẫn, chưa chốt.
+- `N 初回配信巻数` — nguồn là CMS (GAS❷ hiện không đọc CMS), quy tắc "chỉ lấy số tập cuối"
+  chưa được định nghĩa chính xác.
+- `AB~AK 掲出可能媒体` — logic ở `媒体除外マスタ` (`ロゴ有無 × ジャンル → 除外媒体`), chưa có
+  spreadsheetId và chưa chốt cách so khớp `ジャンル`.
+
+## 6. Cách chạy tay
+
+Mở project GAS❷ trong Apps Script editor.
+
+**Trước lần chạy thật đầu tiên**, chạy 4 probe theo thứ tự — cả 4 **không ghi gì lên sheet**:
+
+| Hàm | Cần thấy gì |
 |---|---|
-| `M タイトルキー` | Hàng 13 của ガワ ghi `制御シート` (nhập tay), ghi chú hàng 29 lại ghi `→GASで更新`. Chưa chốt bên nào. |
-| `N 初回配信巻数` | Nguồn là CMS (GAS❷ hiện không đọc CMS) và quy tắc "chỉ lấy số tập cuối" chưa được định nghĩa chính xác. |
-| `AB~AK 掲出可能媒体` | Logic ở `媒体除外マスタ` (`ロゴ有無 × ジャンル → 除外媒体`), chưa có spreadsheetId và chưa chốt cách so khớp `ジャンル`. |
+| `probe_readCustomerMaster()` | số dòng đọc được > 0 |
+| `probe_readCopyrightMaster()` | `có cột 出版社事前確認: true/false` — quyết định cột AA có được ghi không |
+| `probe_readTitleMasterHeader()` | `hàng header (1-based): 15`, 24 dòng map cột, không throw |
+| `probe_dryRunDiff()` | in số dòng sẽ thêm/sửa mà không ghi gì |
 
-## 6. Bốn loại cảnh báo
+Rồi `runGas2()`. **Chạy lần thứ hai ngay sau đó**: `追加行数` và `更新行数` phải là **0**.
+Đó là bằng chứng không có churn — nếu không phải 0, dừng lại và tìm cột nào bị so nhầm
+kiểu trước khi cài trigger.
 
-Không loại nào làm dừng lần chạy. Tất cả vào tab `GAS2警告`, 1 dòng = 1 ca.
+Cài lịch: chạy `createGas2Trigger()` **một lần**. Nó xoá trigger cũ rồi tạo lại 2 trigger
+9h và 17h. Apps Script chỉ có `nearMinute()` cho trigger hằng ngày nên Google chạy trong
+khoảng **±15 phút** quanh 9:30/17:30 — không có cách đặt đúng phút.
 
-| 種別 | Nghĩa | Việc cần làm |
+## 7. Đọc 3 tab log
+
+Cả 3 nằm trong **chính spreadsheet `タイトルマスタ`** — chỗ người ta đang mở khi thắc mắc.
+
+| Tab | Nội dung |
+|---|---|
+| `GAS2ログ` | 1 dòng/lần chạy: giờ bắt đầu/kết thúc, số thêm, số sửa, 4 cột đếm cảnh báo, lỗi |
+| `GAS2警告` | 1 dòng/cảnh báo: giờ, loại, `タイトルNo`, `タイトルID`, `タイトル名`, chi tiết |
+| `GAS2変更詳細` | 1 dòng/cột đã đổi: giờ, `タイトルNo`, `タイトル名`, tên cột, giá trị cũ, giá trị mới |
+
+4 loại cảnh báo và việc phải làm:
+
+| Loại | Nghĩa | Làm gì |
 |---|---|---|
-| `タイトルNo欠落` | Dòng 顧客作品マスタ không có `タイトルNo` | Kiểm bên GAS❶ vì sao dòng đó không được cấp số |
-| `タイトルNo重複` | 2 dòng cùng `タイトルNo`, dòng đầu thắng | Sửa dữ liệu bên 顧客作品マスタ |
-| `コピーライト未登録` | `タイトルNo` không có bên コピーライトマスタ → `S`/`T`/`AA` rỗng | Kiểm vì sao GAS❶ không sinh dòng © cho tác phẩm đó |
-| `孤立行` | Dòng trên `タイトルマスタ` không còn `タイトルNo` tương ứng bên 顧客作品マスタ | **GAS❷ để nguyên** — người kiểm rồi tự xoá nếu đúng là tác phẩm đã gỡ |
+| `タイトルNo欠落` | Dòng 顧客作品マスタ không có `タイトルNo` | Xem lại GAS❶ — nó phải cấp số cho mọi dòng |
+| `タイトルNo重複` | 2 dòng 顧客作品マスタ cùng `タイトルNo` (dòng đầu thắng) | Sửa ở 顧客作品マスタ |
+| `コピーライト未登録` | `タイトルNo` không có bên コピーライトマスタ → S/T/AA để rỗng | Xem GAS❶ có bỏ sót tác phẩm không |
+| `孤立行` | Dòng `タイトルマスタ` không còn tương ứng bên 顧客作品マスタ | **GAS❷ không xoá** — người kiểm rồi xoá tay nếu đúng |
 
-`孤立行` cố ý không bị xoá: GAS❷ không phân biệt được "tác phẩm đã gỡ khỏi master" với
-"một lần đọc nguồn ra thiếu dòng". Xoá là không hoàn tác được trên dữ liệu 営業 đang dùng
-để chọn tác phẩm; cảnh báo thì người ta xoá tay được.
+Cảnh báo `コピーライト未登録` cũng xuất hiện **một dòng không có タイトルNo** khi
+`コピーライトマスタ` chưa có cột `出版社事前確認` — nghĩa là cột AA đang được giữ nguyên.
+Thêm cột đúng tên đó vào nguồn là đủ để kích hoạt, không phải sửa code.
 
-Riêng `コピーライト未登録` còn được dùng cho một ca khác: `コピーライトマスタ` **chưa có cột**
-`出版社事前確認` — khi đó 1 dòng cảnh báo duy nhất được ghi và cột `AA` được giữ nguyên.
+## 8. Khi nguồn hỏng
 
-## 7. Hai mức lỗi nguồn
+| Nguồn | Đọc không được thì sao |
+|---|---|
+| `顧客作品マスタ` (CHÍNH) | **Dừng ngay, không ghi một ô nào**, ghi lỗi vào `GAS2ログ` + bắn Slack |
+| `コピーライトマスタ` (PHỤ) | **Giữ nguyên** S/T/AA đang có trên sheet, lần chạy vẫn tiếp tục |
 
-- **`顧客作品マスタ` — nguồn CHÍNH.** Đọc không được → dừng ngay, **không ghi một ô nào**,
-  ghi 1 dòng `GAS2ログ` có cột `エラー` + bắn Slack.
-- **`コピーライトマスタ` — nguồn PHỤ.** Đọc không được → **giữ nguyên** `S`/`T`/`AA` đang có
-  trên sheet, lần chạy vẫn tiếp tục cho 21 cột còn lại. Không sinh cảnh báo cho từng dòng
-  (nếu không, một lần mất quyền truy cập đẻ ra hàng nghìn dòng cảnh báo vô nghĩa).
+Nguồn phụ phải cư xử như vậy: S/T là cột GAS❷ ghi đè hoàn toàn, nên coi "không đọc được"
+= "rỗng" sẽ xoá sạch copyright của toàn bộ tác phẩm chỉ vì một lần mất quyền truy cập —
+mà copyright sai là đúng loại tai nạn dự án này sinh ra để chặn.
 
-Nguồn phụ bắt buộc phải cư xử vậy: `S`/`T` là cột GAS❷ ghi đè hoàn toàn, coi "không đọc
-được" = "rỗng" sẽ xoá sạch copyright của toàn bộ tác phẩm chỉ vì một lần mất quyền — mà
-copyright sai là đúng loại tai nạn dự án này sinh ra để chặn.
+Slack: điền 2 Script Property `SLACK_BOT_TOKEN` và `SLACK_CHANNEL_ID` qua
+Apps Script editor > Project Settings. Chưa điền thì GAS❷ im lặng bỏ qua, không lỗi.
 
-## 8. Ba tab log
+## 9. Cấu trúc code
 
-Nằm trong **chính spreadsheet `タイトルマスタ`** — đó là chỗ người dùng đang mở khi họ
-thắc mắc "sao dòng này đổi".
-
-| Tab | 1 dòng = | Dùng khi |
-|---|---|---|
-| `GAS2ログ` | 1 lần chạy: giờ bắt đầu/kết thúc, số thêm, số sửa, 4 cột đếm cảnh báo, lỗi | "Sáng nay nó có chạy không? Có lỗi gì không?" |
-| `GAS2警告` | 1 cảnh báo: giờ, 種別, `タイトルNo`, `タイトルID`, `タイトル名`, chi tiết | "Tác phẩm này sao không lên master?" |
-| `GAS2変更詳細` | 1 cột của 1 tác phẩm đã đổi: giờ, `タイトルNo`, `タイトル名`, tên cột, giá trị cũ, giá trị mới | "Ai đổi ngày kết thúc của tác phẩm này?" |
-
-Lần chạy hoàn toàn sạch thì tab `GAS2警告` và `GAS2変更詳細` **không được tạo** — không có
-dòng trống vô nghĩa.
-
-## 9. Chạy và lịch
-
-**Chạy tay:** mở project GAS❷
-(`1hI2TqTyvB-D7KEoDSXcWtUx4mCG0HfiG-c5x551ovrGApqWzlEdAJZlU`), chạy `runGas2()`.
-
-**Xem trước khi ghi:** chạy `probe_dryRunDiff()` — nó chạy trọn phần tính toán rồi in ra
-sẽ thêm/sửa bao nhiêu dòng, **không ghi gì cả**. Chạy hàm này trước mỗi lần làm gì đó
-đáng ngờ. Nếu nó báo sửa gần bằng tổng số dòng ở lần chạy thứ hai liên tiếp thì có churn —
-dừng lại, tìm cột nào bị so nhầm kiểu.
-
-Các probe khác, đều không ghi gì: `probe_readTitleMasterHeader()` (xác nhận hàng header +
-24 tên cột — chạy nó sau mỗi lần 池永 sửa ガワ), `probe_readCustomerMaster()`,
-`probe_readCopyrightMaster()`.
-
-**Lịch:** 9:30 và 17:30 `Asia/Tokyo`, đi sau GAS❶ (9:00/17:00) 30 phút. Cài bằng cách chạy
-tay `createGas2Trigger()` **một lần** — đổi `CONFIG.TRIGGER_HOURS` xong phải chạy lại nó,
-Apps Script không tự đọc lại.
-
-Trigger hằng ngày của Apps Script chỉ nhận `nearMinute()`, nên Google chạy trong khoảng
-**±15 phút** quanh 9:30/17:30. Không có API đặt đúng phút.
-
-Nếu GAS❶ chạy quá 30 phút hoặc lỗi, GAS❷ đọc dữ liệu của lần trước và vẫn chạy thành công
-— không có cơ chế chờ. Hệ quả xấu nhất là `タイトルマスタ` trễ nửa ngày, và `GAS1ログ` đã ghi
-lại việc GAS❶ lỗi.
-
-## 10. Test
-
-```bash
-node tools/verify-gas2/run.js          # 44 test đơn vị
-python tools/verify/exportFixtures.py  # export fixture từ example/*.xlsx
-node tools/verify-gas2/run.js --data   # thêm nhóm đối chiếu ガワ thật (58 test)
-node tools/verify-gas2/smoke.js        # chạy trọn runGas2() trên SpreadsheetApp giả
+```
+gas2/
+  config.js        3 spreadsheet ID + trigger + tên Script Property của Slack
+  common.js        BẢN COPY của src/common.js — xem cảnh báo ở §10
+  sources.js       tầng thuần: đọc 2 master nguồn thành record
+  titleMaster.js   tầng thuần: TITLE_COLUMNS, dựng dòng, khoá, diff
+  io.js            CHỖ DUY NHẤT gọi Google API
+  main.js          runGas2(), createGas2Trigger(), 4 probe_*
 ```
 
-`smoke.js` **không assert gì** — nó in ra mọi lệnh ghi mà `runGas2()` định thực hiện, để
-người đọc nhìn. Nó tồn tại vì lỗi của `main.js` là lỗi *nối dây* (gọi sai tên hàm, thiếu
-một key của options) mà không test đơn vị nào bắt được, và cách phát hiện duy nhất khác là
-push lên rồi bấm chạy vào master thật.
+Chạy test: `node tools/verify-gas2/run.js` (thêm `--data` để đối chiếu với ガワ thật —
+cần `python tools/verify/exportFixtures.py` trước).
 
-**Giới hạn đã biết:** cả 3 file trong `example/` đều là ガワ chứ không có dữ liệu thật
-(`顧客作品マスタ` ra 0 record). Nên nhóm `--data` **không kiểm được số lượng** — nó kiểm 3
-danh sách tên cột bắt buộc có khớp byte-chính-xác với 3 sheet thật hay không. Phép kiểm số
-lượng thật sự là `probe_dryRunDiff()` trên spreadsheet thật.
+`node tools/verify-gas2/smoke.js` chạy trọn `runGas2()` trên `SpreadsheetApp` giả và in ra
+mọi lệnh ghi mà nó định thực hiện. Không assert gì — để người đọc nhìn, dùng khi nghi ngờ
+phần dàn dựng.
+
+## 10. Hai điều dễ quên
+
+**`gas2/common.js` là bản copy của `src/common.js`.** Sửa `src/common.js` thì phải copy
+lại nguyên file và cập nhật dòng ngày ở đầu. Apps Script không cho project này import
+project kia nên không có cách nào tránh.
+
+**Đổi spreadsheetId của 2 master ở GAS❶ thì phải đổi cả ở `gas2/config.js`.** Quên thì
+GAS❷ vẫn chạy trơn tru trên master cũ và không có gì báo.
 
 ## 11. Thêm nguồn cho 1 trong 12 cột còn treo
 
-Ba bước, không cần sửa gì khác:
+Ba bước, không phải sửa lại thiết kế:
 
-1. `gas2/config.js` — thêm 1 entry vào `CONFIG.SOURCES`.
-2. `gas2/sources.js` — thêm hàm `parse…Rows()` cho nguồn mới, hoặc thêm field vào record
-   sẵn có nếu giá trị nằm trên master đang đọc.
+1. `gas2/config.js` — thêm 1 entry vào `SOURCES`.
+2. `gas2/sources.js` — thêm hàm parse nguồn đó, hoặc thêm field vào record đang có.
 3. `gas2/titleMaster.js` — thêm 1 dòng vào `TITLE_COLUMNS` với `header` copy byte-chính-xác
-   từ sheet, `source`, `field`, và `compare: 'text' | 'date'`.
+   từ sheet, `source`, `field`, và `compare` (`'date'` hay `'text'`).
 
-## 12. ⚠️ `gas2/common.js` là BẢN COPY
-
-`gas2/common.js` là bản copy của `src/common.js` (Apps Script không cho import chéo
-project). **Sửa `src/common.js` thì phải copy lại sang `gas2/common.js`** và cập nhật dòng
-ngày ở đầu file. Không có cơ chế nào tự nhắc việc này ngoài dòng ngày đó.
+Nhớ: `normalizeHeaderText()` **chỉ bỏ khoảng trắng và xuống dòng, KHÔNG làm NFKC** — ngoặc
+full-width `（）` và half-width `()` là hai thứ khác nhau. Trên `タイトルマスタ` thật:
+`先行終了日（延長）` dùng ngoặc full-width, còn
+`タイトル個別コピーライト(あれば優先使用)` dùng half-width.
