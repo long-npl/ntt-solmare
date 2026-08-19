@@ -13,6 +13,7 @@
 import datetime
 import json
 import os
+import sys
 
 import openpyxl
 
@@ -42,6 +43,21 @@ TARGETS = [
      '広告出稿必須タイトル'),
 ]
 
+# Bộ fixture của GAS❷ — ghi ra thư mục KHÁC (tools/verify-gas2/fixtures) để harness của
+# 2 GAS không dùng chung dữ liệu và vô tình phụ thuộc nhau. Cùng dùng chung script này
+# vì việc y hệt: đọc example/*.xlsx ra JSON mảng 2 chiều, ô trống = ''.
+OUT_DIR_GAS2 = os.path.join(ROOT, 'tools', 'verify-gas2', 'fixtures')
+
+TARGETS_GAS2 = [
+    # Layout ガワ của タイトルマスタ: cột A đệm, header hàng 15, dữ liệu từ hàng 16.
+    # Đây là file mẫu 池永 gửi, chỉ có ~14 dòng dữ liệu — đủ để kiểm layout, không đủ
+    # để kiểm số lượng.
+    ('titleMasterGawa', 'example/【DX見本】タイトルマスタ.xlsx', 'タイトルマスタ'),
+    # 2 master nguồn của GAS❷ (= 2 output của GAS❶), bản thật gần nhất trong example/.
+    ('customerMasterGawa', 'example/【池永社内】顧客作品マスタ0803.xlsx', '顧客作品マスタ'),
+    ('copyrightMasterGawa', 'example/【池永社内】コピーライトマスタ0804.xlsx', 'コピーライトマスタ'),
+]
+
 
 def cell(value):
     """Chuyển 1 ô openpyxl sang giá trị JSON, giữ đúng ngữ nghĩa của Sheets.
@@ -67,32 +83,57 @@ def cell(value):
     return value
 
 
+def export(out_dir, name, rel_path, sheet_name):
+    """Export 1 sheet ra JSON. Trả False nếu file nguồn không còn tồn tại.
+
+    KHÔNG throw khi thiếu file: 池永/安蒜 gửi bản mới theo ngày và tên file có ngày trong
+    đó, nên một đường dẫn cũ trong TARGETS là chuyện thường xuyên xảy ra. Throw thì target
+    hỏng đó giết luôn mọi fixture đứng sau nó trong danh sách — tức một file đổi tên làm
+    hỏng cả bộ test của một GAS khác. In SKIP rồi đi tiếp, và main() trả exit code != 0 để
+    việc này không im lặng trôi qua.
+    """
+    path = os.path.join(ROOT, rel_path)
+    if not os.path.exists(path):
+        print('%-20s SKIP  khong tim thay file: %s' % (name, rel_path))
+        return False
+    # data_only=True BẮT BUỘC: các sheet này dùng IMPORTRANGE, không có nó
+    # openpyxl trả về chuỗi công thức '=IFERROR(__xludf.DUMMYFUNCTION(...))'
+    # thay vì giá trị thật.
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet_name]
+    rows = [[cell(c) for c in row] for row in ws.iter_rows(values_only=True)]
+    # Bỏ các dòng trống ở cuối: openpyxl hay trả thêm vài dòng rỗng, còn
+    # getDataRange() của Sheets thì không.
+    while rows and not any(str(c).strip() for c in rows[-1]):
+        rows.pop()
+    # Serialize TRƯỚC rồi mới ghi 1 lần: json.dump ghi theo dòng chảy, nên nếu
+    # gặp kiểu không serialize được ở giữa file thì để lại 1 file JSON dở dang
+    # mà harness sẽ đọc như JSON hỏng (báo lỗi rất khó hiểu).
+    payload = json.dumps(rows, ensure_ascii=False)
+    out = os.path.join(out_dir, name + '.json')
+    with open(out, 'w', encoding='utf-8') as f:
+        f.write(payload)
+    # Thông báo cố tình dùng ASCII: console mặc định của Windows (cp932 khi
+    # locale là Nhật) không in được dấu tiếng Việt và sẽ throw UnicodeEncodeError.
+    print('%-20s %5d rows -> %s' % (name, len(rows), out))
+    wb.close()
+    return True
+
+
 def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-    for name, rel_path, sheet_name in TARGETS:
-        path = os.path.join(ROOT, rel_path)
-        # data_only=True BẮT BUỘC: các sheet này dùng IMPORTRANGE, không có nó
-        # openpyxl trả về chuỗi công thức '=IFERROR(__xludf.DUMMYFUNCTION(...))'
-        # thay vì giá trị thật.
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb[sheet_name]
-        rows = [[cell(c) for c in row] for row in ws.iter_rows(values_only=True)]
-        # Bỏ các dòng trống ở cuối: openpyxl hay trả thêm vài dòng rỗng, còn
-        # getDataRange() của Sheets thì không.
-        while rows and not any(str(c).strip() for c in rows[-1]):
-            rows.pop()
-        # Serialize TRƯỚC rồi mới ghi 1 lần: json.dump ghi theo dòng chảy, nên nếu
-        # gặp kiểu không serialize được ở giữa file thì để lại 1 file JSON dở dang
-        # mà harness sẽ đọc như JSON hỏng (báo lỗi rất khó hiểu).
-        payload = json.dumps(rows, ensure_ascii=False)
-        out = os.path.join(OUT_DIR, name + '.json')
-        with open(out, 'w', encoding='utf-8') as f:
-            f.write(payload)
-        # Thông báo cố tình dùng ASCII: console mặc định của Windows (cp932 khi
-        # locale là Nhật) không in được dấu tiếng Việt và sẽ throw UnicodeEncodeError.
-        print('%-20s %5d rows -> %s' % (name, len(rows), out))
-        wb.close()
+    skipped = []
+    for out_dir, targets in ((OUT_DIR, TARGETS), (OUT_DIR_GAS2, TARGETS_GAS2)):
+        os.makedirs(out_dir, exist_ok=True)
+        for name, rel_path, sheet_name in targets:
+            if not export(out_dir, name, rel_path, sheet_name):
+                skipped.append(name)
+    if skipped:
+        print('')
+        print('%d target bi bo qua (file nguon khong con): %s' % (len(skipped), ', '.join(skipped)))
+        print('Sua duong dan trong TARGETS/TARGETS_GAS2, hoac xoa target neu khong dung nua.')
+        return 1
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

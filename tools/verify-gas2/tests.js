@@ -417,7 +417,112 @@ function test_diff(ctx) {
     [unavailable.warnings.length, unavailable.toUpdate.length], [0, 0]);
 }
 
+// ==============================================================================
+// ĐỐI CHIẾU VỚI ガワ THẬT — nhóm `data`
+// ==============================================================================
+//
+// Chạy trên fixture export từ example/*.xlsx: cần `python tools/verify/exportFixtures.py`
+// trước, rồi `node tools/verify-gas2/run.js --data`.
+//
+// GIỚI HẠN ĐÃ BIẾT CỦA BỘ FIXTURE NÀY (kiểm 2026-08-19): cả 3 file trong example/ đều là
+// ガワ (bản thiết kế) chứ không phải bản có dữ liệu thật —
+//   顧客作品マスタ0803.xlsx      -> 0 record (không dòng nào có タイトル名)
+//   コピーライトマスタ0804.xlsx  -> 3 record, trong đó 2 là dòng chú thích nằm dưới vùng
+//                                  dữ liệu ('顧客作品マスタ', 'から引用')
+//   【DX見本】タイトルマスタ.xlsx -> 2 dòng có タイトルNo
+// Vì vậy nhóm này KHÔNG kiểm được số lượng. Thứ nó kiểm — và là thứ duy nhất không test
+// đơn vị nào kiểm được — là 3 danh sách tên cột bắt buộc có khớp BYTE-CHÍNH-XÁC với 3
+// sheet thật hay không (sai 1 ngoặc full/half-width là findHeaderRowIndex() throw ngay
+// tại đây). Phép kiểm số lượng thật sự nằm ở probe_dryRunDiff() chạy trên spreadsheet thật.
+
+function test_gawaDataset(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+  var runAt = new Date(2026, 7, 19, 9, 30);
+
+  var titleRows = ctx.fixtures.load('titleMasterGawa');
+  var parsed = src.parseTitleMasterRows(titleRows);
+  var columnCount = titleRows[parsed.headerRowIndex].length;
+
+  // Header ở hàng 15 của sheet = index 14. Đây là phép kiểm quan trọng nhất của nhóm này:
+  // nó chứng minh 24 tên cột trong TITLE_COLUMNS khớp BYTE-CHÍNH-XÁC với sheet thật.
+  check('parseTitleMasterRows do ra hang header 15 cua ガワ that',
+    parsed.headerRowIndex, 14);
+
+  // Cột A là cột đệm: タイトルNo phải nằm ở index 1, không phải 0.
+  check('cot A la cot dem, タイトルNo o index 1',
+    src.col(parsed.headerIndex, 'タイトルNo'), 1);
+  check('12 cot khong co nguon van co mat tren sheet',
+    [src.col(parsed.headerIndex, 'タイトルキー') > 0,
+      src.col(parsed.headerIndex, '初回配信巻数') > 0,
+      src.col(parsed.headerIndex, 'GDN(CM)') > 0],
+    [true, true, true]);
+
+  // 2 master nguồn: parse KHÔNG THROW nghĩa là CUSTOMER_REQUIRED_HEADERS và
+  // COPYRIGHT_REQUIRED_HEADERS khớp với ガワ thật. Số record là 0/3 vì lý do ghi ở đầu
+  // khối này — chốt cứng đúng con số đó để bộ fixture có ngày được thay bằng bản có dữ
+  // liệu thì test này đỏ và người sửa biết phải xem lại giới hạn đã ghi ở trên.
+  var customers = src.parseCustomerMasterRows(ctx.fixtures.load('customerMasterGawa'));
+  var copyright = src.parseCopyrightMasterRows(ctx.fixtures.load('copyrightMasterGawa'));
+  check('parse duoc ca 2 master nguon tu ガワ that (0 va 3 record)',
+    [customers.length, copyright.records.length], [0, 3]);
+  check('ガワ コピーライトマスタ chua co cot 出版社事前確認',
+    copyright.hasPreConfirmation, false);
+
+  // Diff trên LAYOUT THẬT với record tổng hợp: ガワ không có dữ liệu nên không mượn được
+  // record thật, nhưng layout mới là thứ dễ sai và nó là thật ở đây.
+  function diffAgainst(existing, at) {
+    return src.diffTitleMaster({
+      customerRecords: [sampleCustomer()],
+      copyrightLookup: src.buildCopyrightLookup([sampleCopyright()]),
+      copyrightAvailable: true,
+      preConfirmationAvailable: true,
+      existing: existing,
+      headerIndex: parsed.headerIndex,
+      columnCount: columnCount,
+      runAt: at,
+    });
+  }
+
+  // sampleCustomer() có タイトルNo = 2, TRÙNG với dòng 16 có thật trên ガワ — nên lần chạy
+  // đầu ra 1 UPDATE (không phải add). Đúng thứ cần kiểm: dòng thật của 池永 có sẵn giá trị
+  // ở 4 cột GAS❷ không sở hữu (マスタ追加日 2020-08-19, タイトルキー 'syakare', và cả dải
+  // AB~AK đánh 〇/-), nên nó chứng minh cơ chế dựng-từ-rawRow hoạt động trên layout thật
+  // chứ không chỉ trên hàng header tự dựng trong test đơn vị.
+  var first = diffAgainst(parsed.rows, runAt);
+  check('lan chay dau tren layout that: 1 dong duoc cap nhat, 1 dong 孤立',
+    [first.toUpdate.length, first.toAdd.length], [1, 0]);
+  var updatedRow = first.toUpdate[0].values;
+  check('dong cap nhat co be rong dung bang hang header cua sheet that',
+    updatedRow.length, columnCount);
+  check('マスタ追加日 cua dong co san GIU NGUYEN 2020-08-19, khong bi dong dau lai',
+    src.toDateKey(updatedRow[src.col(parsed.headerIndex, 'マスタ追加日')]), '2020-8-19');
+  check('4 cot khong so huu tren dong that deu giu nguyen',
+    [updatedRow[src.col(parsed.headerIndex, 'タイトルキー')],
+      updatedRow[src.col(parsed.headerIndex, 'GDN(CM)')],
+      updatedRow[src.col(parsed.headerIndex, 'Meta')],
+      updatedRow[src.col(parsed.headerIndex, '新規媒体')]],
+    ['syakare', '〇', '〇', '-']);
+  check('cot co nguon van duoc ghi (CMS ID tu rong -> 6761)',
+    updatedRow[src.col(parsed.headerIndex, 'CMS ID')], 6761);
+
+  // Chạy diff LẦN THỨ HAI trên chính kết quả lần đầu, với NGÀY CHẠY KHÁC -> không được
+  // sinh thay đổi nào. Đây là phép kiểm churn: nó bắt đúng class lỗi "mỗi lần chạy đều
+  // thấy đã đổi", và đồng thời chứng minh マスタ追加日 không bị đóng dấu lại.
+  var settled = parsed.rows.map(function (row) {
+    if (src.titleNoKey(row.titleNo) !== src.titleNoKey(2)) return row;
+    return {
+      titleNo: row.titleNo, titleId: row.titleId, titleName: row.titleName,
+      sheetRow: row.sheetRow, rawRow: updatedRow,
+    };
+  });
+  var second = diffAgainst(settled, new Date(2026, 7, 20, 9, 30));
+  check('chay lan 2 (ngay khac) -> khong dong nao doi, khong churn',
+    [second.toUpdate.length, second.toAdd.length, second.changeDetails.length],
+    [0, 0, 0]);
+}
+
 module.exports = {
   unit: [test_harness, test_sources, test_titleRow, test_titleKeys, test_diff],
-  data: [],
+  data: [test_gawaDataset],
 };
