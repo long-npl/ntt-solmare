@@ -522,7 +522,48 @@ function test_gawaDataset(ctx) {
     [0, 0, 0]);
 }
 
+// ==============================================================================
+// Ô 更新日 — gas2/io.js: stampUpdatedAt
+// ==============================================================================
+//
+// Đây là hàm DUY NHẤT của io.js test được bằng Node: mọi lời gọi API của nó nằm trong
+// thân hàm, còn logic là dò vị trí trên một mảng. Sheet giả chỉ cần có
+// getRange().setValue().
+
+function test_updatedAt(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+  var written = [];
+  var fakeSheet = {
+    getRange: function (row, column) {
+      return { setValue: function (value) { written.push([row, column, value]); } };
+    },
+  };
+
+  // Layout ガワ thật: nhãn 更新日 ở B5, giá trị vào C5. headerRowIndex = 14 (hàng 15).
+  var values = [];
+  for (var i = 0; i < 15; i++) values.push(['', '', '']);
+  values[3] = ['', '更新チーム', '営業'];
+  values[4] = ['', '更新日', new Date(2026, 6, 21)];
+  values[7] = ['', '①更新タイミング：毎週XX曜日', ''];
+
+  var runAt = new Date(2026, 7, 19, 9, 30);
+  var cell = src.stampUpdatedAt(fakeSheet, values, 14, runAt);
+  check('stampUpdatedAt ghi vao dung o C5', cell, 'C5');
+  check('stampUpdatedAt ghi Date chu khong phai chuoi',
+    [written.length, written[0][0], written[0][1], src.toDateKey(written[0][2])],
+    [1, 5, 3, '2026-8-19']);
+
+  // Nhãn giả trong vùng DỮ LIỆU (dưới hàng header) không được ghi nhầm vào.
+  var withNoise = values.slice();
+  withNoise.push(['', '更新日', 'ô 備考 của một tác phẩm']);
+  written.length = 0;
+  var again = src.stampUpdatedAt(fakeSheet, withNoise, 14, runAt);
+  check('chi quet cac hang TREN hang header', [again, written.length], ['C5', 1]);
+}
+
 module.exports = {
-  unit: [test_harness, test_sources, test_titleRow, test_titleKeys, test_diff],
+  unit: [test_harness, test_sources, test_titleRow, test_titleKeys, test_diff,
+    test_updatedAt],
   data: [test_gawaDataset],
 };
