@@ -257,3 +257,16 @@ còn lại.
 
 **Đã chốt 2026-08-19:** tên sheet đích là `タイトルマスタ` (§2); `E マスタ追加日` = ngày
 dòng được thêm vào master, write-once (§3.1).
+
+**Đã triển khai 2026-08-19** — branch `gas2-title-master`, xem
+[docs/gas2-so-do-don-gian.md](../../gas2-so-do-don-gian.md) (mô tả vận hành) và
+[docs/superpowers/plans/2026-08-19-gas2-title-master.md](../plans/2026-08-19-gas2-title-master.md)
+(plan). Hai điều phát hiện khi làm, chưa có trong bản spec gốc:
+
+- **Cột `出版社事前確認` có thể chưa tồn tại trên `コピーライトマスタ`.** GAS❶ ghi nó bằng
+  `tryCol()` vì 池永 phải thêm tay. GAS❷ vì vậy có cờ `hasPreConfirmation` riêng: nguồn
+  chưa có cột thì cột `AA` được **giữ nguyên** thay vì bị ghi rỗng đè lên. Chạy
+  `probe_readCopyrightMaster()` để biết trạng thái thật.
+- **Mọi file `example/*.xlsx` của 2 master nguồn là ガワ rỗng** (`顧客作品マスタ` parse ra 0
+  record). Nên test local không kiểm được số lượng — nó kiểm tên cột khớp byte-chính-xác.
+  Phép kiểm số lượng là `probe_dryRunDiff()` trên spreadsheet thật.
