@@ -130,3 +130,138 @@ function titleRecordToRow(options) {
 function blankIfEmpty(value) {
   return value === null || value === undefined ? '' : value;
 }
+
+// 4 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
+// tab log và test không thể lệch nhau vì một lỗi gõ.
+var WARNING_KIND_MISSING_NO = 'タイトルNo欠落';
+var WARNING_KIND_DUPLICATE_NO = 'タイトルNo重複';
+var WARNING_KIND_NO_COPYRIGHT = 'コピーライト未登録';
+var WARNING_KIND_ORPHAN = '孤立行';
+
+/**
+ * Khoá join của toàn bộ GAS❷: chuỗi đã chuẩn hoá của タイトルNo.
+ *
+ * Phải chuẩn hoá chứ không dùng thẳng giá trị ô: SpreadsheetApp trả number cho ô số còn
+ * fixture JSON trả string, nên `2 === '2'` là false và mọi dòng sẽ bị coi là dòng mới.
+ * normalizeJapaneseText() còn gộp luôn chữ số full-width (ô '２' do lỗi IME).
+ *
+ * Trả '' cho ô trống — bên gọi dùng chính điều kiện này để loại dòng thiếu khoá, thay vì
+ * để khoá rỗng khớp với khoá rỗng và 2 tác phẩm khác nhau ghi đè lên cùng 1 dòng.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function titleNoKey(value) {
+  return normalizeJapaneseText(value);
+}
+
+/**
+ * Map khoá タイトルNo -> record của コピーライトマスタ.
+ *
+ * Trùng khoá thì bản ĐẦU TIÊN thắng — コピーライトマスタ do GAS❶ sinh ra với khoá là chính
+ * タイトルNo nên trùng là bất thường bên đó, không phải việc GAS❷ đi sửa.
+ *
+ * @param {Array<object>} records - Kết quả parseCopyrightMasterRows().records
+ * @returns {Map<string, object>}
+ */
+function buildCopyrightLookup(records) {
+  var map = new Map();
+  records.forEach(function (record) {
+    var key = titleNoKey(record.titleNo);
+    if (key === '' || map.has(key)) return;
+    map.set(key, record);
+  });
+  return map;
+}
+
+/**
+ * Lọc danh sách record của 顧客作品マスタ xuống còn những dòng có khoá dùng được, kèm
+ * cảnh báo cho mỗi dòng bị loại.
+ *
+ * Hai ca, cùng một hậu quả (dòng không lên được タイトルマスタ) nhưng khác nguyên nhân nên
+ * tách 2 loại cảnh báo: 欠落 là dữ liệu thiếu ở nguồn, 重複 là 2 dòng tranh nhau 1 khoá.
+ * Gộp làm một thì người đọc log không biết phải đi sửa cái gì.
+ *
+ * KHÔNG throw ở cả 2 ca: một dòng hỏng không được phép chặn 8.000 dòng còn lại.
+ *
+ * @param {Array<object>} records - Kết quả parseCustomerMasterRows()
+ * @param {Date} runAt
+ * @returns {{records: Array<object>, warnings: Array<object>}}
+ */
+function indexCustomerRecords(records, runAt) {
+  var kept = [];
+  var warnings = [];
+  var seen = new Map();
+  records.forEach(function (record) {
+    var key = titleNoKey(record.titleNo);
+    if (key === '') {
+      warnings.push(buildWarning(runAt, WARNING_KIND_MISSING_NO, record,
+        'Dòng không có タイトルNo nên không lên được タイトルマスタ.'));
+      return;
+    }
+    if (seen.has(key)) {
+      warnings.push(buildWarning(runAt, WARNING_KIND_DUPLICATE_NO, record,
+        'タイトルNo đã được dùng bởi「' + seen.get(key).titleName + '」— dòng này bị bỏ qua.'));
+      return;
+    }
+    seen.set(key, record);
+    kept.push(record);
+  });
+  return { records: kept, warnings: warnings };
+}
+
+/**
+ * Dựng 1 dòng cảnh báo cho tab GAS2警告.
+ *
+ * @param {Date} runAt
+ * @param {string} kind - Một trong 4 hằng WARNING_KIND_*
+ * @param {{titleNo: *, titleId: *, titleName: *}} record
+ * @param {string} detail
+ * @returns {{runAt: Date, kind: string, titleNo: *, titleId: *, titleName: *, detail: string}}
+ */
+function buildWarning(runAt, kind, record, detail) {
+  return {
+    runAt: runAt,
+    kind: kind,
+    titleNo: blankIfEmpty(record.titleNo),
+    titleId: blankIfEmpty(record.titleId),
+    titleName: blankIfEmpty(record.titleName),
+    detail: detail,
+  };
+}
+
+/**
+ * Đọc vùng dữ liệu hiện có của タイトルマスタ: dò hàng header, trả về từng dòng kèm số
+ * dòng THẬT và bản gốc của dòng.
+ *
+ * sheetRow là số dòng 1-based dùng thẳng cho getRange() — KHÔNG tính bằng
+ * headerRow + thứ tự, vì công thức đó ngầm giả định không có dòng trống xen giữa
+ * (ガワ thật có), và một lần lệch nghĩa là ghi tác phẩm này đè lên dòng tác phẩm khác.
+ *
+ * rawRow được giữ lại để titleRecordToRow() bảo toàn 12 cột chưa có nguồn.
+ *
+ * @param {Array<Array<*>>} rawRows
+ * @returns {{headerRowIndex: number, headerIndex: Map<string,number>, rows: Array<object>}}
+ */
+function parseTitleMasterRows(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, TITLE_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var rows = [];
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
+    var row = rawRows[i];
+    if (!row) continue;
+    if (titleNoKey(row[col(idx, 'タイトルNo')]) === '') continue;
+    rows.push({
+      titleNo: row[col(idx, 'タイトルNo')],
+      titleId: row[col(idx, 'タイトルID')],
+      titleName: row[col(idx, 'タイトル名')],
+      sheetRow: i + 1,
+      rawRow: row,
+    });
+  }
+  return {
+    headerRowIndex: resolved.headerRowIndex,
+    headerIndex: idx,
+    rows: rows,
+  };
+}

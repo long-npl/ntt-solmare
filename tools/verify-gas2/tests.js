@@ -243,7 +243,70 @@ function test_titleRow(ctx) {
     [names.length, Object.keys(unique).length], [24, 24]);
 }
 
+// ==============================================================================
+// KHOÁ タイトルNo — gas2/titleMaster.js: titleNoKey / indexCustomerRecords /
+// buildCopyrightLookup / parseTitleMasterRows
+// ==============================================================================
+
+function test_titleKeys(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+  var runAt = new Date(2026, 7, 19, 9, 30);
+
+  // Sheets trả về number cho ô số, fixture/export có thể trả string — cùng 1 khoá.
+  check('titleNoKey: number va string cho ra cung khoa',
+    src.titleNoKey(2) === src.titleNoKey('2'), true);
+  check('titleNoKey: rong/null/khoang trang deu ra chuoi rong',
+    [src.titleNoKey(''), src.titleNoKey(null), src.titleNoKey('  ')], ['', '', '']);
+  check('titleNoKey: so full-width khop so half-width',
+    src.titleNoKey('２') === src.titleNoKey('2'), true);
+
+  // --- indexCustomerRecords: bỏ dòng thiếu khoá, dòng đầu thắng khi trùng.
+  var records = [
+    { titleNo: 2, titleId: 36818, titleName: 'A' },
+    { titleNo: '', titleId: 111, titleName: 'B thiếu khoá' },
+    { titleNo: 2, titleId: 222, titleName: 'C trùng khoá với A' },
+    { titleNo: 8830, titleId: 332945, titleName: 'D' },
+  ];
+  var indexed = src.indexCustomerRecords(records, runAt);
+  check('indexCustomerRecords giu 2 dong hop le, dung thu tu',
+    indexed.records.map(function (r) { return r.titleName; }), ['A', 'D']);
+  check('indexCustomerRecords sinh dung 2 canh bao',
+    indexed.warnings.map(function (w) { return w.kind; }),
+    ['タイトルNo欠落', 'タイトルNo重複']);
+  check('canh bao 重複 chi ro dong nao bi bo',
+    [indexed.warnings[1].titleNo, indexed.warnings[1].titleName],
+    [2, 'C trùng khoá với A']);
+
+  // --- buildCopyrightLookup
+  var lookup = src.buildCopyrightLookup([
+    { titleNo: 2, publisherCopyright: '©A' },
+    { titleNo: '8830', publisherCopyright: '©D' },
+  ]);
+  check('buildCopyrightLookup tra duoc bang khoa da chuan hoa',
+    [lookup.get(src.titleNoKey('2')).publisherCopyright,
+      lookup.get(src.titleNoKey(8830)).publisherCopyright],
+    ['©A', '©D']);
+
+  // --- parseTitleMasterRows: dò hàng header, trả sheetRow THẬT (1-based).
+  var rows = [
+    ['', '▮タイトルマスタ'],
+    ['', '更新日', new Date(2026, 6, 21)],
+    titleHeaderRow(),
+    ['', 2, 6761, 36818, new Date(2020, 7, 19), 'コミット'],
+    ['', '', '', '', '', ''],
+    ['', 8830, '', 332945, new Date(2025, 7, 27), '独占'],
+  ];
+  var parsed = src.parseTitleMasterRows(rows);
+  check('parseTitleMasterRows do dung hang header (0-based)', parsed.headerRowIndex, 2);
+  check('parseTitleMasterRows bo dong khong co タイトルNo, giu sheetRow that',
+    parsed.rows.map(function (r) { return [r.titleNo, r.sheetRow]; }),
+    [[2, 4], [8830, 6]]);
+  check('parseTitleMasterRows giu rawRow de bao toan cot',
+    parsed.rows[0].rawRow[src.col(parsed.headerIndex, 'タイトル区分')], 'コミット');
+}
+
 module.exports = {
-  unit: [test_harness, test_sources, test_titleRow],
+  unit: [test_harness, test_sources, test_titleRow, test_titleKeys],
   data: [],
 };
