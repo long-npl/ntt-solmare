@@ -1,8 +1,24 @@
+# Thư mục gốc của repo là project Apps Script của GAS❶ (.clasp.json ở đây trỏ tới
+# scriptId của nó, với rootDir "" và skipSubdirectories false — nghĩa là clasp đi
+# vào MỌI thư mục con). Nên mọi thứ không thuộc GAS❶ phải được liệt kê ở dưới.
+#
+# gas2/** là dòng quan trọng nhất: GAS❷ là project Apps Script RIÊNG, có
+# gas2/.clasp.json với scriptId riêng, và phải push từ trong thư mục gas2/.
+# Đẩy nó lên cùng GAS❶ sẽ nạp 2 file vào chung một global scope, gây trùng 29 tên
+# hàm (readSheetValues, notifySlack, appendLogEntry, readCopyrightMaster, ...) và
+# — tệ nhất — trùng cả `var CONFIG`. Khi đó GAS❶ chạy với CONFIG của GAS❷, nơi
+# không có SOURCES.REGULATION, và hỏng ngay từ bước đọc nguồn đầu tiên.
+
 **/node_modules/**
+gas2/**
+shared/**
 tools/**
 docs/**
 example/**
 .code-review-graph/**
 .claude/**
+.playwright-mcp/**
 .git/**
 *.md
+*.xlsx
+*.pdf
