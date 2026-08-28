@@ -1,6 +1,18 @@
+// ⚠️  FILE NÀY ĐƯỢC SINH RA TỰ ĐỘNG — MỌI THAY ĐỔI SẼ BỊ GHI ĐÈ.
+//
+// Nguồn gốc : shared/common.js
+// Sinh bởi  : node tools/sync-shared.js
+//
+// Sửa shared/common.js rồi chạy lại lệnh trên. Hai harness test đều gọi
+// `node tools/sync-shared.js --check` trước khi chạy, nên nếu bạn sửa tay ở đây,
+// test sẽ đỏ chứ không âm thầm chấp nhận.
+
 // common.js — NỀN TẢNG: tra cột theo TÊN header + chuẩn hoá/so sánh giá trị
 //
-// Đây là lớp thấp nhất của GAS❶: mọi file khác đều gọi vào đây. Gom 2 nhóm hàm
+// NGUỒN GỐC: shared/common.js. src/common.js và gas2/common.js được SINH RA từ đây
+// bởi tools/sync-shared.js — sửa ở đây, rồi chạy `node tools/sync-shared.js`.
+//
+// Đây là lớp thấp nhất của CẢ GAS❶ VÀ GAS❷: mọi file khác đều gọi vào đây. Gom 2 nhóm hàm
 // vào cùng 1 file vì chúng cùng giải một vấn đề — "dữ liệu người nhập tay không
 // bao giờ sạch": cột có thể bị chèn/đổi thứ tự/đổi tên (nhóm 1), giá trị có thể
 // khác nhau ở những ký tự vô hình mà mắt thường không thấy (nhóm 2).

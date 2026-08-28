@@ -28,11 +28,27 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const PURE_FILES = ['src/common.js', 'src/config.js', 'src/sources.js', 'src/master.js',
-  'src/copyright.js', 'src/io.js'];
+const PURE_FILES = ['src/common.js', 'src/masterHeaders.js', 'src/config.js',
+  'src/sources.js', 'src/master.js', 'src/copyright.js', 'src/io.js'];
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
+
+// -------------------------------------------------- shared/ đã được đồng bộ chưa?
+// src/common.js và src/masterHeaders.js là file SINH RA từ shared/. Kiểm trước khi
+// chạy test, vì một bản chép bị sửa tay sẽ làm test xanh trên bản này rồi hỏng trên
+// bản kia — đúng loại lệch mà không ai nhìn thấy.
+//
+// Chạy ĐỒNG BỘ (execFileSync) và cho fail ngay: test xanh trên một cây nguồn đã lệch
+// còn tệ hơn không có test.
+const syncCheck = require('child_process').spawnSync(
+  process.execPath, [path.join(ROOT, 'tools', 'sync-shared.js'), '--check'],
+  { encoding: 'utf8' });
+if (syncCheck.status !== 0) {
+  process.stdout.write(syncCheck.stdout || '');
+  process.stderr.write(syncCheck.stderr || '');
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------- nạp src/
 const sandbox = { console: console };

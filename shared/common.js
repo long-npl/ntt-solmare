@@ -1,12 +1,3 @@
-// ⚠️  FILE NÀY ĐƯỢC SINH RA TỰ ĐỘNG — MỌI THAY ĐỔI SẼ BỊ GHI ĐÈ.
-//
-// Nguồn gốc : shared/common.js
-// Sinh bởi  : node tools/sync-shared.js
-//
-// Sửa shared/common.js rồi chạy lại lệnh trên. Hai harness test đều gọi
-// `node tools/sync-shared.js --check` trước khi chạy, nên nếu bạn sửa tay ở đây,
-// test sẽ đỏ chứ không âm thầm chấp nhận.
-
 // common.js — NỀN TẢNG: tra cột theo TÊN header + chuẩn hoá/so sánh giá trị
 //
 // NGUỒN GỐC: shared/common.js. src/common.js và gas2/common.js được SINH RA từ đây

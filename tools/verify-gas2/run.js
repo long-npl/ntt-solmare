@@ -32,11 +32,23 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const PURE_FILES = ['gas2/common.js', 'gas2/config.js', 'gas2/sources.js',
-  'gas2/titleMaster.js', 'gas2/io.js'];
+const PURE_FILES = ['gas2/common.js', 'gas2/masterHeaders.js', 'gas2/config.js',
+  'gas2/sources.js', 'gas2/titleMaster.js', 'gas2/io.js'];
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
+
+// -------------------------------------------------- shared/ đã được đồng bộ chưa?
+// gas2/common.js và gas2/masterHeaders.js là file SINH RA từ shared/. Kiểm trước khi
+// chạy test — xem comment tương ứng trong tools/verify/run.js.
+const syncCheck = require('child_process').spawnSync(
+  process.execPath, [path.join(ROOT, 'tools', 'sync-shared.js'), '--check'],
+  { encoding: 'utf8' });
+if (syncCheck.status !== 0) {
+  process.stdout.write(syncCheck.stdout || '');
+  process.stderr.write(syncCheck.stderr || '');
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------- nạp src/
 const sandbox = { console: console };

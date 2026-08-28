@@ -10,16 +10,9 @@
 // resolveHeaderIndex(): ghi thiếu cột nghĩa là タイトルマスタ sai một cách âm thầm, mà
 // đây lại là master 営業 dùng để chọn tác phẩm.
 //
-// Ngoặc trong '先行終了日（延長）' là ngoặc FULL-WIDTH đúng như trên sheet;
-// normalizeHeaderText() CHỈ bỏ khoảng trắng/xuống dòng, KHÔNG làm NFKC — nên viết
-// nhầm sang ngoặc half-width là throw.
-var CUSTOMER_REQUIRED_HEADERS = [
-  'タイトルNo', 'CMS ID', 'タイトルID', 'タイトル区分',
-  '①広告出稿ポリシー', '②一般面出稿NG', '③シーモアロゴ判定',
-  '掲載停止日付', 'LP制作', 'タイトル名', '作家名', 'ジャンル', '出版社', 'レーベル名',
-  '先行開始日', '先行終了日', '先行終了日（延長）', '先行終了日（最終確定）',
-  '大量無料開始日', '大量無料終了日',
-];
+// CUSTOMER_REQUIRED_HEADERS nằm ở gas2/masterHeaders.js (sinh ra từ shared/) — cùng một
+// danh sách với src/, vì nó mô tả HÌNH DẠNG của sheet 顧客作品マスタ chứ không phải nhu
+// cầu riêng của GAS❷. Xem comment đầu shared/masterHeaders.js.
 
 // Tên cột BẮT BUỘC trên コピーライトマスタ. Chỉ 4 cột: GAS❷ chỉ lấy 3 giá trị từ master
 // này (+ khoá join), mọi cột định danh khác đã có sẵn bên 顧客作品マスタ.

@@ -156,13 +156,9 @@ function stampUpdatedAt(sheet, values, headerRowIndex, runAt) {
 // trường hợp này (xem JSDoc của nó trong common.js). Ký tự ngoặc là ngoặc FULL-WIDTH
 // （）đúng như trên sheet; ô thật còn có '\n' trước ngoặc, nhưng normalizeHeaderText()
 // bỏ newline nên không cần viết vào đây.
-var CUSTOMER_REQUIRED_HEADERS = [
-  'タイトルNo', 'CMS ID', 'タイトルID', 'タイトル名', '作家名', 'ジャンル', '出版社',
-  'レーベル名', '先行開始日', '先行終了日', '①広告出稿ポリシー', '②一般面出稿NG', '③シーモアロゴ判定',
-  '掲載停止日付',
-  '先行終了日（延長）', '先行終了日（最終確定）', '大量無料開始日', '大量無料終了日',
-  'タイトル区分', 'LP制作',
-];
+// CUSTOMER_REQUIRED_HEADERS nằm ở src/masterHeaders.js (sinh ra từ shared/) — cùng
+// một danh sách với gas2/, vì nó mô tả HÌNH DẠNG của sheet 顧客作品マスタ chứ không phải
+// nhu cầu riêng của GAS❶. Xem comment đầu shared/masterHeaders.js.
 
 /**
  * Đọc toàn bộ dòng dữ liệu hiện có trên 顧客作品マスタ — đầu vào cho
