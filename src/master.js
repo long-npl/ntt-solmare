@@ -906,7 +906,7 @@ function buildPreEndExtensionWarningRows(records, extensionLookup, runAt, errorM
 
     (found.skipped || []).forEach(function (skipped) {
       var text = normalizeJapaneseText(skipped.value);
-      var groupKey = skipped.roundName + ' ' + text;
+      var groupKey = skipped.roundName + '\u0000' + text;
       if (!skippedGroups.has(groupKey)) {
         skippedGroups.set(groupKey, {
           roundName: skipped.roundName, value: skipped.value,
