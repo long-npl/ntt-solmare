@@ -35,7 +35,7 @@ var CONFIG = {
       sheetName: "シート1",
     },
     CMS: {
-      spreadsheetId: '1vU82_heOwwcYlJr9kv9VEqJVKu3kUPz9gh9R5_ycR0k',
+      spreadsheetId: "1vU82_heOwwcYlJr9kv9VEqJVKu3kUPz9gh9R5_ycR0k",
       // spreadsheetId: "1Kxb4YNV1dUFkoAbUEnMPFXnXg3AZCi7zdos3SFmBTQU", //DEMO
       sheetName: "★列追加の場合は増渕まで★",
     },
@@ -61,10 +61,10 @@ var CONFIG = {
     },
     // Nguồn cột E タイトル区分 của 顧客作品マスタ (user cung cấp quy tắc 2026-08-13).
     //
-    // ⚠️ spreadsheetId CHƯA CÓ — mới chỉ có file .xlsx trong example/. Giống MASS_FREE:
-    // để trống thì GAS BỎ QUA nguồn này và cột E giữ nguyên giá trị đang có; điền ID
-    // vào đây là đủ để kích hoạt, không phải sửa code chỗ nào khác. Trạng thái "chưa
-    // cấu hình" được ghi 1 dòng vào tab GAS1警告 mỗi lần chạy.
+    // spreadsheetId ĐÃ ĐƯỢC CẤP (2026-08-28) — nguồn này đang hoạt động. Cơ chế
+    // "để trống thì bỏ qua" vẫn còn nguyên: xoá ID về '' thì GAS BỎ QUA nguồn này,
+    // cột E giữ nguyên giá trị đang có, và 1 dòng "chưa cấu hình" được ghi vào tab
+    // GAS1警告 mỗi lần chạy. Không phải sửa code ở đâu khác để bật/tắt.
     //
     // File chỉ có ĐÚNG 1 sheet (広告出稿必須タイトル, 4.217 dòng) nên tên sheet không có
     // rủi ro chọn nhầm như MASS_FREE — nhưng vẫn khai báo ở đây thay vì hardcode.
@@ -73,7 +73,7 @@ var CONFIG = {
     // không theo chữ cái C/F trong spec — 安蒜 chèn thêm cột là chuyện đã xảy ra
     // (bản này đã có thêm 出稿開始希望日 ở B so với spec gốc).
     COMMIT_MANAGEMENT: {
-      spreadsheetId: "",
+      spreadsheetId: "12DgvzixrfyaUtDlHjXdgsrSfT0oUsZhiqaHeeG5EWvU",
       sheetName: "広告出稿必須タイトル",
     },
     // Nguồn cột R 先行終了日（延長）của 顧客作品マスタ (user cung cấp 2026-08-07).
@@ -97,10 +97,10 @@ var CONFIG = {
     },
     // Nguồn cột T 大量無料開始日 / U 大量無料終了日 của 顧客作品マスタ.
     //
-    // ⚠️ spreadsheetId CHƯA CÓ (user chưa cấp ID, 2026-08-07). Để trống thì GAS BỎ QUA
-    // nguồn này và cột T/U được giữ nguyên giá trị đang có — điền ID vào đây là đủ để
-    // kích hoạt, không phải sửa code chỗ nào khác. Trạng thái "chưa cấu hình" cũng
-    // được ghi 1 dòng vào tab GAS1警告 mỗi lần chạy để nó không bị quên vĩnh viễn.
+    // spreadsheetId ĐÃ ĐƯỢC CẤP (2026-08-28) — nguồn này đang hoạt động. Cơ chế
+    // "để trống thì bỏ qua" vẫn còn nguyên: xoá ID về '' thì GAS BỎ QUA nguồn này,
+    // cột T/U giữ nguyên giá trị đang có, và 1 dòng "chưa cấu hình" được ghi vào tab
+    // GAS1警告 mỗi lần chạy để nó không bị quên vĩnh viễn.
     //
     // sheetName: file 大量無料希望作品リスト_CA様 có 8 sheet; sheet ĐÚNG là ★出稿回答シート —
     // xác định bằng chữ cái cột trong spec (H列 キャンペーン開始日 / I列 キャンペーン終了日).
@@ -108,7 +108,7 @@ var CONFIG = {
     // nên nếu điền sai tên sheet vào đây, dữ liệu vẫn parse ra được mà sai cột — dù
     // vậy vẫn tra theo TÊN cột chứ không theo chữ cái, để bền với việc chèn cột.
     MASS_FREE: {
-      spreadsheetId: "",
+      spreadsheetId: "13IeYif2S2I1Hka504DPEHG5wqPVKRwOyDzoo2aHGgdU",
       sheetName: "★出稿回答シート",
     },
     // Nguồn cột I 掲載停止日付 của 顧客作品マスタ (user cung cấp 2026-08-03).
@@ -134,12 +134,12 @@ var CONFIG = {
   },
   OUTPUTS: {
     CUSTOMER_WORK_MASTER: {
-      spreadsheetId: '1ILmNpxlDIa-J0XiNnRprsdYVcUUiIEt59Miwey214hU',
+      spreadsheetId: "1ILmNpxlDIa-J0XiNnRprsdYVcUUiIEt59Miwey214hU",
       // spreadsheetId: "1rekXT213A6Cv0kKDZwzRzHerxl710DAqDvABpTPbQyE", //DEMO
       sheetName: "顧客作品マスタ",
     },
     COPYRIGHT_MASTER: {
-      spreadsheetId: '1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc',
+      spreadsheetId: "1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc",
       // spreadsheetId: "1MSDCBYjQ--1qKju6liPbsufsNz47AhYrOTVwOm31QkI", //DEMO
       sheetName: "コピーライトマスタ",
     },
