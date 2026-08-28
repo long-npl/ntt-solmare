@@ -156,8 +156,11 @@ var LOG_SHEET_NAME = 'GAS2ログ';
 var WARNING_SHEET_NAME = 'GAS2警告';
 var CHANGE_DETAIL_SHEET_NAME = 'GAS2変更詳細';
 
+// Thêm cột vào đây là đủ — getOrCreateLogTab() tự ghi đè hàng header của tab đang có,
+// không phải xoá tab bằng tay. Cột mới chèn TRƯỚC エラー để エラー luôn ở ngoài cùng bên
+// phải, chỗ mắt tìm nó.
 var LOG_HEADER = ['開始時刻', '終了時刻', '追加行数', '更新行数',
-  'タイトルNo欠落', 'タイトルNo重複', 'コピーライト未登録', '孤立行', 'エラー'];
+  'タイトルNo欠落', 'タイトルNo重複', 'コピーライト未登録', '孤立行', '設定注意', 'エラー'];
 var WARNING_HEADER = ['実行時刻', '種別', 'タイトルNo', 'タイトルID', 'タイトル名', '詳細'];
 var CHANGE_DETAIL_HEADER = ['実行時刻', 'タイトルNo', 'タイトル名', '項目', '変更前', '変更後'];
 
@@ -193,7 +196,7 @@ function getOrCreateLogTab(sheetName, header) {
  *
  * @param {{startedAt: Date, finishedAt: Date, addedCount: number, updatedCount: number,
  *   missingNoCount: number, duplicateNoCount: number, noCopyrightCount: number,
- *   orphanCount: number, errors: Array<string>}} entry
+ *   configNoticeCount: number, orphanCount: number, errors: Array<string>}} entry
  * @returns {void}
  */
 function appendLogEntry(entry) {
@@ -207,6 +210,7 @@ function appendLogEntry(entry) {
     entry.duplicateNoCount || 0,
     entry.noCopyrightCount || 0,
     entry.orphanCount || 0,
+    entry.configNoticeCount || 0,
     (entry.errors || []).join(' / '),
   ]);
 }

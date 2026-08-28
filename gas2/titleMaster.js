@@ -131,12 +131,20 @@ function blankIfEmpty(value) {
   return value === null || value === undefined ? '' : value;
 }
 
-// 4 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
+// 5 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
 // tab log và test không thể lệch nhau vì một lỗi gõ.
+//
+// 4 loại đầu nói về DỮ LIỆU: một tác phẩm cụ thể có vấn đề, và mỗi lần chạy số lượng
+// của chúng có thể lên xuống theo dữ liệu thật.
+//
+// 設定注意 nói về CẤU HÌNH: nguồn thiếu một cột, sheet bị đổi tên — thứ đúng một lần
+// rồi đứng yên cho tới khi có người sửa. Nó phải tách khỏi 4 loại kia vì nếu gộp, cột
+// đếm tương ứng trong GAS2ログ sẽ luôn khác 0 và mất hẳn khả năng cảnh báo.
 var WARNING_KIND_MISSING_NO = 'タイトルNo欠落';
 var WARNING_KIND_DUPLICATE_NO = 'タイトルNo重複';
 var WARNING_KIND_NO_COPYRIGHT = 'コピーライト未登録';
 var WARNING_KIND_ORPHAN = '孤立行';
+var WARNING_KIND_CONFIG = '設定注意';
 
 /**
  * Khoá join của toàn bộ GAS❷: chuỗi đã chuẩn hoá của タイトルNo.

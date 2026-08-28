@@ -18,7 +18,17 @@
  *     là cột GAS❷ ghi đè hoàn toàn, coi "không đọc được" = "rỗng" sẽ xoá sạch copyright
  *     của toàn bộ tác phẩm chỉ vì một lần mất quyền truy cập.
  *
+ * XỬ LÝ LỖI: khối catch ghi log + báo Slack rồi RE-THROW lỗi gốc, giống runGas1().
+ * Bắt buộc phải re-throw: Apps Script chỉ đánh dấu một lần chạy là THẤT BẠI khi hàm
+ * ném ra ngoài. Nuốt lỗi ở đây thì lần chạy hỏng hiện là "thành công" trong execution
+ * log, trigger không gửi cảnh báo nào, và dòng ghi vào GAS2ログ là 追加0/更新0 — không
+ * phân biệt được với một ngày bình thường không có gì đổi.
+ *
+ * appendLogEntry() nằm trong khối finally nên vẫn chạy ở cả 2 nhánh: dòng log là thứ
+ * duy nhất ghi lại việc lần chạy này đã xảy ra, nó không được mất theo lỗi.
+ *
  * @returns {void}
+ * @throws {Error} Re-throw nguyên vẹn lỗi gốc sau khi đã log + báo Slack.
  */
 function runGas2() {
   var startedAt = new Date();
@@ -40,8 +50,13 @@ function runGas2() {
       copyrightRecords = copyright.records;
       preConfirmationAvailable = copyright.hasPreConfirmation;
       if (!preConfirmationAvailable) {
+        // WARNING_KIND_CONFIG, KHÔNG phải WARNING_KIND_NO_COPYRIGHT: đây là việc nguồn
+        // THIẾU MỘT CỘT, không phải việc một tác phẩm không có copyright. Dùng chung
+        // loại thì cột 未登録件数 của GAS2ログ bị cộng thêm 1 ở mọi lần chạy cho tới khi
+        // ai đó thêm cột — và một cột đếm luôn khác 0 là một cột đếm không còn cảnh báo
+        // được gì nữa.
         warnings.push({
-          runAt: startedAt, kind: WARNING_KIND_NO_COPYRIGHT,
+          runAt: startedAt, kind: WARNING_KIND_CONFIG,
           titleNo: '', titleId: '', titleName: '',
           detail: 'コピーライトマスタ chưa có cột 出版社事前確認 — cột AA của タイトルマスタ được giữ nguyên. Thêm cột đúng tên này vào nguồn là đủ để kích hoạt.',
         });
@@ -72,19 +87,24 @@ function runGas2() {
   } catch (error) {
     errors.push(String(error));
     notifySlack('GAS❷ タイトルマスタ thất bại: ' + String(error));
+    throw error;
+  } finally {
+    // finally, KHÔNG phải sau khối try/catch: nhánh lỗi giờ re-throw, nên code đặt
+    // sau khối sẽ không bao giờ chạy khi có lỗi — mà đó chính là lần chạy cần dòng
+    // log nhất.
+    appendLogEntry({
+      startedAt: startedAt,
+      finishedAt: new Date(),
+      addedCount: addedCount,
+      updatedCount: updatedCount,
+      missingNoCount: countWarnings(warnings, WARNING_KIND_MISSING_NO),
+      duplicateNoCount: countWarnings(warnings, WARNING_KIND_DUPLICATE_NO),
+      noCopyrightCount: countWarnings(warnings, WARNING_KIND_NO_COPYRIGHT),
+      configNoticeCount: countWarnings(warnings, WARNING_KIND_CONFIG),
+      orphanCount: countWarnings(warnings, WARNING_KIND_ORPHAN),
+      errors: errors,
+    });
   }
-
-  appendLogEntry({
-    startedAt: startedAt,
-    finishedAt: new Date(),
-    addedCount: addedCount,
-    updatedCount: updatedCount,
-    missingNoCount: countWarnings(warnings, WARNING_KIND_MISSING_NO),
-    duplicateNoCount: countWarnings(warnings, WARNING_KIND_DUPLICATE_NO),
-    noCopyrightCount: countWarnings(warnings, WARNING_KIND_NO_COPYRIGHT),
-    orphanCount: countWarnings(warnings, WARNING_KIND_ORPHAN),
-    errors: errors,
-  });
 }
 
 /**

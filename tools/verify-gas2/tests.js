@@ -562,8 +562,113 @@ function test_updatedAt(ctx) {
   check('chi quet cac hang TREN hang header', [again, written.length], ['C5', 1]);
 }
 
+// ==============================================================================
+// TẦNG DÀN DỰNG — gas2/main.js
+// ==============================================================================
+//
+// run.js CỐ TÌNH không nạp gas2/main.js vào sandbox chung: nó gọi thẳng các hàm io
+// (readCustomerMaster, writeTitleMaster, appendLogEntry...), nạp chung sẽ mời gọi việc
+// một test vô tình chạm tới SpreadsheetApp.
+//
+// Ở đây nạp nó vào MỘT SANDBOX RIÊNG cùng với các hàm io đã bị thay bằng stub. Nhờ vậy
+// kiểm được đúng thứ mà tầng này chịu trách nhiệm — thứ tự gọi và cách xử lý lỗi — mà
+// không chạm vào Google API nào.
+//
+// Kiểm cả hai nhánh của runGas2(), vì chúng là hai lời hứa khác nhau với người vận hành:
+// nhánh lỗi PHẢI ném ra ngoài (nếu không Apps Script coi lần chạy hỏng là thành công),
+// và dòng GAS2ログ PHẢI được ghi ở CẢ HAI nhánh (nó là bằng chứng duy nhất lần chạy đã
+// xảy ra).
+
+function loadMainWithStubs(overrides) {
+  var fs = require('fs');
+  var path = require('path');
+  var vm = require('vm');
+  var root = path.resolve(__dirname, '..', '..');
+
+  var calls = { logEntries: [], warningRows: [], changeRows: [], slack: [], written: [] };
+  var sandbox = {
+    console: console,
+    // --- io đã stub ---
+    readCustomerMaster: function () { return []; },
+    readCopyrightMaster: function () { return { records: [], hasPreConfirmation: true }; },
+    readTitleMaster: function () { return { rows: [], headerIndex: new Map(), columnCount: 0 }; },
+    writeTitleMaster: function () { calls.written.push(true); },
+    appendLogEntry: function (e) { calls.logEntries.push(e); },
+    appendWarningRows: function (r) { calls.warningRows.push(r); },
+    appendChangeDetailRows: function (r) { calls.changeRows.push(r); },
+    notifySlack: function (m) { calls.slack.push(m); },
+    // --- pure, lấy bản thật ---
+    buildCopyrightLookup: function () { return new Map(); },
+    diffTitleMaster: function () {
+      return { toAdd: [], toUpdate: [], warnings: [], changeDetails: [] };
+    },
+    Logger: { log: function () {} },
+  };
+  Object.keys(overrides || {}).forEach(function (k) { sandbox[k] = overrides[k]; });
+
+  vm.createContext(sandbox);
+  // titleMaster.js cấp các hằng WARNING_KIND_*; main.js cần chúng để đếm.
+  vm.runInContext(fs.readFileSync(path.join(root, 'gas2/titleMaster.js'), 'utf8'),
+    sandbox, { filename: 'gas2/titleMaster.js' });
+  vm.runInContext(fs.readFileSync(path.join(root, 'gas2/main.js'), 'utf8'),
+    sandbox, { filename: 'gas2/main.js' });
+  return { sandbox: sandbox, calls: calls };
+}
+
+function test_orchestration(ctx) {
+  var check = ctx.check;
+
+  // ---- Nhánh thành công: chạy trót lọt, ghi đúng 1 dòng log ----
+  var ok = loadMainWithStubs();
+  var threw = null;
+  try { ok.sandbox.runGas2(); } catch (e) { threw = String(e); }
+  check('nhanh thanh cong: khong nem loi', threw, null);
+  check('nhanh thanh cong: ghi dung 1 dong GAS2log', ok.calls.logEntries.length, 1);
+  check('nhanh thanh cong: co ghi len タイトルマスタ', ok.calls.written.length, 1);
+  check('nhanh thanh cong: khong bao Slack', ok.calls.slack.length, 0);
+
+  // ---- Nhánh nguồn CHÍNH lỗi: phải re-throw ----
+  // Đây là hồi quy của lỗi thật: khối catch trước đây nuốt lỗi, nên một lần chạy hỏng
+  // hiện là "thành công" trong Apps Script execution log và trigger không cảnh báo gì.
+  var boom = loadMainWithStubs({
+    readCustomerMaster: function () { throw new Error('顧客作品マスタ mất quyền truy cập'); },
+  });
+  var rethrown = null;
+  try { boom.sandbox.runGas2(); } catch (e) { rethrown = String(e); }
+  check('nguon chinh loi: PHAI nem loi ra ngoai',
+    rethrown, 'Error: 顧客作品マスタ mất quyền truy cập');
+  check('nguon chinh loi: van ghi 1 dong GAS2log (finally)', boom.calls.logEntries.length, 1);
+  check('nguon chinh loi: co bao Slack', boom.calls.slack.length, 1);
+  check('nguon chinh loi: KHONG ghi gi len タイトルマスタ', boom.calls.written.length, 0);
+  check('nguon chinh loi: dong log mang noi dung loi',
+    boom.calls.logEntries[0].errors.length, 1);
+
+  // ---- Nhánh nguồn PHỤ lỗi: KHÔNG được dừng lần chạy ----
+  var soft = loadMainWithStubs({
+    readCopyrightMaster: function () { throw new Error('コピーライトマスタ đọc không được'); },
+  });
+  var softThrew = null;
+  try { soft.sandbox.runGas2(); } catch (e) { softThrew = String(e); }
+  check('nguon phu loi: KHONG nem loi', softThrew, null);
+  check('nguon phu loi: VAN ghi len タイトルマスタ', soft.calls.written.length, 1);
+  check('nguon phu loi: dong log co ghi nhan loi', soft.calls.logEntries[0].errors.length, 1);
+
+  // ---- Thiếu cột 出版社事前確認: cảnh báo CẤU HÌNH, không phải cảnh báo DỮ LIỆU ----
+  // Gộp 2 loại này lại thì cột コピーライト未登録 của GAS2ログ luôn khác 0 và mất hẳn
+  // khả năng cảnh báo.
+  var noCol = loadMainWithStubs({
+    readCopyrightMaster: function () { return { records: [], hasPreConfirmation: false }; },
+  });
+  noCol.sandbox.runGas2();
+  var entry = noCol.calls.logEntries[0];
+  check('thieu cot: dem vao 設定注意, KHONG vao コピーライト未登録',
+    [entry.configNoticeCount, entry.noCopyrightCount], [1, 0]);
+  check('thieu cot: canh bao dung loai 設定注意',
+    noCol.calls.warningRows[0][0].kind, noCol.sandbox.WARNING_KIND_CONFIG);
+}
+
 module.exports = {
   unit: [test_harness, test_sources, test_titleRow, test_titleKeys, test_diff,
-    test_updatedAt],
+    test_updatedAt, test_orchestration],
   data: [test_gawaDataset],
 };
