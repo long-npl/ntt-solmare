@@ -18,6 +18,24 @@
  *     là cột GAS❷ ghi đè hoàn toàn, coi "không đọc được" = "rỗng" sẽ xoá sạch copyright
  *     của toàn bộ tác phẩm chỉ vì một lần mất quyền truy cập.
  *
+ * CHỐNG CHẠY SỚM: trước khi làm gì, so ô 更新日 của 顧客作品マスタ với ngày hôm nay. Khác
+ * ngày -> GAS❶ chưa chạy xong hôm nay, ghi 1 dòng 設定注意 rồi THOÁT mà không đụng vào
+ * タイトルマスタ.
+ *
+ * Cần thiết vì lịch chạy KHÔNG tách nhau như comment trong config.js nói. Trigger
+ * everyDays().atHour(9) của Apps Script chạy vào một lúc nào đó TRONG KHOẢNG 9:00–10:00,
+ * không phải đúng 9:00; GAS❷ dùng thêm nearMinute(30) nên rơi vào khoảng 9:15–9:45. Hai
+ * khoảng đó chồng nhau, nên GAS❷ hoàn toàn có thể chạy trước khi GAS❶ xong — hoặc trước
+ * cả khi nó bắt đầu.
+ *
+ * Trường hợp nguy hiểm không phải "GAS❶ chưa chạy" (khi đó 顧客作品マスタ vẫn mang dữ liệu
+ * hôm qua, và diff sẽ kết luận không có gì đổi) mà là "GAS❶ đang ghi dở": đọc phải một
+ * master nửa mới nửa cũ rồi mang cái hỗn hợp đó ghi sang タイトルマスタ, và nó nằm sai như
+ * vậy cho tới lần chạy sau — 8 tiếng, trong khi STEP3/STEP4 vẫn đọc.
+ *
+ * Bỏ một lần chạy KHÔNG mất dữ liệu: lần 17:30 làm lại toàn bộ. Nếu GAS❶ hỏng cả ngày thì
+ * GAS❷ bỏ qua cả ngày — đúng, vì đầu vào của nó đã cũ.
+ *
  * XỬ LÝ LỖI: khối catch ghi log + báo Slack rồi RE-THROW lỗi gốc, giống runGas1().
  * Bắt buộc phải re-throw: Apps Script chỉ đánh dấu một lần chạy là THẤT BẠI khi hàm
  * ném ra ngoài. Nuốt lỗi ở đây thì lần chạy hỏng hiện là "thành công" trong execution
@@ -39,7 +57,23 @@ function runGas2() {
 
   try {
     // Nguồn chính — không bọc try/catch: hỏng thì cả lần chạy phải dừng.
-    var customerRecords = readCustomerMaster();
+    var customer = readCustomerMaster();
+    var customerRecords = customer.records;
+
+    // ---- CHỐNG CHẠY SỚM (xem JSDoc) ----
+    // updatedAt === null nghĩa là không dò được nhãn 更新日 trên sheet. Đó là "không
+    // biết", không phải "chưa chạy" — vẫn chạy tiếp và để buildWarning nói ra, chứ
+    // không tự cho mình quyền dừng cả pipeline vì một nhãn bị đổi tên.
+    if (customer.updatedAt !== null && !sameDateValue(customer.updatedAt, startedAt)) {
+      warnings.push({
+        runAt: startedAt, kind: WARNING_KIND_CONFIG,
+        titleNo: '', titleId: '', titleName: '',
+        detail: '顧客作品マスタ の 更新日 が本日ではありません（' + toDateKey(customer.updatedAt)
+          + '）。GAS❶ が今日まだ完了していないため、タイトルマスタ への書き込みをスキップしました。',
+      });
+      appendWarningRows(warnings);
+      return;
+    }
 
     // Nguồn phụ.
     var copyrightRecords = [];
@@ -176,9 +210,13 @@ function probe_readTitleMasterHeader() {
  * @returns {void}
  */
 function probe_readCustomerMaster() {
-  var records = readCustomerMaster();
-  Logger.log('số dòng đọc được: ' + records.length);
-  Logger.log('dòng đầu: ' + JSON.stringify(records[0]));
+  var customer = readCustomerMaster();
+  Logger.log('số dòng đọc được: ' + customer.records.length);
+  // 更新日 là thứ guard chạy-sớm dựa vào — in ra để biết vì sao một lần chạy bị bỏ qua.
+  Logger.log('更新日 trên sheet: ' + (customer.updatedAt === null
+    ? '(không dò được nhãn)' : toDateKey(customer.updatedAt)));
+  Logger.log('hôm nay: ' + toDateKey(new Date()));
+  Logger.log('dòng đầu: ' + JSON.stringify(customer.records[0]));
 }
 
 /**
@@ -202,11 +240,13 @@ function probe_readCopyrightMaster() {
  */
 function probe_dryRunDiff() {
   var runAt = new Date();
-  var customerRecords = readCustomerMaster();
+  var customer = readCustomerMaster();
   var copyright = readCopyrightMaster();
   var titleMaster = readTitleMaster();
+  // CỐ TÌNH bỏ qua guard chạy-sớm: probe này để xem diff sẽ ra gì, và câu hỏi đó vẫn
+  // đáng trả lời kể cả khi GAS❶ chưa chạy hôm nay. runGas2() mới là chỗ guard chặn.
   var result = diffTitleMaster({
-    customerRecords: customerRecords,
+    customerRecords: customer.records,
     copyrightLookup: buildCopyrightLookup(copyright.records),
     copyrightAvailable: true,
     preConfirmationAvailable: copyright.hasPreConfirmation,

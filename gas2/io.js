@@ -33,11 +33,23 @@ function readSheetValues(spreadsheetId, sheetName) {
 }
 
 /**
- * @returns {Array<object>} Kết quả parseCustomerMasterRows()
+ * Đọc 顧客作品マスタ: các record, kèm giá trị ô 更新日 mà GAS❶ đóng dấu ở cuối lần chạy.
+ *
+ * updatedAt được trả về để runGas2() biết GAS❶ đã chạy xong hôm nay chưa — xem phần
+ * "CHỐNG CHẠY SỚM" trong JSDoc của runGas2(). null nghĩa là không dò được nhãn 更新日
+ * trên sheet (bên gọi coi đó là "không biết" và vẫn chạy tiếp).
+ *
+ * @returns {{records: Array<object>, updatedAt: *}}
  */
 function readCustomerMaster() {
   var cfg = CONFIG.SOURCES.CUSTOMER_WORK_MASTER;
-  return parseCustomerMasterRows(readSheetValues(cfg.spreadsheetId, cfg.sheetName));
+  var values = readSheetValues(cfg.spreadsheetId, cfg.sheetName);
+  var resolved = resolveHeaderIndex(values, CUSTOMER_REQUIRED_HEADERS);
+  var at = locateUpdatedAtCell(values, resolved.headerRowIndex);
+  return {
+    records: parseCustomerMasterRows(values),
+    updatedAt: at === null ? null : values[at.rowIndex][at.colIndex],
+  };
 }
 
 /**
@@ -108,20 +120,13 @@ function writeTitleMaster(sheetContext, diffResult, runAt) {
   return { updatedAtCell: stampUpdatedAt(sheet, sheetContext.values, sheetContext.headerRowIndex, runAt) };
 }
 
-// Nhãn ô 更新日 trong khối ghi chú phía trên vùng dữ liệu. Ô ngay BÊN PHẢI nhãn này nhận
-// thời điểm chạy (trên ガワ hiện tại: nhãn B5, giá trị C5).
-var UPDATED_AT_LABEL = '更新日';
-
 /**
- * Ghi thời điểm chạy vào ô 更新日.
+ * Ghi thời điểm chạy vào ô 更新日 (ô ngay BÊN PHẢI nhãn — trên ガワ hiện tại: nhãn B5,
+ * giá trị C5).
  *
  * DÒ THEO NHÃN, KHÔNG HARDCODE 'C5': 池永 chèn thêm một hàng ghi chú phía trên là C5 thành
- * C6, và hằng 'C5' sẽ âm thầm ghi đè lên một ô ghi chú thay vì báo lỗi.
- *
- * CHỈ QUÉT CÁC HÀNG TRÊN HÀNG HEADER: dưới đó là dữ liệu thật, và hàng nghìn dòng hoàn
- * toàn có thể chứa chữ 更新日 trong một ô 備考. So khớp là ĐÚNG BẰNG (sau
- * normalizeHeaderText) chứ không phải "chứa" — nếu không thì '①更新タイミング：…' và
- * '[1]更新ルール' ở ngay các hàng bên cạnh cũng khớp.
+ * C6, và hằng 'C5' sẽ âm thầm ghi đè lên một ô ghi chú thay vì báo lỗi. Phép dò nằm trong
+ * locateUpdatedAtCell() (titleMaster.js) vì bên đọc cũng dùng chính nó.
  *
  * Ghi Date object chứ không phải chuỗi: ô đó đang được định dạng ngày trên sheet.
  *
@@ -132,17 +137,10 @@ var UPDATED_AT_LABEL = '更新日';
  * @returns {string|null} Ô đã ghi dạng A1 (vd 'C5'), null nếu không tìm thấy nhãn
  */
 function stampUpdatedAt(sheet, values, headerRowIndex, runAt) {
-  for (var r = 0; r < headerRowIndex; r++) {
-    var row = values[r];
-    if (!row) continue;
-    // row.length - 1: nhãn nằm ở cột cuối cùng thì không có ô nào bên phải để ghi.
-    for (var c = 0; c < row.length - 1; c++) {
-      if (normalizeHeaderText(row[c]) !== UPDATED_AT_LABEL) continue;
-      sheet.getRange(r + 1, c + 2).setValue(runAt);
-      return columnIndexToLetter(c + 1) + (r + 1);
-    }
-  }
-  return null;
+  var at = locateUpdatedAtCell(values, headerRowIndex);
+  if (at === null) return null;
+  sheet.getRange(at.rowIndex + 1, at.colIndex + 1).setValue(runAt);
+  return columnIndexToLetter(at.colIndex) + (at.rowIndex + 1);
 }
 
 // ==============================================================================

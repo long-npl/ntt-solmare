@@ -589,7 +589,8 @@ function loadMainWithStubs(overrides) {
   var sandbox = {
     console: console,
     // --- io đã stub ---
-    readCustomerMaster: function () { return []; },
+    // updatedAt mặc định = HÔM NAY, để các test không nói về guard chạy-sớm đi qua nó.
+    readCustomerMaster: function () { return { records: [], updatedAt: new Date() }; },
     readCopyrightMaster: function () { return { records: [], hasPreConfirmation: true }; },
     readTitleMaster: function () { return { rows: [], headerIndex: new Map(), columnCount: 0 }; },
     writeTitleMaster: function () { calls.written.push(true); },
@@ -607,11 +608,12 @@ function loadMainWithStubs(overrides) {
   Object.keys(overrides || {}).forEach(function (k) { sandbox[k] = overrides[k]; });
 
   vm.createContext(sandbox);
-  // titleMaster.js cấp các hằng WARNING_KIND_*; main.js cần chúng để đếm.
-  vm.runInContext(fs.readFileSync(path.join(root, 'gas2/titleMaster.js'), 'utf8'),
-    sandbox, { filename: 'gas2/titleMaster.js' });
-  vm.runInContext(fs.readFileSync(path.join(root, 'gas2/main.js'), 'utf8'),
-    sandbox, { filename: 'gas2/main.js' });
+  // common.js cấp sameDateValue/toDateKey mà guard chạy-sớm dùng; titleMaster.js cấp các
+  // hằng WARNING_KIND_* mà main.js cần để đếm. Không nạp config.js: mọi lời gọi tới
+  // CONFIG đều nằm trong tầng io, mà tầng io ở đây đã bị stub.
+  ['gas2/common.js', 'gas2/titleMaster.js', 'gas2/main.js'].forEach(function (rel) {
+    vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), sandbox, { filename: rel });
+  });
   return { sandbox: sandbox, calls: calls };
 }
 
@@ -665,6 +667,42 @@ function test_orchestration(ctx) {
     [entry.configNoticeCount, entry.noCopyrightCount], [1, 0]);
   check('thieu cot: canh bao dung loai 設定注意',
     noCol.calls.warningRows[0][0].kind, noCol.sandbox.WARNING_KIND_CONFIG);
+
+  // ---- Guard chạy-sớm: 更新日 của 顧客作品マスタ không phải hôm nay ----
+  // Trigger everyDays().atHour() của Apps Script chạy trong khoảng 1 tiếng, nên cửa sổ
+  // của GAS❶ (9:00–10:00) và GAS❷ (9:15–9:45) chồng nhau. Chạy trên một master đang ghi
+  // dở sẽ đẩy dữ liệu nửa mới nửa cũ sang タイトルマスタ và để nó nằm đó tới 17:30.
+  var stale = loadMainWithStubs({
+    readCustomerMaster: function () {
+      return { records: [], updatedAt: new Date(2026, 7, 27) };  // hôm qua
+    },
+  });
+  stale.sandbox.runGas2();
+  check('updatedAt cu: KHONG ghi gi len タイトルマスタ', stale.calls.written.length, 0);
+  check('updatedAt cu: van ghi 1 dong GAS2log', stale.calls.logEntries.length, 1);
+  check('updatedAt cu: ghi 1 canh bao 設定注意',
+    [stale.calls.warningRows.length, stale.calls.warningRows[0][0].kind],
+    [1, stale.sandbox.WARNING_KIND_CONFIG]);
+  check('updatedAt cu: KHONG bao Slack (bo qua co chu dich, khong phai loi)',
+    stale.calls.slack.length, 0);
+
+  // 更新日 hôm nay -> chạy bình thường. Cùng stub, chỉ khác ngày: nếu test này và test
+  // trên không cùng đổi hành vi thì guard đang so nhầm thứ gì đó chứ không phải so ngày.
+  var fresh = loadMainWithStubs({
+    readCustomerMaster: function () {
+      return { records: [], updatedAt: new Date() };
+    },
+  });
+  fresh.sandbox.runGas2();
+  check('updatedAt hom nay: VAN ghi len タイトルマスタ', fresh.calls.written.length, 1);
+
+  // Không dò được nhãn 更新日 -> "không biết", KHÔNG phải "chưa chạy". Vẫn chạy tiếp:
+  // một nhãn bị đổi tên không đủ để cho GAS❷ quyền dừng cả pipeline.
+  var noLabel = loadMainWithStubs({
+    readCustomerMaster: function () { return { records: [], updatedAt: null }; },
+  });
+  noLabel.sandbox.runGas2();
+  check('khong do duoc nhan 更新日: van chay tiep', noLabel.calls.written.length, 1);
 }
 
 module.exports = {

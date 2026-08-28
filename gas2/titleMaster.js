@@ -131,6 +131,42 @@ function blankIfEmpty(value) {
   return value === null || value === undefined ? '' : value;
 }
 
+// Nhãn ô 更新日 trong khối ghi chú phía trên vùng dữ liệu, dùng chung cho cả 2 chiều:
+// GAS❷ GHI vào ô này trên タイトルマスタ (stampUpdatedAt) và ĐỌC ô cùng tên trên
+// 顧客作品マスタ để biết GAS❶ đã chạy xong hôm nay chưa (xem runGas2).
+var UPDATED_AT_LABEL = '更新日';
+
+/**
+ * Dò ô 更新日 trong khối ghi chú phía TRÊN hàng header, trả về vị trí ô GIÁ TRỊ
+ * (ô ngay bên phải nhãn).
+ *
+ * Tách khỏi stampUpdatedAt() vì cùng một phép dò này giờ có hai bên dùng: bên ghi
+ * (io.js) và bên đọc (kiểm tra GAS❶ đã chạy chưa). Hai bản copy của cùng một vòng
+ * quét là hai chỗ để chúng lệch nhau.
+ *
+ * CHỈ QUÉT CÁC HÀNG TRÊN HÀNG HEADER: dưới đó là dữ liệu thật, và hàng nghìn dòng
+ * hoàn toàn có thể chứa chữ 更新日 trong một ô 備考. So khớp là ĐÚNG BẰNG (sau
+ * normalizeHeaderText) chứ không phải "chứa" — nếu không thì '①更新タイミング：…' và
+ * '[1]更新ルール' ở ngay các hàng bên cạnh cũng khớp.
+ *
+ * @param {Array<Array<*>>} values - Toàn bộ giá trị ô của sheet
+ * @param {number} headerRowIndex - Chỉ số 0-based của hàng header
+ * @returns {{rowIndex: number, colIndex: number}|null} Vị trí 0-based của ô GIÁ TRỊ,
+ *   null nếu không tìm thấy nhãn
+ */
+function locateUpdatedAtCell(values, headerRowIndex) {
+  for (var r = 0; r < headerRowIndex; r++) {
+    var row = values[r];
+    if (!row) continue;
+    // row.length - 1: nhãn nằm ở cột cuối cùng thì không có ô nào bên phải để ghi.
+    for (var c = 0; c < row.length - 1; c++) {
+      if (normalizeHeaderText(row[c]) !== UPDATED_AT_LABEL) continue;
+      return { rowIndex: r, colIndex: c + 1 };
+    }
+  }
+  return null;
+}
+
 // 5 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
 // tab log và test không thể lệch nhau vì một lỗi gõ.
 //
