@@ -289,10 +289,25 @@ function customerRecordToRow(record, headerIndex, columnCount, previousRow) {
   row[col(headerIndex, 'レーベル名')] = record.label;
   row[col(headerIndex, '先行開始日')] = record.preStart;
   row[col(headerIndex, '先行終了日')] = record.preEnd;
-  // 3 cột phán định: NGUYÊN VĂN từ レギュレーション (spec §4.4)
-  row[col(headerIndex, '①広告出稿ポリシー')] = record.policy || '';
-  row[col(headerIndex, '②一般面出稿NG')] = record.general || '';
-  row[col(headerIndex, '③シーモアロゴ判定')] = record.logoJudgement || '';
+  // 3 cột phán định ①②③ — NGUYÊN VĂN từ レギュレーション (spec §4.4), và GHI CÓ
+  // ĐIỀU KIỆN: có phán định mới thì ghi đè, tra không ra (未判定) thì GIỮ NGUYÊN ô.
+  //
+  // Đây là yêu cầu của spec §3.4 (`未判定 -> Giữ dòng, giữ nguyên N/O/P cũ, báo log`)
+  // mà bản đầu chưa cài: 3 cột này từng nằm nhóm ghi-đè-vô-điều-kiện, nên "tra không
+  // ra" biến thành "XOÁ một phán định đúng". Đã xảy ra thật — 138 tác phẩm × 3 cột bị
+  // xoá trong lần chạy 2026-08-26, và một lần sheet nguồn gãy `#REF!` sẽ xoá sạch cả
+  // 1.730 dòng cùng lúc mà GAS vẫn báo "thành công".
+  //
+  // Cùng cơ chế với cột J LP制作 ngay dưới; điều kiện tương ứng ở đường diff là
+  // sameKeepWhenBlankValue() (main.js), 2 chỗ PHẢI khớp nhau — dùng sameValue() ở đó
+  // sẽ đánh dấu dòng "cần update" mỗi lần chạy rồi ghi ra đúng giá trị cũ (churn vĩnh viễn).
+  //
+  // Việc giữ ô KHÔNG âm thầm: buildRegulationLostWarningRows() (master.js) ghi 1 dòng
+  // 判定消失注意 cho mỗi tác phẩm đang được giữ như vậy.
+  REGULATION_VERDICT_FIELDS.forEach(function (field) {
+    if (normalizeJapaneseText(record[field.key]) === '') return;
+    row[col(headerIndex, field.header)] = record[field.key];
+  });
 
   // 4 cột R/S/T/U — GHI ĐÈ VÔ ĐIỀU KIỆN, kể cả ghi rỗng (khác cột I ngay bên dưới).
   // Tác phẩm bị rút khỏi nguồn gia hạn/大量無料 thì ô tương ứng PHẢI được xoá, nếu
@@ -671,6 +686,10 @@ var LOG_HEADER = ['開始日時', '終了日時', '追加件数', '更新件数'
   '除外_NG件数', '除外_未判定件数', '照合注意件数', '照合曖昧件数', '孤立行件数',
   '外部出稿NG注意件数', '掲載停止注意件数', 'コピーライト注意件数',
   '先行延長注意件数', '大量無料注意件数',
+  // 2026-09-01: 判定消失注意件数 — số tác phẩm đang GIỮ NGUYÊN ①②③ vì tra không ra
+  // dòng 判定済み. Cột này là chuông báo cháy của nguồn ①: xấp xỉ tổng số dòng master
+  // nghĩa là sheet nguồn đã gãy, không phải vài tác phẩm lẻ đổi ステータス.
+  '判定消失注意件数',
   '個別対応タイトル', 'エラー'];
 
 var CHANGE_DETAIL_SHEET_NAME = 'GAS1変更詳細';
@@ -765,6 +784,7 @@ function appendLogEntry(entry) {
     entry.copyrightNoticeCount || 0,
     entry.preEndExtensionNoticeCount || 0,
     entry.massFreeNoticeCount || 0,
+    entry.regulationLostNoticeCount || 0,
     entry.irregularTitles.join(', '),
     entry.errors.join(', '),
   ]);

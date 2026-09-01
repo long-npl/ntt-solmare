@@ -84,8 +84,10 @@ function test_regulation(ctx) {
     check('parseRegulationRows chi giu dong 判定済み', parsed.map(function (r) { return r.titleName; }), ['A作品', 'E作品']);
     check('parseRegulationRows giu nguyen van 3 cot', [parsed[1].policy, parsed[1].general, parsed[1].logoJudgement],
       ['問題あり', 'アダルト作品扱い', 'ロゴあり']);
-    check('parseRegulationRows KHONG con tra cmsId/titleId',
-      [parsed[0].cmsId === undefined, parsed[0].titleId === undefined], [true, true]);
+    // titleId ĐƯỢC đọc lại từ 2026-09-01 (tầng 1 + tầng 3 của cascade). cmsId thì
+    // KHÔNG: nó chưa bao giờ là khoá tra cứu, chỉ để tra ngược khi điều tra sự cố.
+    check('parseRegulationRows tra titleId (cascade) nhung KHONG tra cmsId',
+      [parsed[0].cmsId === undefined, parsed[0].titleId], [true, '333581']);
 
     // ---- isRegulationNg: đúng theo spec §3.2 ----
     function ng(policy, general) { return src.isRegulationNg({ policy: policy, general: general }); }
@@ -101,14 +103,14 @@ function test_regulation(ctx) {
     // chuẩn hoá chỉ để so khớp: khoảng trắng full-width vẫn phải nhận ra là NG
     check('NG nhan ra du co khoang trang full-width quanh gia tri', ng('　問題あり　', ''), true);
 
-    // ---- buildRegulationLookup: khoá theo tên, NG thắng ----
-    var lookup = src.buildRegulationLookup(src.parseRegulationRows(sheet([
+    // ---- byName: khoá theo tên, NG thắng (tầng 2 của cascade) ----
+    var lookup = src.buildRegulationIndex(src.parseRegulationRows(sheet([
       row('判定済み', '落城の美姫〜甘い執着〜', '問題なし', '一般面OK', 'ロゴなし'),
       row('判定済み', '同名作品', '問題なし', '一般面OK', 'ロゴなし'),
       row('判定済み', '同名作品', '問題なし', 'アダルトジャンル', 'ロゴあり'),
       row('判定済み', '同名作品', '問題なし', '一般面OK', 'ロゴなし'),
       row('判定済み', '', '問題なし', '一般面OK', 'ロゴなし'),
-    ])));
+    ]))).byName;
     check('lookup tra duoc qua NFKC (〜 vs ～)',
       lookup.get(src.normalizeJapaneseText('落城の美姫～甘い執着～')).logoJudgement, 'ロゴなし');
     check('lookup: ten trung thi dong NG thang, ke ca khi dong NG khong o cuoi',
@@ -168,8 +170,9 @@ function test_workRows(ctx) {
         isNg: src.isRegulationNg({ policy: policy, general: general }),
       };
     }
-    // Khoá của lookup LUÔN là tên đã chuẩn hoá — mô phỏng đúng buildRegulationLookup()
-    var lookup = new Map([
+    // Chỉ dựng tầng 2 (byName) — 2 tầng dùng ID có test riêng ở
+    // test_regulationCascadeAndHold. Khoá LUÔN là tên đã chuẩn hoá.
+    var byName = new Map([
       [src.normalizeJapaneseText('落城の美姫～甘い執着～'), reg('問題なし', '一般面OK', 'ロゴなし')],
       [src.normalizeJapaneseText('アダルト作品'), reg('問題なし', 'アダルト作品扱い', 'ロゴあり')],
       [src.normalizeJapaneseText('政策NG作品'), reg('問題あり', '一般面OK', 'ロゴなし')],
@@ -187,7 +190,8 @@ function test_workRows(ctx) {
         label: '', publisher: '出版社4', preStart: '', preEnd: '', copyrightU: '' },
     ];
 
-    var works = src.buildCustomerWorkRows(cmsRecords, lookup);
+    var works = src.buildCustomerWorkRows(cmsRecords,
+      { byBoth: new Map(), byName: byName, byId: new Map() });
 
     check('buildCustomerWorkRows giu nguyen so luong va thu tu CMS', works.length, 4);
     check('khop duoc qua NFKC va lay nguyen van 3 cot tu レギュレーション',
@@ -790,7 +794,8 @@ function test_dataset(ctx) {
     // ---- Nguồn レギュレーション (spec §12) ----
     var regulationRecords = src.parseRegulationRows(regulationRows);
     check('レギュレーション: so dong ステータス=判定済み', regulationRecords.length, 5158);
-    var lookup = src.buildRegulationLookup(regulationRecords);
+    var regulationIndex = src.buildRegulationIndex(regulationRecords);
+    var lookup = regulationIndex.byName;
     check('レギュレーション: so ten duy nhat trong 判定済み (14 ten trung)', lookup.size, 5144);
 
     // ---- Nguồn CMS (spec §12) ----
@@ -815,13 +820,22 @@ function test_dataset(ctx) {
       29);
 
     // ---- Join + phân loại (spec §12) ----
-    var works = src.buildCustomerWorkRows(cmsRecords, lookup);
+    var works = src.buildCustomerWorkRows(cmsRecords, regulationIndex);
     var judged = works.filter(function (w) { return w.judged; });
-    check('tra ra ten 完全一致', judged.length, 2325);
-    check('trong so tra ra: NG', judged.filter(function (w) { return w.isNg; }).length, 595);
-    check('trong so tra ra: khong NG -> vao master', judged.filter(function (w) { return !w.isNg; }).length, 1730);
+    // Số liệu ĐÃ ĐỔI 2026-09-01 khi cascade 3 tầng thay cho "chỉ tra theo tên".
+    // Trước:  tra ra 2.325 | NG 595 | vào master 1.730  (chỉ tầng 2)
+    // Sau :  tra ra 2.638 | NG 662 | vào master 1.976
+    // Chênh đúng bằng phần tầng 3 thu hồi: 313 tác phẩm có ID khớp mà tên viết khác,
+    // trong đó 67 là NG (đang lọt vào master trước khi có cascade).
+    check('cascade: tong tra ra', judged.length, 2638);
+    check('cascade: trong so tra ra: NG', judged.filter(function (w) { return w.isNg; }).length, 662);
+    check('cascade: khong NG -> vao master', judged.filter(function (w) { return !w.isNg; }).length, 1976);
+    check('phan bo theo tang (T1 名+ID / T2 名 / T3 ID)',
+      [1, 2, 3].map(function (t) {
+        return judged.filter(function (w) { return w.regulationTier === t; }).length;
+      }), [1958, 367, 313]);
     // 3.353 = 3.324 (spec §12) + 29 dòng lệch cột nói ở trên.
-    check('未判定 (do lai 2026-08-04)', works.length - judged.length, 3353);
+    check('未判定 (do lai 2026-08-04, cascade 2026-09-01)', works.length - judged.length, 3040);
     // Phân tích NG theo giá trị (spec §12): アダルト作品扱い 374, アダルトジャンル 221, 問題あり 0
     var ngByGeneral = { adultWork: 0, adultGenre: 0, policyOnly: 0 };
     judged.filter(function (w) { return w.isNg; }).forEach(function (w) {
@@ -831,7 +845,7 @@ function test_dataset(ctx) {
       else ngByGeneral.policyOnly += 1;
     });
     check('NG chia theo gia tri (quy tac ① chua loai duoc dong nao)',
-      [ngByGeneral.adultWork, ngByGeneral.adultGenre, ngByGeneral.policyOnly], [374, 221, 0]);
+      [ngByGeneral.adultWork, ngByGeneral.adultGenre, ngByGeneral.policyOnly], [426, 235, 1]);
 
     // ---- Mô phỏng 4 lần chạy liên tiếp (spec §5.4) ----
     // isEqual chỉ so 2 field mà mô phỏng này theo dõi — đủ để phát hiện đúng 110
@@ -867,17 +881,17 @@ function test_dataset(ctx) {
     // Lần 1 — nạp lần đầu, master rỗng
     var run1 = runOnce(works, []);
     check('lan 1: them moi 1.730, update 0, master 1.730',
-      [run1.diff.toAdd.length, run1.diff.toUpdate.length, run1.master.length], [1730, 0, 1730]);
+      [run1.diff.toAdd.length, run1.diff.toUpdate.length, run1.master.length], [1976, 0, 1976]);
     check('lan 1: 595 NG + 3.353 未判定 bi loai',
-      [run1.filtered.excludedNg.length, run1.filtered.excludedUnjudged.length], [595, 3353]);
+      [run1.filtered.excludedNg.length, run1.filtered.excludedUnjudged.length], [662, 3040]);
 
     // Lần 2 — dữ liệu y nguyên: phải 0 thêm, 0 update, tất cả khớp tầng 1
     var run2 = runOnce(works, run1.master);
     check('lan 2: 0 them moi, 0 update, 1.730 dong khop tang 1',
-      [run2.diff.toAdd.length, run2.diff.toUpdate.length, run2.tiers.t1], [0, 0, 1730]);
+      [run2.diff.toAdd.length, run2.diff.toUpdate.length, run2.tiers.t1], [0, 0, 1976]);
     check('lan 2: khong co dong mo coi', run2.filtered.orphanOffsets.length, 0);
     check('lan 2: NG van khong len duoc master (rule 2 khong bao ve tac pham chua co)',
-      run2.filtered.excludedNg.length, 595);
+      run2.filtered.excludedNg.length, 662);
 
     // Lần 3 — biến động thật: 108 dòng được cấp タイトルID số, 2 dòng bỏ dấu 仮
     var keptWorks = run1.filtered.matches.map(function (m) { return m.record; });
@@ -886,7 +900,7 @@ function test_dataset(ctx) {
     var kariPattern = /[(（]仮[)）]/;
     var kariCount = keptWorks.filter(function (w) { return kariPattern.test(String(w.titleName)); }).length;
     check('so dong se doi gia tri titleID (spec §5.1: 108)', nonNumericCount, 108);
-    check('so dong se doi titleName vi bo dau 仮 (spec §5.1: 2)', kariCount, 2);
+    check('so dong se doi titleName vi bo dau 仮 (2 -> 3 sau cascade)', kariCount, 3);
 
     var nextFakeId = 900000;
     var worksRun3 = works.map(function (w) {
@@ -902,15 +916,15 @@ function test_dataset(ctx) {
 
     var run3 = runOnce(worksRun3, run1.master);
     check('lan 3: 0 them moi (KHONG sinh dong trung), 110 update, master van 1.730',
-      [run3.diff.toAdd.length, run3.diff.toUpdate.length, run3.master.length], [0, 110, 1730]);
+      [run3.diff.toAdd.length, run3.diff.toUpdate.length, run3.master.length], [0, 111, 1976]);
     check('lan 3: tang 1 = 1.620, tang 2 = 2 (doi ten), tang 3 = 108 (ID trong -> so)',
-      [run3.tiers.t1, run3.tiers.t2, run3.tiers.t3], [1620, 2, 108]);
+      [run3.tiers.t1, run3.tiers.t2, run3.tiers.t3], [1865, 3, 108]);
     check('lan 3: khong co dong mo coi', run3.filtered.orphanOffsets.length, 0);
 
     // Lần 4 — chạy lại sau biến động: phải im lặng hoàn toàn
     var run4 = runOnce(worksRun3, run3.master);
     check('lan 4: 0 them moi, 0 update, 1.730 khop tang 1',
-      [run4.diff.toAdd.length, run4.diff.toUpdate.length, run4.tiers.t1], [0, 0, 1730]);
+      [run4.diff.toAdd.length, run4.diff.toUpdate.length, run4.tiers.t1], [0, 0, 1976]);
 
 
     // ---- Bản quyền trên dữ liệu thật (đo 2026-08-04) ----
@@ -942,24 +956,24 @@ function test_dataset(ctx) {
     // điền template vừa bị hỏng — loại lỗi âm thầm nhất, vì sheet vẫn ghi được,
     // chỉ là cột 出版社コピーライト trống hàng loạt (đã xảy ra 1 lần khi token '©著'
     // khớp luôn '©著者名', xem COPYRIGHT_TEMPLATE_UNSUPPORTED_PATTERNS).
-    check('sinh duoc 出版社コピーライト (reason=ok)', copyrightStats[src.COPYRIGHT_REASON_OK], 1303);
+    check('sinh duoc 出版社コピーライト (reason=ok)', copyrightStats[src.COPYRIGHT_REASON_OK], 1496);
     // 241: chủ yếu là imprint của chính ソルマーレ — シーモアコミックス（トレモア） 99
     // và ソルマーレ編集部 60 tác phẩm, chưa có dòng nào trong 出版社別コピーライトマスタ.
-    check('khong sinh duoc: NXB chua co rule', copyrightStats[src.COPYRIGHT_REASON_NO_RULE], 241);
-    check('khong sinh duoc: co 02：個別ルール', copyrightStats[src.COPYRIGHT_REASON_MANUAL_FLAG], 83);
+    check('khong sinh duoc: NXB chua co rule', copyrightStats[src.COPYRIGHT_REASON_NO_RULE], 261);
+    check('khong sinh duoc: co 02：個別ルール', copyrightStats[src.COPYRIGHT_REASON_MANUAL_FLAG], 94);
     // 103: 3 nhóm, tất cả đều KHÔNG dùng được thật (không phải lỗi code) —
     //   ~29 template là '『タイトル名』' (không © / không tác giả / không NXB)
     //   ~32 ô テンプレート trống dù dòng rule tồn tại
     //    18 cần '原作者名（英語）' mà CMS không có tên tác giả dạng chữ Latin
-    check('khong sinh duoc: template khong dung duoc', copyrightStats[src.COPYRIGHT_REASON_BAD_TEMPLATE], 103);
+    check('khong sinh duoc: template khong dung duoc', copyrightStats[src.COPYRIGHT_REASON_BAD_TEMPLATE], 125);
     check('4 nhom cong lai = so tac pham vao master',
       copyrightStats[src.COPYRIGHT_REASON_OK] + copyrightStats[src.COPYRIGHT_REASON_NO_RULE]
         + copyrightStats[src.COPYRIGHT_REASON_MANUAL_FLAG] + copyrightStats[src.COPYRIGHT_REASON_BAD_TEMPLATE],
-      1730);
+      1976);
     // 1.711/1.730 = 98,9% tác phẩm đã có bản quyền sẵn ở cột コピーライト của CMS,
     // nên cột J gánh gần hết — cột K chủ yếu có giá trị cho tác phẩm MỚI của NXB
     // đã có quy tắc.
-    check('tac pham co san タイトル個別コピーライト tu CMS', withIndividual, 1711);
+    check('tac pham co san タイトル個別コピーライト tu CMS', withIndividual, 1957);
     check('tac pham KHONG co ban quyen nao (ca 2 cot trong) -> 個別対応', noEffective, 14);
 
     // Không bao giờ có タイトルNo trùng nhau qua cả 4 lần chạy
@@ -1109,10 +1123,51 @@ function test_titleCategoryAndLp(ctx) {
 
     check('canh bao LP: chi bao tac pham chua phan dinh duoc',
       src.buildLpProductionWarningRows([
-        { titleNo: 1, titleName: 'A', genre: '女性', lpProduction: '' },
-        { titleNo: 2, titleName: 'B', genre: 'TL', lpProduction: '必要' },
+        { record: { titleNo: 1, titleName: 'A', genre: '女性', lpProduction: '' }, existing: null },
+        { record: { titleNo: 2, titleName: 'B', genre: 'TL', lpProduction: '必要' }, existing: null },
       ], runAt).map(function (r) { return r.titleNo; }),
       [1]);
+
+    // ---- BUG 2026-09-01: ô ③ trên master được GIỮ khi 未判定, nhưng cột J lại tính
+    // từ ③ của RIÊNG lần chạy này (rỗng) -> 13 dòng thật hiện ③=ロゴあり mà J trống
+    // vĩnh viễn. resolveLpProductionForMatch() phải đọc ③ CÓ HIỆU LỰC của dòng. ----
+    var keptLogo = { record: { genre: '女性', logoJudgement: '' },
+      existing: { logoJudgement: 'ロゴあり' } };
+    check('LP bug: 未判定 hom nay nhung master dang giu ③=ロゴあり -> 不要 (KHONG phai rong)',
+      src.resolveLpProductionForMatch(keptLogo), '不要');
+    check('LP bug: 未判定 hom nay nhung master dang giu ③=ロゴなし -> 必要',
+      src.resolveLpProductionForMatch({ record: { genre: '女性', logoJudgement: '' },
+        existing: { logoJudgement: 'ロゴなし' } }), '必要');
+    // Phán định MỚI phải thắng giá trị cũ, nếu không tác phẩm đổi ロゴなし->ロゴあり sẽ
+    // kẹt ở 必要 mãi — đúng ca mà sameWriteOnceValue() bị loại ra khỏi cột J.
+    check('LP bug: co phan dinh moi -> phan dinh moi THANG gia tri cu tren sheet',
+      src.resolveLpProductionForMatch({ record: { genre: '女性', logoJudgement: 'ロゴあり' },
+        existing: { logoJudgement: 'ロゴなし' } }), '不要');
+    check('LP bug: dong MOI (existing=null) van ra rong khi 未判定',
+      src.resolveLpProductionForMatch({ record: { genre: '女性', logoJudgement: '' },
+        existing: null }), '');
+    check('LP bug: ca 2 phia deu khong co ③ -> rong',
+      src.resolveLpProductionForMatch({ record: { genre: '女性', logoJudgement: '' },
+        existing: { logoJudgement: '' } }), '');
+    // ジャンル KHÔNG áp dụng cơ chế giữ: nó được ghi đè vô điều kiện từ CMS mỗi lần chạy.
+    check('LP bug: ジャンル TL van thang, khong dung toi ③ nao ca',
+      src.resolveLpProductionForMatch({ record: { genre: 'TL', logoJudgement: '' },
+        existing: { logoJudgement: 'ロゴあり' } }), '必要');
+
+    // Cảnh báo phải tách được 2 lý do làm J rỗng — ca (b) không phải "chờ chấm" mà là
+    // "quy tắc ガワ không phủ giá trị này", 2 việc cần làm khác hẳn nhau.
+    var lpWarnings = src.buildLpProductionWarningRows([
+      { record: { titleNo: 1, titleName: 'A', genre: '女性', logoJudgement: '', lpProduction: '' },
+        existing: null },
+      { record: { titleNo: 2, titleName: 'B', genre: '女性',
+        logoJudgement: '素材不足により判定不可', lpProduction: '' }, existing: null },
+    ], runAt);
+    check('canh bao LP: khong co ③ nao -> bao 未判定',
+      lpWarnings[0].detail.indexOf('③シーモアロゴ判定が未判定') >= 0, true);
+    check('canh bao LP: ③ co gia tri la -> bao ro gia tri do, KHONG bao 未判定',
+      [lpWarnings[1].detail.indexOf('素材不足により判定不可') >= 0,
+        lpWarnings[1].detail.indexOf('が未判定') >= 0],
+      [true, false]);
 }
 
 // ==============================================================================
@@ -1165,10 +1220,10 @@ function test_titleCategoryDataset(ctx) {
       multiCategory, 28);
 
     // ---- Áp lên đúng 1.730 tác phẩm thật sự vào master ----
-    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var regulationLookup = src.buildRegulationIndex(src.parseRegulationRows(ctx.fixtures.load('regulation')));
     var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup);
     var kept = works.filter(function (w) { return src.isWorkEligible(w); });
-    check('vao master: 1.730 tac pham (khop test_dataset)', kept.length, 1730);
+    check('vao master: 1.976 tac pham (khop test_dataset)', kept.length, 1976);
 
     var categoryCounts = { コミット: 0, 独占: 0 };
     var lpCounts = { 必要: 0, 不要: 0, '': 0 };
@@ -1186,9 +1241,9 @@ function test_titleCategoryDataset(ctx) {
     });
 
     check('E列: コミット + 独占 = 1.730, khong dong nao trong',
-      categoryCounts['コミット'] + categoryCounts['独占'], 1730);
+      categoryCounts['コミット'] + categoryCounts['独占'], 1976);
     check('E列: phan bo コミット / 独占',
-      [categoryCounts['コミット'], categoryCounts['独占']], [635, 1095]);
+      [categoryCounts['コミット'], categoryCounts['独占']], [661, 1315]);
 
     // 2 check dưới đây đi cùng nhau: check thứ 2 chốt CON SỐ, check thứ nhất chốt
     // NGUỒN GỐC của con số đó. Nếu ai đó đảo thứ tự xét (ロゴ判定 trước ジャンル) thì
@@ -1198,11 +1253,11 @@ function test_titleCategoryDataset(ctx) {
       [lpInputs.tlbl + lpInputs.otherNoLogo, lpInputs.otherWithLogo],
       [lpCounts['必要'], lpCounts['不要']]);
     check('J列: phan bo 必要 / 不要 / chua phan dinh',
-      [lpCounts['必要'], lpCounts['不要'], lpCounts['']], [578, 1152, 0]);
+      [lpCounts['必要'], lpCounts['不要'], lpCounts['']], [646, 1330, 0]);
     // 281 TL/BL, trong đó 62 mang ロゴあり — chính là số tác phẩm mà thứ tự xét
     // (ジャンル trước ロゴ判定) làm thay đổi kết quả.
     check('J列: 62 tac pham TL/BL mang ロゴあり — 必要 nho thu tu xet',
-      [lpInputs.tlbl, lpInputs.tlbl - 219], [281, 62]);
+      [lpInputs.tlbl, lpInputs.tlbl - 219], [314, 95]);
     // 0 tác phẩm chưa phán định được: mọi dòng vào master đều là 判定済み và
     // レギュレーション thật không có dòng 判定済み nào bỏ trống ③シーモアロゴ判定. Nghĩa là
     // tab GAS1警告 hôm nay có 0 dòng LP制作注意 — nhánh đó là phòng xa, không phải
@@ -1383,10 +1438,10 @@ function test_preConfirmationDataset(ctx) {
     check('出版社別コピーライトマスタ: phan bo (出版社)事前確認 必要 / 不要 / trong',
       [ruleCounts['必要'], ruleCounts['不要'], ruleCounts['']], [268, 105, 8]);
 
-    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var regulationLookup = src.buildRegulationIndex(src.parseRegulationRows(ctx.fixtures.load('regulation')));
     var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup)
       .filter(function (w) { return src.isWorkEligible(w); });
-    check('vao master: 1.730 tac pham (khop test_dataset)', works.length, 1730);
+    check('vao master: 1.976 tac pham (khop test_dataset)', works.length, 1976);
 
     var qCounts = { 必要: 0, 不要: 0, '': 0 };
     var noCopyrightButHasQ = 0;
@@ -1396,7 +1451,7 @@ function test_preConfirmationDataset(ctx) {
       if (src.resolvePublisherCopyright(w, lookup).value === null && q !== '') noCopyrightButHasQ += 1;
     });
     check('Q列: phan bo 必要 / 不要 / trong', [qCounts['必要'], qCounts['不要'], qCounts['']],
-      [1013, 472, 245]);
+      [1213, 498, 265]);
 
     // Ô Q trống đến từ HAI nguyên nhân khác nhau, và phép cộng dưới đây chốt tỉ lệ
     // giữa chúng:
@@ -1413,14 +1468,14 @@ function test_preConfirmationDataset(ctx) {
       return src.resolvePublisherCopyright(w, lookup).reason !== src.COPYRIGHT_REASON_NO_RULE;
     }).length;
     check('Q列: o trong = (NXB khong co quy tac) + (quy tac co nhung o nguon trong)',
-      [noRule, ruleFoundButBlank, noRule + ruleFoundButBlank], [241, 4, qCounts['']]);
+      [noRule, ruleFoundButBlank, noRule + ruleFoundButBlank], [261, 4, qCounts['']]);
 
     // Con số quan trọng nhất của thiết kế: 186 tác phẩm KHÔNG sinh được cột K
     // (02：個別ルール hoặc template hỏng) nhưng VẪN có 事前確認. Nếu ai đó "đơn giản
     // hoá" bằng cách chỉ lấy Q khi cột K sinh được, 186 tác phẩm này sẽ mất giá trị
     // kiểm duyệt trước — sai theo hướng nguy hiểm.
     check('Q列: 186 tac pham cot K khong sinh duoc nhung Q van co gia tri',
-      noCopyrightButHasQ, 186);
+      noCopyrightButHasQ, 219);
 }
 
 // ==============================================================================
@@ -1607,10 +1662,10 @@ function test_preEndAndMassFreeDataset(ctx) {
     check('大量無料: 65 ID duoc gop tu >= 2 dong chien dich', multiRow, 65);
 
     // ---- Áp lên đúng 1.730 tác phẩm vào master ----
-    var regulationLookup = src.buildRegulationLookup(src.parseRegulationRows(ctx.fixtures.load('regulation')));
+    var regulationLookup = src.buildRegulationIndex(src.parseRegulationRows(ctx.fixtures.load('regulation')));
     var works = src.buildCustomerWorkRows(src.parseCmsRows(ctx.fixtures.load('cms')), regulationLookup)
       .filter(function (w) { return src.isWorkEligible(w); });
-    check('vao master: 1.730 tac pham (khop test_dataset)', works.length, 1730);
+    check('vao master: 1.976 tac pham (khop test_dataset)', works.length, 1976);
 
     var counts = { r: 0, sFromR: 0, sFromQ: 0, sEmpty: 0, tu: 0 };
     works.forEach(function (w) {
@@ -1627,20 +1682,174 @@ function test_preEndAndMassFreeDataset(ctx) {
         || src.normalizeJapaneseText(period.end) !== '') counts.tu += 1;
     });
 
-    check('R列: 199/1.730 tac pham co ngay gia han', counts.r, 199);
+    check('R列: 229/1.976 tac pham co ngay gia han', counts.r, 229);
     // S = R đúng 199 lần và không lần nào khác: mọi tác phẩm có R đều phải lấy R.
     check('S列: so dong lay tu R = so dong co R', counts.sFromR, counts.r);
     check('S列: 1.519 lay tu Q, 12 de trong (ca Q lan R deu trong)',
-      [counts.sFromQ, counts.sEmpty], [1519, 12]);
+      [counts.sFromQ, counts.sEmpty], [1735, 12]);
     check('S列: tong 3 nhanh = 1.730',
-      counts.sFromR + counts.sFromQ + counts.sEmpty, 1730);
-    check('T/U列: 27/1.730 tac pham co ky 大量無料', counts.tu, 27);
+      counts.sFromR + counts.sFromQ + counts.sEmpty, 1976);
+    check('T/U列: 31/1.976 tac pham co ky 大量無料', counts.tu, 31);
+}
+
+// ==============================================================================
+// レギュレーション: cascade 3 tầng + GIỮ NGUYÊN ①②③ khi tra không ra
+//
+// Hai thay đổi 2026-09-01, cùng chữa một triệu chứng ('①②③ trống trên master'):
+//
+//   1. Tra phán định theo CASCADE 3 tầng (T1 名+ID / T2 名 / T3 ID) thay vì chỉ
+//      theo tên. Đo trên dữ liệu thật: 313 tác phẩm có ID khớp một dòng 判定済み
+//      nhưng tên viết khác (`ディスタンス！` vs `ディスタンス`, tên 仮 đã đổi
+//      thành tên chính thức...) nên tra không ra và mất sạch phán định.
+//      An toàn đã đo: 0 khoá nào của cả 3 tầng mang phán định mâu thuẫn, và
+//      0 ca T2/T3 chỉ về 2 phán định khác nhau.
+//
+//   2. Cột ①②③ chuyển sang GHI CÓ ĐIỀU KIỆN — spec §3.4 vốn đã yêu cầu
+//      ('未判定 -> Giữ dòng, giữ nguyên N/O/P cũ, báo log') nhưng phần 'giữ
+//      nguyên' chưa bao giờ được cài: chúng là nhóm 上書 nên tra không ra = xoá
+//      trắng phán định đúng. Đã xảy ra thật 138 tác phẩm × 3 cột ngày 2026-08-26.
+// ==============================================================================
+function test_regulationCascadeAndHold(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  // Header thật của シート1 — cột ID viết ＩＤ FULL-WIDTH (đã đối chiếu sheet thật
+  // 2026-09-01). normalizeHeaderText() KHÔNG làm NFKC nên 'タイトルID' half-width
+  // KHÔNG khớp được ô này — đó là lý do phải dò cả 2 cách viết.
+  var HEADER = ['No', 'ステータス', '更新日', 'ＣＭＳID', 'タイトルＩＤ', 'タイトル名', 'ジャンル',
+    '出版社', '①広告出稿ポリシー\n（出稿NG）', '②一般面出稿NG\n（アダルト作品扱い）', '③シーモアロゴ判定'];
+  function sheet(rows) { return [['ghi chú'], [''], [''], HEADER].concat(rows); }
+  function row(status, titleId, titleName, policy, general, logo) {
+    return ['1', status, '', '', titleId, titleName, 'TL', '', policy, general, logo];
+  }
+  function work(titleId, titleName) { return { titleId: titleId, titleName: titleName }; }
+
+  var index = src.buildRegulationIndex(src.parseRegulationRows(sheet([
+    row('判定済み', '111', 'かんぜん一致', '問題なし', '一般面OK', 'ロゴあり'),
+    row('判定済み', '222', 'なまえだけ一致', '問題なし', '一般面OK', 'ロゴなし'),
+    row('判定済み', '333', 'レギュ側の名前', '問題なし', 'アダルトジャンル', 'ロゴなし'),
+    row('判定済み', 'ー',  'ID が数字でない', '問題なし', '一般面OK', 'ロゴあり'),
+    row('削除',     '999', 'ステータスが削除', '問題なし', '一般面OK', 'ロゴあり'),
+  ])));
+
+  // ---- parse phải mang được タイトルID ra (trước đây bị bỏ hẳn) ----
+  check('parseRegulationRows doc duoc cot タイトルＩＤ full-width',
+    src.parseRegulationRows(sheet([row('判定済み', '111', 'x', '問題なし', '一般面OK', 'ロゴあり')]))[0].titleId,
+    '111');
+
+  // ---- T1: tên + ID cùng khớp ----
+  check('T1 名+ID khop -> tang 1',
+    [src.lookupRegulation(work('111', 'かんぜん一致'), index).tier,
+     src.lookupRegulation(work('111', 'かんぜん一致'), index).logoJudgement],
+    [1, 'ロゴあり']);
+
+  // ---- T2: tên khớp, ID lệch ----
+  check('T2 ten khop nhung ID lech -> tang 2',
+    [src.lookupRegulation(work('999999', 'なまえだけ一致'), index).tier,
+     src.lookupRegulation(work('999999', 'なまえだけ一致'), index).logoJudgement],
+    [2, 'ロゴなし']);
+  check('T2 van khop khi tac pham KHONG co ID',
+    src.lookupRegulation(work('', 'なまえだけ一致'), index).tier, 2);
+
+  // ---- T3: ID khớp, tên khác hẳn — 313 tác phẩm thật rơi vào đây ----
+  check('T3 ID khop nhung ten KHAC -> tang 3, van lay duoc phan dinh',
+    [src.lookupRegulation(work('333', 'CMS側の別名'), index).tier,
+     src.lookupRegulation(work('333', 'CMS側の別名'), index).general,
+     src.lookupRegulation(work('333', 'CMS側の別名'), index).isNg],
+    [3, 'アダルトジャンル', true]);
+
+  // ---- T3 chỉ chạy khi CẢ HAI vế là số thật ----
+  // Cùng lý do đã ghi ở NGUỒN 4/5: ô ID của CMS có dòng trống và dòng ghi chú
+  // ('ー', '4415行目と同一'), không chặn thì chúng khớp lẫn nhau qua khoá rác.
+  check('T3 KHONG khop khi ID cua レギュレーション khong phai so',
+    src.lookupRegulation(work('ー', 'CMS側の別名2'), index), null);
+  check('T3 KHONG khop khi ID cua tac pham khong phai so',
+    src.lookupRegulation(work('4415行目と同一', 'CMS側の別名3'), index), null);
+
+  // ---- không tra ra ----
+  check('khong tra ra -> null',
+    src.lookupRegulation(work('888', 'どこにもない'), index), null);
+  check('dong ステータス khac 判定済み van bi bo (ke ca khi ID khop)',
+    src.lookupRegulation(work('999', 'ステータスが削除'), index), null);
+
+  // ---- buildCustomerWorkRows dùng index mới ----
+  var works = src.buildCustomerWorkRows(
+    [{ titleId: '333', titleName: 'CMS側の別名', genre: 'TL' }], index);
+  check('buildCustomerWorkRows lay duoc phan dinh qua T3',
+    [works[0].judged, works[0].isNg, works[0].general],
+    [true, true, 'アダルトジャンル']);
+
+  // ---- GIỮ NGUYÊN ①②③ khi không phán định được (spec §3.4) ----
+  var headerRow = [''].concat(src.CUSTOMER_REQUIRED_HEADERS);
+  var headerIndex = src.buildHeaderIndex(headerRow);
+  function cell(rowArr, name) { return rowArr[src.col(headerIndex, name)]; }
+  function prevRow() {
+    var r = new Array(headerRow.length).fill('');
+    r[src.col(headerIndex, '①広告出稿ポリシー')] = '問題なし';
+    r[src.col(headerIndex, '②一般面出稿NG')] = '一般面OK';
+    r[src.col(headerIndex, '③シーモアロゴ判定')] = 'ロゴあり';
+    return r;
+  }
+  var base = { titleNo: 1, cmsId: '', titleId: '333', titleName: 'x', author: '', genre: '',
+    publisher: '', label: '', preStart: '', preEnd: '', suspensionDate: '',
+    preEndExtended: '', preEndFinal: '', massFreeStart: '', massFreeEnd: '',
+    titleCategory: '独占', lpProduction: '' };
+
+  var held = src.customerRecordToRow(
+    Object.assign({}, base, { policy: '', general: '', logoJudgement: '' }),
+    headerIndex, headerRow.length, prevRow());
+  check('①②③ KHONG bi xoa khi khong phan dinh duoc (spec §3.4)',
+    [cell(held, '①広告出稿ポリシー'), cell(held, '②一般面出稿NG'), cell(held, '③シーモアロゴ判定')],
+    ['問題なし', '一般面OK', 'ロゴあり']);
+
+  var updated = src.customerRecordToRow(
+    Object.assign({}, base, { policy: '問題あり', general: 'アダルト作品扱い', logoJudgement: 'ロゴなし' }),
+    headerIndex, headerRow.length, prevRow());
+  check('①②③ VAN ghi de duoc khi co phan dinh moi',
+    [cell(updated, '①広告出稿ポリシー'), cell(updated, '②一般面出稿NG'), cell(updated, '③シーモアロゴ判定')],
+    ['問題あり', 'アダルト作品扱い', 'ロゴなし']);
+
+  var fresh = src.customerRecordToRow(
+    Object.assign({}, base, { policy: '', general: '', logoJudgement: '' }),
+    headerIndex, headerRow.length, undefined);
+  check('dong MOI khong phan dinh duoc -> 3 o de rong, khong ghi undefined',
+    [cell(fresh, '①広告出稿ポリシー'), cell(fresh, '②一般面出稿NG'), cell(fresh, '③シーモアロゴ判定')],
+    ['', '', '']);
+
+  // ---- RÀNG BUỘC: đường GHI và đường DIFF phải nói cùng một điều ----
+  // Đây là bất biến chống churn vĩnh viễn: nếu customerRecordToRow() GIỮ ô mà
+  // customerIsEqualFn lại bảo "đã đổi", dòng bị đánh dấu update mỗi lần chạy rồi ghi
+  // ra đúng giá trị cũ — mãi mãi. Lặp qua REGULATION_VERDICT_FIELDS nên thêm/bớt cột
+  // phán định là test tự bám theo, không phải nhớ sửa ở đây.
+  src.REGULATION_VERDICT_FIELDS.forEach(function (field) {
+    var incoming = Object.assign({}, base, { policy: '', general: '', logoJudgement: '' });
+    var written = src.customerRecordToRow(incoming, headerIndex, headerRow.length, prevRow());
+    var existingValue = prevRow()[src.col(headerIndex, field.header)];
+    check('ghi va diff khop nhau khi ' + field.header + ' khong phan dinh duoc',
+      [cell(written, field.header), src.sameKeepWhenBlankValue(existingValue, incoming[field.key])],
+      [existingValue, true]);
+  });
+
+  // ---- 判定消失注意: giữ nguyên thì PHẢI báo, nếu không việc giữ là vô hình ----
+  var runAt = new Date(2026, 8, 1);
+  var rows = src.buildRegulationLostWarningRows([
+    { record: { titleNo: 1, titleId: '333', titleName: 'mất phán định', judged: false },
+      existing: { policy: '問題なし', general: '一般面OK', logoJudgement: 'ロゴあり' } },
+    { record: { titleNo: 2, titleId: '444', titleName: 'chưa từng có phán định', judged: false },
+      existing: { policy: '', general: '', logoJudgement: '' } },
+    { record: { titleNo: 3, titleId: '555', titleName: 'bình thường', judged: true },
+      existing: { policy: '問題なし', general: '一般面OK', logoJudgement: 'ロゴあり' } },
+    { record: { titleNo: 4, titleId: '666', titleName: 'dòng mới', judged: false }, existing: null },
+  ], runAt);
+  check('判定消失注意 CHI bao khi dang giu mot phan dinh cu that',
+    rows.map(function (r) { return [r.kind, r.titleNo]; }),
+    [['判定消失注意', 1]]);
 }
 
 module.exports = {
   unit: [test_harness, test_regulation, test_cms, test_workRows, test_cascade, test_filter,
     test_copyright, test_warnings, test_suspension, test_titleCategoryAndLp, test_preConfirmation,
-    test_preEndAndMassFree, test_updatedAt],
+    test_preEndAndMassFree, test_updatedAt, test_regulationCascadeAndHold],
   data: [test_dataset, test_titleCategoryDataset, test_preConfirmationDataset,
     test_preEndAndMassFreeDataset],
 };

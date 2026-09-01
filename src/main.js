@@ -26,7 +26,7 @@
  *
  *  1. Đọc thô + parse các nguồn (io.js: readSheetValues + sources.js), kèm
  *     nguồn 掲載停止日付 là 1 file TSV trên Drive (io.js).
- *  2. buildRegulationLookup(): Map normalize(タイトル名) -> phán định, chỉ dòng
+ *  2. buildRegulationIndex(): 3 bảng tra (名+ID / 名 / ID) -> phán định, chỉ dòng
  *     ステータス=判定済み, tên trùng thì dòng NG thắng.
  *  3. buildCustomerWorkRows(): gắn 3 cột phán định + cờ judged/isNg cho TỪNG tác
  *     phẩm CMS (chưa lọc gì).
@@ -97,9 +97,10 @@ function runGas1() {
 
 
     var regulationRecords = parseRegulationRows(regulationRaw);
-    var regulationLookup = buildRegulationLookup(regulationRecords);
+    var regulationIndex = buildRegulationIndex(regulationRecords);
     Logger.log('作品レギュレーション判定: ' + regulationRecords.length + ' 件（判定済み）読み込み完了、'
-      + 'タイトル名ユニーク ' + regulationLookup.size + ' 件');
+      + 'タイトル名ユニーク ' + regulationIndex.byName.size + ' 件、タイトルIDユニーク '
+      + regulationIndex.byId.size + ' 件（cascade 3 tầng）');
 
     var cmsRecords = parseCmsRows(cmsRaw);
     // cmsRaw.length - 1 = tổng số dòng data thô (trừ header). Số dòng KHÔNG được đưa
@@ -271,7 +272,7 @@ function runGas1() {
 
     // ---- Bước 3-5: gắn phán định -> đọc master -> LỌC + khớp dòng ----
     var existingCustomerRows = readCustomerWorkMaster();
-    var builtCustomerRows = buildCustomerWorkRows(cmsRecords, regulationLookup);
+    var builtCustomerRows = buildCustomerWorkRows(cmsRecords, regulationIndex);
 
     // BỘ LỌC + KHỚP DÒNG trong CÙNG MỘT LƯỢT (master.js). Đây là
     // thay đổi lớn nhất của bản 2026-08-03: trước đây MỌI tác phẩm CMS đều vào
@@ -364,12 +365,17 @@ function runGas1() {
 
       // ---- Cột J LP制作 ----
       // KHÔNG có nhánh "nguồn lỗi" vì cột này không phụ thuộc nguồn ngoài nào: nó chỉ
-      // đọc work.genre (CMS) và work.logoJudgement (レギュレーション), cả 2 đều là nguồn
+      // đọc work.genre (CMS) và ③シーモアロゴ判定 (レギュレーション), cả 2 đều là nguồn
       // BẮT BUỘC — không đọc được thì cả lần chạy đã dừng từ Bước 1.
+      //
+      // NHƯNG vẫn phải truyền `match` chứ không phải `work`: ô ③ trên master được GIỮ
+      // NGUYÊN khi lần chạy này 未判定, nên phán định ③ CÓ HIỆU LỰC của dòng có thể nằm
+      // ở match.existing chứ không ở work — xem JSDoc resolveLpProductionForMatch()
+      // trong master.js (bug 2026-09-01: 13 dòng có ③ mà cột J trống vĩnh viễn).
       //
       // Trả về '' nghĩa là chưa phán định được; io.js giữ nguyên ô thay vì xoá, và
       // buildLpProductionWarningRows() ghi 1 dòng cảnh báo cho từng tác phẩm như vậy.
-      work.lpProduction = resolveLpProduction(work);
+      work.lpProduction = resolveLpProductionForMatch(match);
     });
 
     // ---- Bước 7-8: cấp số + diff + ghi ----
@@ -403,9 +409,14 @@ function runGas1() {
         && sameValue(a.genre, b.genre)
         && sameValue(a.publisher, b.publisher)
         && sameValue(a.label, b.label)
-        && sameValue(a.policy, b.policy)
-        && sameValue(a.general, b.general)
-        && sameValue(a.logoJudgement, b.logoJudgement)
+        // 3 cột ①②③ dùng sameKeepWhenBlankValue() (KHÔNG phải sameValue): incoming
+        // rỗng = 未判定 = "giữ nguyên ô", đúng theo spec §3.4 và khớp với điều kiện ghi
+        // trong customerRecordToRow(). Dùng sameValue() ở đây thì dòng chỉ khác mỗi
+        // ①②③-rỗng bị đánh dấu "cần update" mỗi lần chạy rồi ghi ra đúng giá trị cũ —
+        // churn vĩnh viễn. CHÚ Ý THỨ TỰ: a là existing, b là incoming.
+        && sameKeepWhenBlankValue(a.policy, b.policy)
+        && sameKeepWhenBlankValue(a.general, b.general)
+        && sameKeepWhenBlankValue(a.logoJudgement, b.logoJudgement)
         && sameDateValue(a.preStart, b.preStart)
         && sameDateValue(a.preEnd, b.preEnd)
         && sameWriteOnceValue(a.suspensionDate, b.suspensionDate)
@@ -542,9 +553,12 @@ function runGas1() {
       { key: 'label', label: 'レーベル名' },
       { key: 'preStart', label: '先行開始日', compare: sameDateValue },
       { key: 'preEnd', label: '先行終了日', compare: sameDateValue },
-      { key: 'policy', label: '①広告出稿ポリシー' },
-      { key: 'general', label: '②一般面出稿NG' },
-      { key: 'logoJudgement', label: '③シーモアロゴ判定' },
+      // compare PHẢI trùng với customerIsEqualFn ở trên: dùng sameValue() ở đây sẽ log
+      // '問題なし -> (trống)' cho mọi tác phẩm mất phán định, trong khi ô thật KHÔNG hề
+      // bị đổi (đường ghi giữ nguyên nó). Việc giữ ô được báo riêng bằng 判定消失注意.
+      { key: 'policy', label: '①広告出稿ポリシー', compare: sameKeepWhenBlankValue },
+      { key: 'general', label: '②一般面出稿NG', compare: sameKeepWhenBlankValue },
+      { key: 'logoJudgement', label: '③シーモアロゴ判定', compare: sameKeepWhenBlankValue },
       { key: 'suspensionDate', label: '掲載停止日付', compare: sameWriteOnceValue },
       { key: 'preEndExtended', label: '先行終了日（延長）', compare: sameDateValue },
       { key: 'preEndFinal', label: '先行終了日（最終確定）', compare: sameDateValue },
@@ -582,7 +596,13 @@ function runGas1() {
       .concat(buildPreEndExtensionWarningRows(numberedCustomerRows, preEndExtensionLookup, runAt, preEndExtensionError))
       .concat(buildMassFreeWarningRows(numberedCustomerRows, massFreeLookup, runAt, massFreeError))
       .concat(buildTitleCategoryWarningRows(numberedCustomerRows, commitFlagLookup, runAt, commitManagementError))
-      .concat(buildLpProductionWarningRows(numberedCustomerRows, runAt))
+      // numberedMatches (không phải numberedCustomerRows): cần match.existing để phân
+      // biệt "chưa có ③ nào" với "③ có chữ nhưng không phải ロゴあり/ロゴなし" — cùng lý
+      // do với buildRegulationLostWarningRows() ngay dưới.
+      .concat(buildLpProductionWarningRows(numberedMatches, runAt))
+      // Dùng numberedMatches (không phải numberedCustomerRows): cần match.existing để
+      // biết dòng đó đang GIỮ phán định cũ nào — chỉ báo khi thật sự có cái để mất.
+      .concat(buildRegulationLostWarningRows(numberedMatches, runAt))
       // publisherCopyrightRules là `var` khai báo trong khối try ở Bước 1 — nếu nguồn
       // quy tắc đọc lỗi thì nó undefined, truyền mảng rỗng để hàm chỉ báo đúng việc
       // thiếu cột Q (việc nguồn lỗi đã có dòng コピーライト注意 riêng).
@@ -596,7 +616,7 @@ function runGas1() {
     var warningCounts = {
       match: 0, ambiguous: 0, orphan: 0, ngTitle: 0, suspension: 0, copyright: 0,
       preEndExtension: 0, massFree: 0, titleCategory: 0, lpProduction: 0, preConfirmation: 0,
-      updatedAt: 0,
+      updatedAt: 0, regulationLost: 0,
     };
     warningRows.forEach(function (row) {
       if (row.kind === WARNING_KIND_MATCH) warningCounts.match += 1;
@@ -611,6 +631,7 @@ function runGas1() {
       else if (row.kind === WARNING_KIND_LP_PRODUCTION) warningCounts.lpProduction += 1;
       else if (row.kind === WARNING_KIND_PRE_CONFIRMATION) warningCounts.preConfirmation += 1;
       else if (row.kind === WARNING_KIND_UPDATED_AT) warningCounts.updatedAt += 1;
+      else if (row.kind === WARNING_KIND_REGULATION_LOST) warningCounts.regulationLost += 1;
     });
     Logger.log('GAS1警告 記録: ' + warningRows.length + ' 件（照合注意 ' + warningCounts.match
       + ' / 照合曖昧 ' + warningCounts.ambiguous + ' / 孤立行 ' + warningCounts.orphan
@@ -620,7 +641,15 @@ function runGas1() {
       + ' / タイトル区分注意 ' + warningCounts.titleCategory
       + ' / LP制作注意 ' + warningCounts.lpProduction
       + ' / 出版社事前確認注意 ' + warningCounts.preConfirmation
-      + ' / 更新日注意 ' + warningCounts.updatedAt + '）');
+      + ' / 更新日注意 ' + warningCounts.updatedAt
+      + ' / 判定消失注意 ' + warningCounts.regulationLost + '）');
+    // Con số này là chuông báo cháy của nguồn ①: vài chục = tác phẩm lẻ tẻ đổi
+    // ステータス/đổi tên; xấp xỉ TOÀN BỘ số dòng master = sheet nguồn đã gãy (vd công
+    // thức ra #REF!) và cả lần chạy đang giữ nguyên phán định cũ chứ không cập nhật gì.
+    if (warningCounts.regulationLost > 0) {
+      Logger.log('判定消失注意 ' + warningCounts.regulationLost + ' 件 / マスタ '
+        + numberedCustomerRows.length + ' 行 — ①②③ は据え置き（spec §3.4）');
+    }
 
     // ---- Bước 12: Slack (nếu có cá biệt) + log tổng hợp (luôn luôn) ----
     if (irregularTitles.length > 0) {
@@ -643,6 +672,7 @@ function runGas1() {
       copyrightNoticeCount: warningCounts.copyright,
       preEndExtensionNoticeCount: warningCounts.preEndExtension,
       massFreeNoticeCount: warningCounts.massFree,
+      regulationLostNoticeCount: warningCounts.regulationLost,
       irregularTitles: irregularTitles,
       errors: errors,
     });
@@ -705,11 +735,14 @@ function createGas1Trigger() {
 function probe_readRegulation() {
   var raw = readSheetValues(CONFIG.SOURCES.REGULATION.spreadsheetId, CONFIG.SOURCES.REGULATION.sheetName);
   var records = parseRegulationRows(raw);
-  var lookup = buildRegulationLookup(records);
+  var index = buildRegulationIndex(records);
   var ngCount = 0;
-  lookup.forEach(function (value) { if (value.isNg) ngCount += 1; });
-  Logger.log('判定済み: ' + records.length + ' 件 / タイトル名ユニーク: ' + lookup.size
-    + ' 件 / うち NG 判定: ' + ngCount + ' 件');
+  index.byName.forEach(function (value) { if (value.isNg) ngCount += 1; });
+  Logger.log('判定済み: ' + records.length + ' 件 / タイトル名ユニーク: ' + index.byName.size
+    + ' 件 / タイトルIDユニーク: ' + index.byId.size + ' 件 / うち NG 判定（名前ベース）: ' + ngCount + ' 件');
+  if (index.byId.size === 0) {
+    Logger.log('⚠ タイトルID の列が見つかりません → cascade は第2層（名前）のみで動作します');
+  }
   Logger.log(JSON.stringify(records.slice(0, 3), null, 2));
 }
 
@@ -929,8 +962,8 @@ function probe_dryRunFilter() {
   var regulationRaw = readSheetValues(CONFIG.SOURCES.REGULATION.spreadsheetId, CONFIG.SOURCES.REGULATION.sheetName);
   var cmsRaw = readSheetValues(CONFIG.SOURCES.CMS.spreadsheetId, CONFIG.SOURCES.CMS.sheetName);
 
-  var regulationLookup = buildRegulationLookup(parseRegulationRows(regulationRaw));
-  var works = buildCustomerWorkRows(parseCmsRows(cmsRaw), regulationLookup);
+  var regulationIndex = buildRegulationIndex(parseRegulationRows(regulationRaw));
+  var works = buildCustomerWorkRows(parseCmsRows(cmsRaw), regulationIndex);
   var existingRows = readCustomerWorkMaster();
   var filtered = filterAndMatchWorks(works, existingRows);
 

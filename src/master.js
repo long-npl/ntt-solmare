@@ -54,10 +54,13 @@
  * }>} Thứ tự giữ nguyên theo cmsRecords đầu vào (quan trọng: thứ tự này quyết
  *   định thứ tự cấp タイトルNo cho tác phẩm mới).
  */
-function buildCustomerWorkRows(cmsRecords, regulationLookup) {
+function buildCustomerWorkRows(cmsRecords, regulationIndex) {
   return cmsRecords.map(function (cms) {
-    var regulation = regulationLookup.get(normalizeJapaneseText(cms.titleName));
-    var judged = regulation !== undefined;
+    // Cascade 3 tầng (T1 名+ID / T2 名 / T3 ID) — xem lookupRegulation() ở sources.js.
+    // Trước 2026-09-01 đây là `regulationLookup.get(normalize(タイトル名))`, tức chỉ
+    // có tầng 2, và 313 tác phẩm có ID khớp nhưng tên viết khác bị coi là 未判定.
+    var regulation = lookupRegulation(cms, regulationIndex);
+    var judged = regulation !== null;
     return {
       cmsId: cms.cmsId,
       titleId: cms.titleId,
@@ -80,6 +83,9 @@ function buildCustomerWorkRows(cmsRecords, regulationLookup) {
       logoJudgement: judged ? regulation.logoJudgement : '',
       judged: judged,
       isNg: judged ? regulation.isNg : false,
+      // Tầng nào của cascade đã khớp (1/2/3), null khi 未判定. CHỈ để đọc log và
+      // đối chiếu — không tham gia phán định nào.
+      regulationTier: judged ? regulation.tier : null,
     };
   });
 }
@@ -140,6 +146,40 @@ function resolveLpProduction(work) {
   if (logo === LOGO_JUDGEMENT_NONE) return LP_PRODUCTION_REQUIRED;
   if (logo === LOGO_JUDGEMENT_PRESENT) return LP_PRODUCTION_NOT_REQUIRED;
   return '';
+}
+
+/**
+ * ③シーモアロゴ判定 CÓ HIỆU LỰC của 1 dòng master = phán định vừa tra được, hoặc
+ * (khi lần chạy này 未判定) chính giá trị ĐANG CÓ trên sheet.
+ *
+ * VÌ SAO CẦN TÁCH RA (bug 2026-09-01, thấy trên sheet thật): io.js chỉ ghi ①②③ khi
+ * tra ĐƯỢC phán định — 未判定 thì GIỮ NGUYÊN ô (spec §3.4). Nghĩa là ô ③ trên master
+ * có thể mang phán định của một lần chạy TRƯỚC. Nhưng resolveLpProduction() lại đọc
+ * `work.logoJudgement`, tức bản của RIÊNG lần chạy này, và bản đó là '' khi 未判定.
+ *
+ * Hệ quả đã xảy ra thật: 13 dòng hiện ③=「ロゴあり」/「ロゴなし」 rõ ràng trên sheet
+ * mà cột J vẫn trống, và KẸT VĨNH VIỄN — mỗi lần chạy lại cho ra đúng trạng thái đó
+ * (J rỗng -> sameKeepWhenBlankValue coi là "không đổi" -> không ghi -> ô vẫn trống).
+ * Người đọc sheet thấy một dòng tự mâu thuẫn: có phán định ロゴ mà không có LP制作.
+ *
+ * Đây chính là cơ chế "GIỮ NGUYÊN khi nguồn không cấp giá trị" mà 4 cột
+ * 先行終了日（延長）/（最終確定）/大量無料開始日/終了日 và タイトル区分 đã dùng
+ * (xem runGas1() trong main.js) — cột J là cột dẫn xuất DUY NHẤT còn thiếu nó.
+ *
+ * KHÔNG áp dụng cho ジャンル: cột đó được ghi đè vô điều kiện từ CMS mỗi lần chạy
+ * nên `work.genre` luôn là giá trị mới nhất, không có gì để giữ.
+ *
+ * @param {{record: object, existing: object|null}} match - 1 phần tử của
+ *   filterAndMatchWorks().matches (đã qua resolveNumbersFromMatches() hay chưa đều được)
+ * @returns {string} '必要' | '不要' | '' (chưa phán định được — kể cả sau khi đã
+ *   xét tới giá trị đang có trên sheet)
+ */
+function resolveLpProductionForMatch(match) {
+  var work = match.record;
+  var logo = normalizeJapaneseText(work.logoJudgement) !== ''
+    ? work.logoJudgement
+    : (match.existing ? match.existing.logoJudgement : '');
+  return resolveLpProduction({ genre: work.genre, logoJudgement: logo });
 }
 
 
@@ -630,6 +670,7 @@ var WARNING_KIND_TITLE_CATEGORY = 'タイトル区分注意';
 var WARNING_KIND_LP_PRODUCTION = 'LP制作注意';
 var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
 var WARNING_KIND_UPDATED_AT = '更新日注意';
+var WARNING_KIND_REGULATION_LOST = '判定消失注意';
 
 /**
  * Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告.
@@ -680,6 +721,45 @@ function buildMatchWarningRows(matches, runAt) {
         '第' + match.tier + '層で候補が複数（タイトルNo: ' + match.candidateTitleNos.join(', ')
         + '）→ 最小のタイトルNoを採用。要確認'));
     }
+  });
+  return rows;
+}
+
+/**
+ * 判定消失注意 — tác phẩm ĐANG có phán định trên master, nay tra không ra nữa.
+ *
+ * Cột ①②③ của những dòng này được GIỮ NGUYÊN chứ không bị xoá (spec §3.4:
+ * `未判定 -> Giữ dòng, giữ nguyên N/O/P cũ, báo log`), nên nếu không cảnh báo thì
+ * việc master đang mang một phán định KHÔNG CÒN CƠ SỞ là hoàn toàn vô hình.
+ *
+ * Ba nguyên nhân thật đã gặp, đều dẫn tới đây:
+ *   - `ステータス` của dòng レギュレーション đổi sang `削除` / `Wチェック待ち` / trống
+ *     (145 / 11 / 876 dòng trên nguồn thật) — spec chỉ đếm, chưa từng định nghĩa xử lý.
+ *   - Tác phẩm bị gỡ hẳn khỏi レギュレーション.
+ *   - Sheet nguồn gãy công thức (`#REF!`) — khi đó MỌI dòng rơi vào đây cùng lúc,
+ *     và đó chính là tín hiệu để phân biệt với vài ca lẻ tẻ.
+ *
+ * CHỈ báo khi thật sự đang giữ một phán định cũ: dòng mới, hoặc dòng cũ vốn đã trống
+ * cả 3 ô, không có gì để mất nên không cần làm nhiễu log.
+ *
+ * @param {Array<{record: object, existing: object|null}>} matches - filterAndMatchWorks().matches,
+ *   ĐÃ qua resolveNumbersFromMatches()
+ * @param {Date} runAt
+ * @returns {Array<object>}
+ */
+function buildRegulationLostWarningRows(matches, runAt) {
+  var rows = [];
+  matches.forEach(function (match) {
+    if (match.record.judged === true) return;
+    var existing = match.existing;
+    if (!existing) return;
+    var held = [existing.policy, existing.general, existing.logoJudgement]
+      .filter(function (value) { return normalizeJapaneseText(value) !== ''; });
+    if (held.length === 0) return;
+    rows.push(warningRow(runAt, WARNING_KIND_REGULATION_LOST, match.record.titleNo,
+      match.record.titleId, match.record.titleName,
+      'レギュレーションで 判定済み の行が見つかりません（削除/未判定/名前変更）。'
+      + '①②③ は据え置き: [' + held.join(' / ') + ']'));
   });
   return rows;
 }
@@ -1099,24 +1179,41 @@ function buildPreConfirmationWarningRows(hasColumn, rules, runAt) {
 }
 
 /**
- * LP制作注意 — tác phẩm mà resolveLpProduction() trả về '' (nhánh 4: ジャンル không
- * phải TL/BL và ③シーモアロゴ判定 đang 未判定).
+ * LP制作注意 — tác phẩm mà resolveLpProductionForMatch() trả về '' (nhánh 4).
  *
  * Cột J của những dòng này được GIỮ NGUYÊN chứ không bị xoá, nên nếu không cảnh báo
  * thì việc "GAS chưa từng phán định được tác phẩm này" là hoàn toàn vô hình — ô có
  * thể đang mang giá trị 営業 gõ tay từ nhiều tháng trước mà không ai biết nó chưa
  * bao giờ được kiểm lại.
  *
- * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo và lpProduction)
+ * NHẬN `matches` CHỨ KHÔNG PHẢI `records` (đổi 2026-09-01, cùng lúc với
+ * resolveLpProductionForMatch()): sau khi cột J biết dùng ③ ĐANG CÓ trên sheet, chỉ
+ * còn 2 lý do làm J rỗng và chúng cần 2 cách xử lý khác hẳn nhau —
+ *   (a) không có ③ nào cả, kể cả giá trị cũ  -> chờ レギュレーション chấm
+ *   (b) ③ có chữ nhưng KHÔNG phải ロゴあり/ロゴなし ('素材不足により判定不可',
+ *       '出稿NG' — 16 dòng như vậy trên nguồn thật) -> quy tắc ガワ không phủ ca này,
+ *       phải hỏi 池永 chứ chờ mãi cũng không ra
+ * Phân biệt được (b) cần giá trị ③ có hiệu lực, mà nó nằm ở match.existing khi lần
+ * chạy này 未判定. Báo chung một câu 「③が未判定」 cho cả 2 là báo sai ca (b).
+ *
+ * @param {Array<{record: object, existing: object|null}>} matches - Tác phẩm được vào
+ *   master, đã qua resolveNumbersFromMatches() (record.titleNo + record.lpProduction)
  * @param {Date} runAt
  * @returns {Array<object>}
  */
-function buildLpProductionWarningRows(records, runAt) {
+function buildLpProductionWarningRows(matches, runAt) {
   var rows = [];
-  records.forEach(function (record) {
+  matches.forEach(function (match) {
+    var record = match.record;
     if (normalizeJapaneseText(record.lpProduction) !== '') return;
+    var logo = normalizeJapaneseText(record.logoJudgement) !== ''
+      ? record.logoJudgement
+      : (match.existing ? match.existing.logoJudgement : '');
+    var cause = normalizeJapaneseText(logo) === ''
+      ? '③シーモアロゴ判定が未判定（マスタ上の既存値もなし）'
+      : '③シーモアロゴ判定「' + normalizeJapaneseText(logo) + '」が ロゴあり/ロゴなし のいずれでもない';
     rows.push(warningRow(runAt, WARNING_KIND_LP_PRODUCTION, record.titleNo, record.titleId, record.titleName,
-      'ジャンル「' + normalizeJapaneseText(record.genre) + '」が TL/BL 以外 かつ ③シーモアロゴ判定が未判定'
+      'ジャンル「' + normalizeJapaneseText(record.genre) + '」が TL/BL 以外 かつ ' + cause
       + ' → LP制作 J列は判定できず据え置き'));
   });
   return rows;

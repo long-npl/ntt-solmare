@@ -49,6 +49,32 @@
 // trong chính ô header nên được tra riêng bằng colByPrefix() (xem bên dưới).
 var REGULATION_REQUIRED_HEADERS = ['ステータス', 'タイトル名', '③シーモアロゴ判定'];
 
+// Cột タイトルID của レギュレーション — tầng 1 và tầng 3 của cascade (xem
+// buildRegulationIndex). KHÔNG nằm trong REGULATION_REQUIRED_HEADERS: mất cột này
+// thì cascade tự rút về đúng hành vi cũ (chỉ tra theo tên) chứ không làm sập cả lần
+// chạy — 20 cột còn lại của master vẫn phải được cập nhật.
+//
+// PHẢI dò CẢ HAI cách viết: trên sheet thật (đối chiếu 2026-09-01) ô này là
+// 'タイトルＩＤ' với ＩＤ **FULL-WIDTH**, trong khi CMS dùng 'タイトルID' half-width.
+// normalizeHeaderText() chỉ bỏ khoảng trắng/xuống dòng, KHÔNG làm NFKC — nên viết
+// mỗi bản half-width là tryCol() trả undefined và cascade im lặng mất 2 tầng.
+// Không dùng colByPrefix('タイトル') được: 'タイトル名' cũng khớp tiền tố đó.
+var REGULATION_TITLE_ID_HEADERS = ['タイトルＩＤ', 'タイトルID'];
+
+/**
+ * Vị trí cột タイトルID trên レギュレーション, hoặc undefined nếu sheet không có.
+ *
+ * @param {Map<string, number>} headerIndex
+ * @returns {number|undefined}
+ */
+function resolveRegulationTitleIdColumn(headerIndex) {
+  for (var i = 0; i < REGULATION_TITLE_ID_HEADERS.length; i++) {
+    var index = tryCol(headerIndex, REGULATION_TITLE_ID_HEADERS[i]);
+    if (index !== undefined) return index;
+  }
+  return undefined;
+}
+
 var REGULATION_STATUS_OK = '判定済み';
 
 // Prefix của 2 cột có ghi chú kèm trong ô header:
@@ -66,6 +92,18 @@ var REGULATION_GENERAL_PREFIX = '②一般面出稿NG';
 // sửa đầu tiên.
 var REGULATION_NG_POLICY_VALUE = '問題あり';
 var REGULATION_NG_GENERAL_VALUES = ['アダルト作品扱い', 'アダルトジャンル'];
+
+// 3 cột phán định mà レギュレーション sở hữu, cùng tên field trên record. MỘT nguồn
+// duy nhất cho cả 3 nơi phải nhất quán với nhau: đường GHI (customerRecordToRow),
+// đường SO DIFF (customerIsEqualFn) và log audit (buildChangeDetailRows).
+//
+// Ba chỗ đó lệch nhau là sinh churn vĩnh viễn hoặc xoá dữ liệu âm thầm — đúng loại
+// lỗi mà cột J LP制作 đã phải trả giá một lần. Liệt kê ở đây để sửa 1 chỗ, không phải 3.
+var REGULATION_VERDICT_FIELDS = [
+  { key: 'policy', header: '①広告出稿ポリシー' },
+  { key: 'general', header: '②一般面出稿NG' },
+  { key: 'logoJudgement', header: '③シーモアロゴ判定' },
+];
 
 /**
  * Đọc + lọc dữ liệu thô của sheet 作品レギュレーション判定.
@@ -97,6 +135,7 @@ function parseRegulationRows(rawRows) {
   var colPolicy = colByPrefix(idx, REGULATION_POLICY_PREFIX);
   var colGeneral = colByPrefix(idx, REGULATION_GENERAL_PREFIX);
   var colLogo = col(idx, '③シーモアロゴ判定');
+  var colTitleId = resolveRegulationTitleIdColumn(idx);
 
   var records = [];
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
@@ -105,6 +144,9 @@ function parseRegulationRows(rawRows) {
     if (normalizeJapaneseText(row[colStatus]) !== REGULATION_STATUS_OK) continue;
     records.push({
       titleName: row[colTitleName],
+      // '' (không phải undefined) khi sheet không có cột ID — buildRegulationIndex()
+      // bỏ qua giá trị không phải số nên 2 tầng dùng ID tự tắt, không cần cờ riêng.
+      titleId: colTitleId === undefined ? '' : row[colTitleId],
       policy: row[colPolicy],
       general: row[colGeneral],
       logoJudgement: row[colLogo],
@@ -143,42 +185,118 @@ function isRegulationNg(record) {
 }
 
 /**
- * Build bảng tra DUY NHẤT của nguồn này: normalize(タイトル名) -> phán định.
+ * Build 3 bảng tra của nguồn này — CASCADE 3 TẦNG (2026-09-01):
  *
- * Khoá là タイトル名 đã chuẩn hoá, so 完全一致 — không cắt hậu tố 【】/(), không
- * fuzzy, không fallback sang ID (spec §4.1). Lý do bỏ phương án chuẩn hoá mạnh
- * (spec §4.3): phần bị cắt lại mang phán định KHÁC NHAU —
- *   'ひとつ屋根の下、幼馴染はふしだらに。【白抜き修正版】' = 一般面OK
- *   'ひとつ屋根の下、幼馴染はふしだらに。【棒消し修正版】' = アダルトジャンル
- * Cắt 【】 sẽ gộp 2 dòng này thành 1 và làm 179 tác phẩm tra sang phán định của
- * tác phẩm khác.
+ *   T1  normalize(タイトル名) + NUL + normalize(タイトルID)   chặt nhất
+ *   T2  normalize(タイトル名)                                  hành vi cũ
+ *   T3  normalize(タイトルID), CHỈ khi là số thật              phần mới thu hồi
  *
- * TÊN TRÙNG NHAU -> DÒNG NGHIÊM NGẶT NHẤT THẮNG (có NG thì NG thắng), khác với
- * code cũ là "dòng sau đè dòng trước". Trên dữ liệu hôm nay có 14 tên trùng và
- * 0 ca phán định mâu thuẫn, nên quy tắc này chưa được dùng tới ca thật nào —
- * nhưng nếu ngày mai xuất hiện 2 dòng cùng tên khác phán định, hướng an toàn là
- * chặn, không phải cho qua.
+ * VÌ SAO THÊM 2 TẦNG DÙNG ID (spec §4.3 từng loại phương án này với lý do
+ * "User chọn không dùng ID" — một lựa chọn, không phải một ràng buộc kỹ thuật):
+ * đo trên dữ liệu thật 2026-09-01, **313 tác phẩm** có タイトルID khớp một dòng
+ * 判定済み nhưng タイトル名 viết khác nên tra không ra. Bốn kiểu lệch:
+ *   dấu câu   'ディスタンス！'      vs 'ディスタンス'
+ *   hậu tố    '包帯ごっこ'          vs '包帯ごっこ【単話】'
+ *   gõ thiếu  '…【単話版】'         vs '…【単話版'
+ *   tên 仮    '快感ビーチ！'        vs '（仮）エロくなっちゃうビーチ'
+ * Kiểu cuối KHÔNG cách nào bắt được bằng tên: cùng tác phẩm, cùng ID, tên đổi hẳn.
+ * Thu hồi 313 tác phẩm và chặn thêm 67 tác phẩm NG đang lọt vào master.
+ *
+ * VÌ SAO AN TOÀN — 3 phép đo trên dữ liệu thật, đều sạch:
+ *   - 0/4.323 khoá T1, 0/5.144 khoá T2, 0/4.321 khoá T3 mang phán định mâu thuẫn.
+ *   - 0 ca T2 và T3 chỉ về 2 phán định KHÁC NHAU (nên thứ tự tầng chưa đổi kết quả
+ *     ca nào; giữ thứ tự này là để phòng dữ liệu tương lai).
+ *   - Cặp phản ví dụ của spec §4.3 có ID KHÁC NHAU:
+ *       '…【白抜き修正版】' ID 328625 = 一般面OK
+ *       '…【棒消し修正版】' ID 328590 = アダルトジャンル
+ *     Tra theo ID vẫn tách đúng 2 phán định — lập luận đó chống việc CẮT TÊN,
+ *     không chống việc tra theo ID.
+ * VẪN KHÔNG cắt hậu tố 【】/() và không fuzzy: cắt tên gộp 2 dòng trên thành 1 và
+ * làm 179 tác phẩm tra sang phán định của tác phẩm khác (spec §4.3).
+ *
+ * T3 CHỈ nhận ID là SỐ THẬT ở cả 2 vế — cùng lý do đã ghi ở NGUỒN 4/5: ô ID có
+ * dòng trống và dòng bị dùng để ghi chú ('ー', '4415行目と同一', '確認中'), không
+ * chặn thì chúng khớp lẫn nhau qua khoá rác.
+ *
+ * KHOÁ TRÙNG NHAU -> DÒNG NGHIÊM NGẶT NHẤT THẮNG (có NG thì NG thắng), ở CẢ 3 tầng.
+ * Trên dữ liệu hôm nay có 14 tên trùng và 0 ca mâu thuẫn nên quy tắc này chưa được
+ * dùng tới ca thật nào — nhưng nếu mai có, hướng an toàn là chặn, không phải cho qua.
  *
  * @param {Array<object>} records - Kết quả từ parseRegulationRows()
- * @returns {Map<string, {policy: string, general: string, logoJudgement: string, isNg: boolean}>}
- *   Giá trị trong map là NGUYÊN VĂN từ sheet (để ghi ra cột F/G/H), chỉ KHOÁ là
- *   giá trị đã chuẩn hoá.
+ * @returns {{byBoth: Map, byName: Map, byId: Map}} Giá trị trong map là NGUYÊN VĂN
+ *   từ sheet (để ghi ra cột F/G/H), chỉ KHOÁ là giá trị đã chuẩn hoá.
  */
-function buildRegulationLookup(records) {
-  var lookup = new Map();
-  records.forEach(function (record) {
-    var key = normalizeJapaneseText(record.titleName);
-    if (!key) return;
-    var incoming = {
-      policy: record.policy,
-      general: record.general,
-      logoJudgement: record.logoJudgement,
-      isNg: isRegulationNg(record),
+function buildRegulationIndex(records) {
+  function build(keyOf) {
+    var lookup = new Map();
+    records.forEach(function (record) {
+      var key = keyOf(record);
+      if (key === null) return;
+      var incoming = {
+        policy: record.policy,
+        general: record.general,
+        logoJudgement: record.logoJudgement,
+        isNg: isRegulationNg(record),
+      };
+      var current = lookup.get(key);
+      if (current === undefined || (incoming.isNg && !current.isNg)) lookup.set(key, incoming);
+    });
+    return lookup;
+  }
+  return {
+    byBoth: build(regulationKeyBoth),
+    byName: build(regulationKeyName),
+    byId: build(regulationKeyId),
+  };
+}
+
+/** Khoá T1: tên + ID, ngăn bằng NUL (cùng lý do với masterMatchKeyBoth trong master.js). */
+function regulationKeyBoth(record) {
+  var name = regulationKeyName(record);
+  var id = regulationKeyId(record);
+  return name === null || id === null ? null : name + '\u0000' + id;
+}
+
+/** Khoá T2: chỉ tên. null nếu trống. */
+function regulationKeyName(record) {
+  var name = normalizeJapaneseText(record.titleName);
+  return name === '' ? null : name;
+}
+
+/** Khoá T3: chỉ ID, và CHỈ khi là số thật. */
+function regulationKeyId(record) {
+  return isDigits(record.titleId) ? normalizeJapaneseText(record.titleId) : null;
+}
+
+/**
+ * Tra phán định レギュレーション cho 1 tác phẩm, theo cascade 3 tầng, DỪNG ở tầng
+ * đầu tiên khớp.
+ *
+ * @param {{titleId: *, titleName: *}} work
+ * @param {{byBoth: Map, byName: Map, byId: Map}} index - Kết quả buildRegulationIndex()
+ * @returns {{policy: *, general: *, logoJudgement: *, isNg: boolean, tier: number}|null}
+ *   null = không tra ra (未判定). `tier` chỉ để cảnh báo/đối chiếu đọc được, không
+ *   tham gia phán định.
+ */
+function lookupRegulation(work, index) {
+  var name = regulationKeyName(work);
+  var id = regulationKeyId(work);
+  var tiers = [
+    { tier: 1, hit: name !== null && id !== null ? index.byBoth.get(name + '\u0000' + id) : undefined },
+    { tier: 2, hit: name !== null ? index.byName.get(name) : undefined },
+    { tier: 3, hit: id !== null ? index.byId.get(id) : undefined },
+  ];
+  for (var i = 0; i < tiers.length; i++) {
+    if (tiers[i].hit === undefined) continue;
+    return {
+      policy: tiers[i].hit.policy,
+      general: tiers[i].hit.general,
+      logoJudgement: tiers[i].hit.logoJudgement,
+      isNg: tiers[i].hit.isNg,
+      tier: tiers[i].tier,
     };
-    var current = lookup.get(key);
-    if (current === undefined || (incoming.isNg && !current.isNg)) lookup.set(key, incoming);
-  });
-  return lookup;
+  }
+  return null;
 }
 
 // ==============================================================================
