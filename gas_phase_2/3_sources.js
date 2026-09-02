@@ -171,9 +171,9 @@ function writeTitleMaster(sheetContext, diffResult, runAt) {
   });
 
   if (diffResult.toAdd.length > 0) {
-    var startRow = Math.max(sheet.getLastRow(), sheetContext.headerRowIndex + 1) + 1;
-    var values = diffResult.toAdd.map(function (item) { return item.values; });
-    sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
+    // Lấp hàng trống trước rồi mới append — cùng lý do với 2 master của GAS❶.
+    // Xem docs/decisions.md #write-01
+    placeNewRows(sheet, sheetContext, diffResult.toAdd, function (item) { return item.values; });
   }
 
   return {

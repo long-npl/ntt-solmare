@@ -597,3 +597,48 @@ function probe_listCopyrightOrphans() {
     Logger.log('  ' + nos.slice(i, i + 30).join(', '));
   }
 }
+
+/**
+ * Tìm HÀNG TRỐNG nằm trong vùng dữ liệu của cả 2 master. KHÔNG ghi gì.
+ *
+ * readMaster() bỏ qua hàng không có タイトル名, còn writeMaster() luôn append tại
+ * getLastRow()+1 — nên hàng trống trong vùng dữ liệu không bao giờ được dùng lại.
+ * Chúng làm sheet trông như chưa được ghi, dù dữ liệu nằm ngay phía dưới.
+ */
+function probe_findBlankRows() {
+  [['顧客作品マスタ', CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS],
+    ['コピーライトマスタ', CONFIG.OUTPUTS.COPYRIGHT_MASTER, COPYRIGHT_COLUMNS]]
+    .forEach(function (item) {
+      var resolved = readMaster(item[1], item[2]);
+      var nameIndex = resolved.headerIndex.get(normalizeHeaderText('タイトル名'));
+      var firstData = resolved.headerRowIndex + 2; // hàng thật, 1-based
+      var lastData = resolved.values.length;
+
+      var blanks = [];
+      for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
+        var row = resolved.values[i];
+        if (row && normalizeJapaneseText(row[nameIndex]) !== '') continue;
+        blanks.push(i + 1);
+      }
+
+      // Gom thành dải liên tiếp.
+      var ranges = [];
+      blanks.forEach(function (r) {
+        var last = ranges[ranges.length - 1];
+        if (last && r === last[1] + 1) { last[1] = r; return; }
+        ranges.push([r, r]);
+      });
+
+      Logger.log('--- ' + item[0] + ' ---');
+      Logger.log('  vùng dữ liệu: hàng ' + firstData + '–' + lastData
+        + ' | có dữ liệu: ' + resolved.records.length + ' dòng | TRỐNG: ' + blanks.length + ' hàng');
+      if (ranges.length === 0) { Logger.log('  không có hàng trống nào'); return; }
+      ranges.forEach(function (r) {
+        Logger.log('  TRỐNG hàng ' + r[0] + (r[0] === r[1] ? '' : '–' + r[1])
+          + '   (' + (r[1] - r[0] + 1) + ' hàng)');
+      });
+      Logger.log('  writeMaster append tại hàng ' + (Math.max(
+        resolved.sheet.getLastRow(), resolved.headerRowIndex + 1) + 1)
+        + '  (getLastRow=' + resolved.sheet.getLastRow() + ')');
+    });
+}

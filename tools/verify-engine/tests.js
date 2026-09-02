@@ -163,8 +163,64 @@ function test_applyRules(ctx) {
   check('rule tra rong -> giu rong (engine se giu o)', newMatches[0].record.lpProduction, '');
 }
 
+
+// Lap hang trong truoc khi append. Truoc day duong ghi luon append tai getLastRow()+1,
+// nen hang trong trong vung du lieu ton tai VINH VIEN — sheet mo ra thay 77 hang dau
+// trong va nguoi dung ket luan "chua duoc ghi", du du lieu nam ngay phia duoi.
+// Da xay ra o CA BA master.
+function test_placeNewRows(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  function resolvedWith(dataRows) {
+    var headerIndex = new Map([['タイトル名', 1], ['x', 2]]);
+    // hang 1..2 ghi chu, hang 3 header, du lieu tu hang 4
+    var values = [['ghi chu'], ['ghi chu'], ['', 'タイトル名', 'x']].concat(dataRows);
+    return { headerIndex: headerIndex, headerRowIndex: 2, values: values, columnCount: 3 };
+  }
+  function fake(lastRow) {
+    var writes = [];
+    return { writes: writes, getLastRow: function () { return lastRow; },
+      getRange: function (row, c, n, w) {
+        return { setValues: function (v) { writes.push({ row: row, n: v.length }); } }; } };
+  }
+
+  // 3 hang trong lien tiep (4,5,6) + du lieu o 7 -> 2 record moi phai vao 4 va 5.
+  var r = resolvedWith([['', '', ''], ['', '', ''], ['', '', ''], ['', 'co', '']]);
+  var sheet = fake(7);
+  src.placeNewRows(sheet, r, ['A', 'B'], function (x) { return ['', x, '']; });
+  check('lap hang trong dau tien, KHONG append xuong duoi',
+    sheet.writes.map(function (w) { return [w.row, w.n]; }), [[4, 2]]);
+
+  // Nhieu record hon so hang trong -> lap het roi append phan con lai sau getLastRow.
+  var r2 = resolvedWith([['', '', ''], ['', 'co', '']]);
+  var sheet2 = fake(5);
+  src.placeNewRows(sheet2, r2, ['A', 'B', 'C'], function (x) { return ['', x, '']; });
+  check('lap 1 hang trong roi append 2 record con lai tai getLastRow+1',
+    sheet2.writes.map(function (w) { return [w.row, w.n]; }), [[4, 1], [6, 2]]);
+
+  // Hang trong RAI RAC -> moi dai 1 lenh setValues, khong phai 1 lenh moi hang.
+  var r3 = resolvedWith([['', '', ''], ['', 'co', ''], ['', '', ''], ['', '', '']]);
+  var sheet3 = fake(7);
+  src.placeNewRows(sheet3, r3, ['A', 'B', 'C'], function (x) { return ['', x, '']; });
+  check('2 dai roi rac -> 2 lenh ghi, gom hang lien tiep lai',
+    sheet3.writes.map(function (w) { return [w.row, w.n]; }), [[4, 1], [6, 2]]);
+
+  // Khong co hang trong -> append thuan.
+  var r4 = resolvedWith([['', 'co', '']]);
+  var sheet4 = fake(4);
+  src.placeNewRows(sheet4, r4, ['A'], function (x) { return ['', x, '']; });
+  check('khong co hang trong -> append tai getLastRow+1',
+    sheet4.writes.map(function (w) { return [w.row, w.n]; }), [[5, 1]]);
+
+  check('blankDataRows tra dung so hang THAT (1-based)',
+    src.blankDataRows(resolvedWith([['', '', ''], ['', 'co', ''], ['', '', '']])), [4, 6]);
+  check('contiguousRuns gom dung dai', src.contiguousRuns([4, 5, 6, 9, 11, 12]),
+    [[4, 5, 6], [9], [11, 12]]);
+}
+
 module.exports = {
   unit: [test_compareFor, test_requiredHeaders, test_readAndCompare, test_toSheetRow,
-    test_applyRules],
+    test_applyRules, test_placeNewRows],
   data: [],
 };

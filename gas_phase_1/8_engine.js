@@ -130,6 +130,64 @@ function toSheetRow(record, headerIndex, columnCount, columns, previousRow) {
 }
 
 /**
+ * Số hàng THẬT của các hàng TRỐNG trong vùng dữ liệu (không có タイトル名).
+ *
+ * readMaster() bỏ qua chúng, còn đường ghi vốn luôn append tại getLastRow()+1 — nên
+ * một khi có hàng trống, chúng ở đó vĩnh viễn và sheet trông như chưa được ghi dù dữ
+ * liệu nằm ngay phía dưới. Xem docs/decisions.md #write-01
+ */
+function blankDataRows(resolved) {
+  var nameIndex = resolved.headerIndex.get(normalizeHeaderText('タイトル名'));
+  var rows = [];
+  for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
+    var row = resolved.values[i];
+    if (row && normalizeJapaneseText(row[nameIndex]) !== '') continue;
+    rows.push(i + 1);
+  }
+  return rows;
+}
+
+/**
+ * Cắt danh sách số hàng thành các DẢI LIÊN TIẾP, để ghi mỗi dải bằng 1 lệnh setValues()
+ * thay vì 1 lệnh mỗi hàng — mỗi lời gọi API là một round-trip.
+ */
+function contiguousRuns(rows) {
+  var runs = [];
+  rows.forEach(function (row) {
+    var last = runs[runs.length - 1];
+    if (last && row === last[last.length - 1] + 1) { last.push(row); return; }
+    runs.push([row]);
+  });
+  return runs;
+}
+
+/**
+ * Đặt các record MỚI vào sheet: LẤP hàng trống trước, phần còn lại mới append.
+ *
+ * Hàng trống được coi là hàng MỚI (previousRow = undefined) chứ không phải hàng cần
+ * bảo toàn: hàng không có タイトル名 thì không ai đang giữ dữ liệu gì ở đó, và với
+ * GAS❷ thì đó cũng là điều kiện để cột đóng dấu 素材共有日 được ghi.
+ *
+ * @param {function(object): Array<*>} buildRow - Dựng mảng giá trị cho 1 record
+ */
+function placeNewRows(sheet, resolved, records, buildRow) {
+  var width = resolved.columnCount;
+  var pending = records.slice();
+
+  contiguousRuns(blankDataRows(resolved)).forEach(function (run) {
+    if (pending.length === 0) return;
+    var take = pending.splice(0, run.length);
+    sheet.getRange(run[0], 1, take.length, width).setValues(take.map(buildRow));
+  });
+
+  if (pending.length === 0) return;
+  // getLastRow() chứ không phải số dòng đã parse: dưới vùng dữ liệu có thể còn ô ghi
+  // chú của 池永, ghi đè lên chúng là mất chú thích.
+  var startRow = Math.max(sheet.getLastRow(), resolved.headerRowIndex + 1) + 1;
+  sheet.getRange(startRow, 1, pending.length, width).setValues(pending.map(buildRow));
+}
+
+/**
  * Đọc mọi dòng dữ liệu của một master. Bỏ dòng không có タイトル名 — đó là trường duy
  * nhất chắc chắn có giá trị ở mọi dòng do GAS ghi.
  */
@@ -170,11 +228,9 @@ function writeMaster(outputConfig, columns, diffResult, runAt) {
   });
 
   if (diffResult.toAdd.length > 0) {
-    var startRow = Math.max(sheet.getLastRow(), resolved.headerRowIndex + 1) + 1;
-    var rows = diffResult.toAdd.map(function (record) {
+    placeNewRows(sheet, resolved, diffResult.toAdd, function (record) {
       return toSheetRow(record, resolved.headerIndex, width, columns, undefined);
     });
-    sheet.getRange(startRow, 1, rows.length, width).setValues(rows);
   }
 
   return stampUpdatedAt(sheet, resolved.values, resolved.headerRowIndex, runAt);
