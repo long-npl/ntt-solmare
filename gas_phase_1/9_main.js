@@ -546,3 +546,54 @@ function probe_diagnoseCopyright() {
       + ' | 個別=' + rec.individualCopyright + ' | 出版社=' + rec.publisherCopyright);
   });
 }
+
+/**
+ * Liệt kê ĐẦY ĐỦ các dòng rác của コピーライトマスタ, kèm SỐ HÀNG THẬT để xoá tay.
+ * KHÔNG ghi, KHÔNG xoá gì.
+ *
+ * Dòng cảnh báo trong GAS1警告 chỉ nêu 10 ví dụ (gộp lại để không chôn mất cảnh báo
+ * khác), nên đây là chỗ lấy danh sách đủ.
+ */
+function probe_listCopyrightOrphans() {
+  var loaded = loadSources(new Date());
+  var existingCustomer = readMaster(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS);
+  var works = loaded.values.cms.map(function (cms) { return buildCustomerRecord(cms, loaded); });
+  var filtered = filterAndMatchWorks(works, existingCustomer.records);
+  var matches = resolveNumbersFromMatches(filtered.matches, existingCustomer.records, 'titleNo');
+
+  var liveNos = {};
+  matches.forEach(function (m) { liveNos[String(m.record.titleNo)] = true; });
+
+  var copyright = readMaster(CONFIG.OUTPUTS.COPYRIGHT_MASTER, COPYRIGHT_COLUMNS);
+  var orphans = copyright.records.filter(function (r) { return !liveNos[String(r.titleNo)]; });
+
+  Logger.log('コピーライトマスタ: ' + copyright.records.length + ' dòng, '
+    + orphans.length + ' dòng RÁC (タイトルNo không còn trên 顧客作品マスタ)');
+
+  // Gom thành các DẢI hàng liên tiếp — xoá 3 dải dễ hơn xoá 261 dòng lẻ.
+  var rows = orphans.map(function (r) { return r.sheetRow; }).sort(function (a, b) { return a - b; });
+  var ranges = [];
+  rows.forEach(function (row) {
+    var last = ranges[ranges.length - 1];
+    if (last && row === last[1] + 1) { last[1] = row; return; }
+    ranges.push([row, row]);
+  });
+  Logger.log('--- ' + ranges.length + ' dải hàng cần xoá ---');
+  ranges.forEach(function (r) {
+    Logger.log('  hàng ' + r[0] + (r[0] === r[1] ? '' : '–' + r[1])
+      + '   (' + (r[1] - r[0] + 1) + ' dòng)');
+  });
+
+  // Lịch sử bản quyền: dòng nào đang có 過去分 là dòng có dữ liệu sẽ MẤT nếu xoá sạch.
+  var withHistory = copyright.records.filter(function (r) {
+    return normalizeJapaneseText(r.history1) !== '';
+  }).length;
+  Logger.log('--- ' + withHistory + ' dòng đang có コピーライト_過去分1 '
+    + '(sẽ mất hết nếu xoá sạch sheet, nên chỉ xoá các dải trên) ---');
+
+  Logger.log('--- タイトルNo của dòng rác ---');
+  var nos = orphans.map(function (r) { return r.titleNo; });
+  for (var i = 0; i < nos.length; i += 30) {
+    Logger.log('  ' + nos.slice(i, i + 30).join(', '));
+  }
+}
