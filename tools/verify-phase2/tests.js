@@ -98,8 +98,74 @@ function test_readsFirstVolume(ctx) {
     [records[0].titleNo, records[0].titleName, records[0].lpProduction], [1, 'A', '不要']);
 }
 
+
+// Test CHAY THAT duong ghi. Suite cu chi kiem bang cot nen khong thay titleRecordToRow
+// van doc column.source sau khi truong do doi ten thanh from — bug chi lo ra luc chay
+// that, ma "chay that" o day nghia la da ghi len sheet.
+function test_titleRecordToRow(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var headerIndex = new Map();
+  src.TITLE_COLUMNS.forEach(function (c, i) {
+    headerIndex.set(src.normalizeHeaderText(c.header), i + 1);
+  });
+  var width = src.TITLE_COLUMNS.length + 2;
+  function at(row, header) { return row[headerIndex.get(src.normalizeHeaderText(header))]; }
+
+  var record = { titleNo: 7, titleName: 'A', firstVolume: '4', lpProduction: '必要',
+    titleCategory: '独占' };
+  var copyright = { publisherCopyright: '©NXB', individualCopyright: '©tac gia',
+    preConfirmation: '必要' };
+  var runAt = new Date(2026, 8, 2);
+
+  // ---- dòng MỚI: マスタ追加日 được đóng dấu ----
+  var added = src.titleRecordToRow({
+    record: record, copyright: copyright, copyrightAvailable: true,
+    preConfirmationAvailable: true, headerIndex: headerIndex, columnCount: width,
+    runAt: runAt, previousRow: undefined,
+  });
+  check('dong moi: chep duoc cot tu 顧客作品マスタ',
+    [at(added, 'タイトルNo'), at(added, 'タイトル名'), at(added, 'LP制作')], [7, 'A', '必要']);
+  check('dong moi: 初回配信巻数 duoc chep sang', at(added, '初回配信巻数'), '4');
+  check('dong moi: 3 cot tu コピーライトマスタ',
+    [at(added, '出版社コピーライト'), at(added, '出版社事前確認')], ['©NXB', '必要']);
+  check('dong moi: マスタ追加日 duoc dong dau', at(added, 'マスタ追加日'), runAt);
+
+  // ---- dòng CŨ: マスタ追加日 KHÔNG bị đụng ----
+  var prev = new Array(width).fill('');
+  prev[headerIndex.get(src.normalizeHeaderText('マスタ追加日'))] = new Date(2026, 7, 19);
+  prev[width - 1] = 'nguoi go tay';
+  var updated = src.titleRecordToRow({
+    record: record, copyright: copyright, copyrightAvailable: true,
+    preConfirmationAvailable: true, headerIndex: headerIndex, columnCount: width,
+    runAt: runAt, previousRow: prev,
+  });
+  check('dong cu: マスタ追加日 giu nguyen ngay cu',
+    at(updated, 'マスタ追加日'), new Date(2026, 7, 19));
+  check('dong cu: cot GAS khong so huu duoc bao toan', updated[width - 1], 'nguoi go tay');
+
+  // ---- nguồn コピーライトマスタ lỗi: 3 cột đó phải GIỮ NGUYÊN, không bị xoá ----
+  prev[headerIndex.get(src.normalizeHeaderText('出版社コピーライト'))] = '©CU';
+  var kept = src.titleRecordToRow({
+    record: record, copyright: null, copyrightAvailable: false,
+    preConfirmationAvailable: false, headerIndex: headerIndex, columnCount: width,
+    runAt: runAt, previousRow: prev,
+  });
+  check('nguon copyright loi: giu nguyen gia tri dang co, KHONG xoa',
+    at(kept, '出版社コピーライト'), '©CU');
+
+  // ---- cột 出版社事前確認 chưa có bên nguồn: không ghi đè ----
+  var noPre = src.titleRecordToRow({
+    record: record, copyright: copyright, copyrightAvailable: true,
+    preConfirmationAvailable: false, headerIndex: headerIndex, columnCount: width,
+    runAt: runAt, previousRow: prev,
+  });
+  check('出版社事前確認 chua co ben nguon -> khong ghi', at(noPre, '出版社事前確認'), '');
+}
+
 module.exports = {
   unit: [test_titleColumns, test_titleWriteModes, test_customerSourceHeaders,
-    test_readsFirstVolume],
+    test_readsFirstVolume, test_titleRecordToRow],
   data: [],
 };

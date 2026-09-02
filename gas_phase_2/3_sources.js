@@ -102,3 +102,81 @@ function parseCopyrightMasterRows(rawRows) {
   }
   return { records: records, hasPreConfirmation: hasPreConfirmation };
 }
+
+
+// ==============================================================================
+// ĐỌC / GHI SHEET
+// ==============================================================================
+
+/**
+ * Đọc 顧客作品マスタ kèm giá trị ô 更新日 mà GAS❶ đóng dấu ở cuối lần chạy của nó.
+ *
+ * updatedAt để runGas2() biết GAS❶ đã chạy xong hôm nay chưa (guard chống chạy sớm).
+ * null = không dò được nhãn, bên gọi coi là "không biết" và vẫn chạy tiếp.
+ */
+function readCustomerMaster() {
+  var cfg = CONFIG.SOURCES.CUSTOMER_WORK_MASTER;
+  var values = readSheetValues(cfg.spreadsheetId, cfg.sheetName);
+  var resolved = resolveHeaderIndex(values, CUSTOMER_SOURCE_HEADERS);
+  var at = locateUpdatedAtCell(values, resolved.headerRowIndex);
+  return {
+    records: parseCustomerMasterRows(values),
+    updatedAt: at === null ? null : values[at.rowIndex][at.colIndex],
+  };
+}
+
+/** Đọc コピーライトマスタ. Nguồn PHỤ — bên gọi bọc try/catch. */
+function readCopyrightMaster() {
+  var cfg = CONFIG.SOURCES.COPYRIGHT_MASTER;
+  return parseCopyrightMasterRows(readSheetValues(cfg.spreadsheetId, cfg.sheetName));
+}
+
+/**
+ * Mở タイトルマスタ và trả mọi thứ một lần chạy cần: sheet để ghi, values để dò ô
+ * 更新日, và kết quả parse. Trả `values` luôn để bên gọi khỏi đọc lần thứ hai.
+ */
+function readTitleMaster() {
+  var cfg = CONFIG.OUTPUTS.TITLE_MASTER;
+  var ss = SpreadsheetApp.openById(cfg.spreadsheetId);
+  var sheet = ss.getSheetByName(cfg.sheetName);
+  if (!sheet) throw new Error('Không tìm thấy sheet: ' + cfg.sheetName + ' (spreadsheet ' + cfg.spreadsheetId + ')');
+  var values = sheet.getDataRange().getValues();
+  var parsed = parseTitleMasterRows(values);
+  var headerRow = values[parsed.headerRowIndex];
+  return {
+    sheet: sheet,
+    values: values,
+    headerRowIndex: parsed.headerRowIndex,
+    headerIndex: parsed.headerIndex,
+    // Không bao giờ ghi hẹp hơn số cột đã biết.
+    columnCount: Math.max(sheet.getLastColumn(), headerRow.length, 1),
+    rows: parsed.rows,
+  };
+}
+
+/**
+ * Đặt kết quả diff lên sheet: update từng dòng, append cả khối mới trong 1 lệnh.
+ *
+ * Append bắt đầu từ max(getLastRow(), hàng header) + 1 — dùng getLastRow() chứ không
+ * phải số dòng đã parse, vì dưới vùng dữ liệu có thể còn ô ghi chú của 池永.
+ *
+ * @returns {{updatedAtCell: string|null}}
+ */
+function writeTitleMaster(sheetContext, diffResult, runAt) {
+  var sheet = sheetContext.sheet;
+  var columnCount = sheetContext.columnCount;
+
+  diffResult.toUpdate.forEach(function (item) {
+    sheet.getRange(item.sheetRow, 1, 1, columnCount).setValues([item.values]);
+  });
+
+  if (diffResult.toAdd.length > 0) {
+    var startRow = Math.max(sheet.getLastRow(), sheetContext.headerRowIndex + 1) + 1;
+    var values = diffResult.toAdd.map(function (item) { return item.values; });
+    sheet.getRange(startRow, 1, values.length, columnCount).setValues(values);
+  }
+
+  return {
+    updatedAtCell: stampUpdatedAt(sheet, sheetContext.values, sheetContext.headerRowIndex, runAt),
+  };
+}

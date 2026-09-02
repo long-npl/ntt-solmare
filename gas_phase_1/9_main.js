@@ -431,3 +431,48 @@ function probe_dryRunFilter() {
     + ' / 除外(未判定) ' + filtered.excludedUnjudged.length
     + ' / 孤立行 ' + filtered.orphanOffsets.length);
 }
+
+/**
+ * Chẩn đoán: in ĐÚNG những gì GAS đang nhìn thấy ở 2 master. KHÔNG ghi gì.
+ *
+ * Dùng khi con số trong log không khớp với thứ nhìn thấy trên sheet — nó phân biệt
+ * "GAS đọc sai" với "GAS đang mở nhầm spreadsheet".
+ */
+function probe_diagnose() {
+  [['顧客作品マスタ', CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS],
+    ['コピーライトマスタ', CONFIG.OUTPUTS.COPYRIGHT_MASTER, COPYRIGHT_COLUMNS]]
+    .forEach(function (item) {
+      var label = item[0];
+      var cfg = item[1];
+      var columns = item[2];
+      Logger.log('--- ' + label + ' ---');
+      Logger.log('  spreadsheetId: ' + cfg.spreadsheetId);
+      Logger.log('  URL: https://docs.google.com/spreadsheets/d/' + cfg.spreadsheetId + '/edit');
+      var ss = SpreadsheetApp.openById(cfg.spreadsheetId);
+      Logger.log('  tên file: ' + ss.getName());
+      Logger.log('  các sheet: ' + ss.getSheets().map(function (s) {
+        return s.getName() + '(' + s.getLastRow() + ' hàng)';
+      }).join(' | '));
+
+      var sheet = ss.getSheetByName(cfg.sheetName);
+      if (!sheet) { Logger.log('  KHÔNG có sheet tên ' + cfg.sheetName); return; }
+      Logger.log('  sheet đang dùng: ' + cfg.sheetName
+        + ' — getLastRow=' + sheet.getLastRow() + ' getLastColumn=' + sheet.getLastColumn());
+
+      var resolved = readMaster(cfg, columns);
+      Logger.log('  header ở hàng: ' + (resolved.headerRowIndex + 1)
+        + ' / values.length=' + resolved.values.length
+        + ' / readMaster đọc ra: ' + resolved.records.length + ' record');
+      if (resolved.records.length > 0) {
+        var nos = resolved.records.map(function (r) { return r.titleNo; });
+        Logger.log('  タイトルNo đầu=' + nos[0] + ' cuối=' + nos[nos.length - 1]);
+      } else {
+        // Không đọc ra record nào: in 3 hàng ngay dưới header để thấy vì sao.
+        for (var k = 1; k <= 3; k++) {
+          var row = resolved.values[resolved.headerRowIndex + k];
+          Logger.log('  hàng ' + (resolved.headerRowIndex + k + 1) + ': '
+            + (row ? JSON.stringify(row.slice(0, 12)) : '(không có)'));
+        }
+      }
+    });
+}

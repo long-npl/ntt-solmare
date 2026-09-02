@@ -59,12 +59,12 @@ function titleRecordToRow(options) {
   }
 
   TITLE_COLUMNS.forEach(function (column) {
-    if (column.source === 'stamp') {
+    if (column.from === 'stamp') {
       // Write-once: chỉ đóng dấu khi dòng được thêm mới.
       if (previousRow === undefined) row[col(options.headerIndex, column.header)] = options.runAt;
       return;
     }
-    if (column.source === 'copyright') {
+    if (column.from === 'copyright') {
       if (!options.copyrightAvailable) return;
       if (column.header === TITLE_PRE_CONFIRMATION_HEADER && !options.preConfirmationAvailable) return;
       var value = options.copyright ? options.copyright[column.field] : '';
@@ -312,10 +312,10 @@ function collectChangedColumns(previousRow, values, headerIndex, runAt, record) 
     var index = col(headerIndex, column.header);
     var oldValue = previousRow[index];
     var newValue = values[index];
-    var same = column.compare === 'date'
-      ? sameDateValue(oldValue, newValue)
-      : sameValue(oldValue, newValue);
-    if (same) return;
+    // Hàm so sánh suy từ chế độ ghi của chính cột (compareFor trong engine), không
+    // phải một trường `compare` khai báo riêng — hai thứ đó từng lệch nhau.
+    var compare = compareFor(column);
+    if (compare === null || compare(oldValue, newValue)) return;
     changes.push({
       runAt: runAt,
       titleNo: blankIfEmpty(record.titleNo),
