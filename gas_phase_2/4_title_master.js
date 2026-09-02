@@ -11,7 +11,11 @@ var TITLE_COLUMNS = [
   { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書' },
   { header: 'CMS ID', field: 'cmsId', from: 'customer', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'customer', write: '上書' },
-  { header: 'マスタ追加日', field: 'masterAddedAt', from: 'stamp', write: '1回' },
+  // Trên sheet thật, cột này đã bị đổi tên thành 素材共有日 (2026-08-31). Hai khái niệm
+  // KHÁC NHAU — "ngày dòng vào master" vs "ngày chia sẻ tư liệu" — nên code không tự
+  // chọn giùm: để optional để GAS❷ chạy được, kèm 1 dòng 設定注意 mỗi lần chạy.
+  // Xem docs/decisions.md #master-added-01
+  { header: 'マスタ追加日', field: 'masterAddedAt', from: 'stamp', write: '1回', optional: true },
   { header: 'タイトル区分', field: 'titleCategory', from: 'customer', write: '上書' },
   { header: '①広告出稿ポリシー', field: 'policy', from: 'customer', write: '上書' },
   { header: '②一般面出稿NG', field: 'general', from: 'customer', write: '上書' },
@@ -43,7 +47,10 @@ var TITLE_COLUMNS = [
 var TITLE_PRE_CONFIRMATION_HEADER = '出版社事前確認';
 
 // Thiếu 1 trong 24 cột này trên タイトルマスタ -> throw ngay ở findHeaderRowIndex().
-var TITLE_REQUIRED_HEADERS = TITLE_COLUMNS.map(function (c) { return c.header; });
+// Cột BẮT BUỘC = mọi cột trong bảng TRỪ cột optional. Dùng requiredHeaders() của
+// engine chứ không map thẳng: map thẳng làm cờ `optional` bị bỏ qua hoàn toàn, và một
+// cột đánh dấu tuỳ chọn vẫn khiến cả lần chạy throw.
+var TITLE_REQUIRED_HEADERS = requiredHeaders(TITLE_COLUMNS);
 
 /**
  * Dựng 1 dòng giá trị sẵn sàng cho Range.setValues(), theo ĐÚNG vị trí cột thật.

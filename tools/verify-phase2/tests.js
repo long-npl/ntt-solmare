@@ -28,11 +28,19 @@ function test_titleColumns(ctx) {
   // マスタ追加日 là cột ghi MỘT LẦN: chỉ đóng dấu lúc append, dòng đã có không đụng.
   check('マスタ追加日 la cot 1回', byField.masterAddedAt.write, '1回');
   check('マスタ追加日 do GAS❷ tu sinh', byField.masterAddedAt.from, 'stamp');
+  check('マスタ追加日 la tuy chon — sheet that da doi ten', byField.masterAddedAt.optional, true);
 
   // Cột này có thể chưa tồn tại bên nguồn -> phải là optional, nếu không sheet thiếu
   // nó sẽ làm cả lần chạy throw.
   check('出版社事前確認 la cot tuy chon', byField.preConfirmation.optional, true);
-  check('requiredHeaders bo cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 24);
+  // 2 cot tuy chon: 出版社事前確認 (co the chua ton tai ben nguon) va マスタ追加日
+  // (sheet that da doi ten thanh 素材共有日 — xem docs/decisions.md #master-added-01).
+  check('requiredHeaders bo ca 2 cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 23);
+  check('TITLE_REQUIRED_HEADERS ton trong optional (khong map thang)',
+    src.TITLE_REQUIRED_HEADERS.length, 23);
+  check('khong cot optional nao lot vao TITLE_REQUIRED_HEADERS',
+    src.TITLE_COLUMNS.filter(function (c) {
+      return c.optional && src.TITLE_REQUIRED_HEADERS.indexOf(c.header) >= 0; }).length, 0);
 
   check('khong header nao trung nhau',
     new Set(src.TITLE_COLUMNS.map(function (c) { return c.header; })).size, 25);
