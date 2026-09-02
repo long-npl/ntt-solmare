@@ -18,7 +18,7 @@ var PUBLISHER_COPYRIGHT_REQUIRED_HEADERS = ['出版社', '雑誌名/レーベル
 // '02：個別ルール' (11 dòng) là quy tắc con người phải tự viết cho từng tác phẩm.
 var PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX = '01';
 
-// Cột L `(出版社)事前確認` -> cột Q 出版社事前確認 của コピーライトマスタ (user bổ sung
+// Cột L `(出版社)事前確認` -> cột 出版社事前確認 của コピーライトマスタ (user bổ sung
 // 2026-08-13: "出版社コピーライトマスタのL列の情報をコピーライトマスタに入れ忘れていた").
 //
 var PUBLISHER_PRE_CONFIRMATION_HEADER = '(出版社)事前確認';
@@ -37,8 +37,8 @@ function parsePublisherCopyrightRules(rawRows) {
   // Header thật là 'テンプレート\n(タイトルマスタで参照)' — phần trong ngoặc là ghi
   // chú, tra bằng tiền tố cho bền với việc sửa lời ghi chú đó.
   var colTemplate = colByPrefix(idx, 'テンプレート');
-  // tryCol() chứ không col(): cột 事前確認 chỉ nuôi cột Q — một cột thông tin. Mất
-  // nó mà throw ở đây thì cả parse hỏng -> publisherCopyrightError -> cột K của
+  // tryCol() chứ không col(): cột 事前確認 chỉ nuôi cột — một cột thông tin. Mất
+  // nó mà throw ở đây thì cả parse hỏng -> publisherCopyrightError -> cột của
   // 1.303 tác phẩm bị 据え置き theo. Đánh đổi sai. Mất cột thì Q rỗng + 1 dòng cảnh
   var colPreConfirmation = tryCol(idx, PUBLISHER_PRE_CONFIRMATION_HEADER);
 
@@ -185,7 +185,7 @@ function applyCopyrightTemplate(template, work) {
 }
 
 /**
- * Sinh 出版社コピーライト (cột K) cho 1 tác phẩm.
+ * Sinh 出版社コピーライト cho 1 tác phẩm.
  * @param {{titleName: *, author: *, label: *, publisher: *}} work
  * @param {Map<string, object>} rulesLookup - buildPublisherCopyrightLookup()
  * @returns {{value: string|null, reason: string, rule: object|null, detail: string}}
@@ -235,10 +235,10 @@ function resolvePublisherCopyright(work, rulesLookup) {
 }
 
 /**
- * Tra 出版社事前確認 (cột Q của コピーライトマスタ) cho 1 tác phẩm.
+ * Tra 出版社事前確認 (cột của コピーライトマスタ) cho 1 tác phẩm.
  * @param {{publisher: *, label: *}} work
  * @param {Map<string, object>} rulesLookup - buildPublisherCopyrightLookup()
- * @returns {*} Giá trị cột L, hoặc '' nếu không có dòng quy tắc / ô trống
+ * @returns {*} Giá trị (出版社)事前確認 của dòng quy tắc, hoặc '' nếu không có dòng quy tắc / ô trống
  */
 function resolvePublisherPreConfirmation(work, rulesLookup) {
   var rule = rulesLookup.get(publisherCopyrightKey(work.publisher, work.label));
@@ -248,9 +248,9 @@ function resolvePublisherPreConfirmation(work, rulesLookup) {
 }
 
 /**
- * Giá trị bản quyền HIỆU LỰC của 1 dòng master: cột J nếu có, không thì cột K.
+ * Giá trị bản quyền HIỆU LỰC của 1 dòng master: タイトル個別コピーライト nếu có, không thì 出版社コピーライト.
  * @param {{individualCopyright: *, publisherCopyright: *}} record
- * @returns {*} Giá trị nguyên văn của cột J hoặc K, hoặc '' nếu cả 2 trống
+ * @returns {*} Giá trị nguyên văn của cột hoặc K, hoặc '' nếu cả 2 trống
  */
 function effectiveCopyright(record) {
   if (normalizeJapaneseText(record.individualCopyright) !== '') return record.individualCopyright;

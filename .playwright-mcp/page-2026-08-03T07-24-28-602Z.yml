@@ -1,0 +1,13 @@
+- generic [active] [ref=f30e1]:
+  - generic [ref=f30e2]: "【池永社内】【マスタ】先行タイトル情報（CMS）_代理店共通_DX_debug : ★列追加の場合は増渕まで★"
+  - generic [ref=f30e4]:
+    - iframe [ref=f30e6]:
+      
+    - generic [ref=f30e8]:
+      - table [ref=f30e10]:
+        - rowgroup [ref=f30e11]:
+          - row [ref=f30e12]:
+            - cell "★列追加の場合は増渕まで★" [ref=f30e13]
+      - generic [ref=f30e14]:
+        - generic [ref=f30e15] [cursor=pointer]: ">"
+        - generic [ref=f30e16] [cursor=pointer]: <

@@ -181,7 +181,7 @@ function tryCol(headerIndex, name) {
  * Đổi chữ cái cột kiểu spreadsheet ('A', 'D', 'AA') thành index 0-based.
  *
  * Dùng cho nguồn KHÔNG tra được cột theo tên — hiện chỉ có file TSV
- * `multi_title_yyyyMMdd.tsv` (cột I 掲載停止日付): file do hệ thống khác xuất ra,
+ * `multi_title_yyyyMMdd.tsv` (cột 掲載停止日付): file do hệ thống khác xuất ra,
  * không có gì bảo đảm hàng đầu là hàng header, nên vị trí cột là thứ duy nhất
  * đáng tin. Với mọi nguồn còn lại thì tra theo TÊN vẫn tốt hơn hẳn (bền với việc
  * chèn/xoá/đổi thứ tự cột) — đừng dùng hàm này ở đó.
@@ -491,7 +491,7 @@ function sameDateValue(a, b) {
 }
 
 /**
- * So sánh dành cho cột GHI MỘT LẦN (hiện chỉ có cột I 掲載停止日付).
+ * So sánh dành cho cột GHI MỘT LẦN (hiện chỉ có cột 掲載停止日付).
  *
  * Quy tắc (user chốt 2026-08-03): ô nào ĐANG CÓ giá trị thì không bao giờ bị ghi
  * đè — dù nguồn nói khác, dù giá trị đó do người gõ tay. GAS chỉ điền vào ô đang
@@ -516,7 +516,7 @@ function sameWriteOnceValue(existingValue, incomingValue) {
 
 /**
  * So sánh dành cho cột mà GAS GHI ĐÈ ĐƯỢC nhưng KHÔNG ĐƯỢC PHÉP XOÁ (hiện chỉ có
- * cột J LP制作).
+ * cột LP制作).
  *
  * Khác cả 2 hàm trên:
  *   - sameValue()          : incoming rỗng -> ghi rỗng đè lên (XOÁ dữ liệu người gõ)

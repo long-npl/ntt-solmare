@@ -296,7 +296,7 @@ function buildNgTitleLookup(records) {
 // NGUỒN 4 — multi_title_yyyyMMdd.tsv (掲載停止日付)
 // ==============================================================================
 
-// 掲載停止日付 (cột I của 顧客作品マスタ).
+// 掲載停止日付 (cột của 顧客作品マスタ).
 //
 // Hàm PURE — nhận mảng 2 chiều đã đọc sẵn (io/io.js: readTsvRows()).
 
@@ -354,7 +354,7 @@ function lookupSuspensionDate(work, suspensionLookup) {
 
 // ==============================================================================
 // NGUỒN 5 — 【先行作品】独占期間の延長（代理店共有）
-//           -> cột R 先行終了日（延長）, và từ đó suy ra cột S 先行終了日（最終確定）
+//           -> cột 先行終了日（延長）, và từ đó suy ra cột 先行終了日（最終確定）
 
 // QUY TẮC NGHIỆP VỤ (user cung cấp 2026-08-07), nguyên văn:
 //
@@ -389,7 +389,7 @@ function parsePreEndExtension(rawRows) {
     roundRowIndex = findHeaderRowIndex(rawRows, PRE_END_EXTENSION_ROUND_HEADERS);
   } catch (notFound) {
     throw new Error('【先行作品】独占期間の延長: không tìm thấy hàng header chứa '
-      + PRE_END_EXTENSION_ROUND_HEADERS.join(' / ') + ' (dải cột 延長 → cột R). '
+      + PRE_END_EXTENSION_ROUND_HEADERS.join(' / ') + ' (dải cột 延長 → 先行終了日（延長）). '
       + 'Sheet đã bị đổi cấu trúc — xem parsePreEndExtension() trong sources.js. '
       + String(notFound));
   }
@@ -464,7 +464,7 @@ function buildPreEndExtensionLookup(records) {
 }
 
 /**
- * Tra 先行終了日（延長）(cột R) cho 1 tác phẩm theo タイトルID.
+ * Tra 先行終了日（延長） cho 1 tác phẩm theo タイトルID.
  * @param {{titleId: *}} work
  * @param {Map<string, object>} extensionLookup - Kết quả buildPreEndExtensionLookup()
  * @returns {*} Ngày gia hạn NGUYÊN BẢN, hoặc '' nếu tác phẩm không có trong nguồn
@@ -476,7 +476,7 @@ function lookupPreEndExtension(work, extensionLookup) {
 }
 
 /**
- * Quy tắc cột S 先行終了日（最終確定）— user chốt 2026-08-07: R có ngày thì lấy R,
+ * Quy tắc cột 先行終了日（最終確定）— user chốt 2026-08-07: R có ngày thì lấy R,
  * không thì lấy Q.
  * @param {*} preEnd - Cột Q 先行終了日 (từ CMS)
  * @param {*} preEndExtended - Cột R 先行終了日（延長）
@@ -490,7 +490,7 @@ function resolvePreEndFinal(preEnd, preEndExtended) {
 
 // ==============================================================================
 // NGUỒN 6 — 大量無料希望作品リスト_CA様, sheet ★出稿回答シート
-//           -> cột T 大量無料開始日 / cột U 大量無料終了日
+//           -> cột 大量無料開始日 / cột 大量無料終了日
 
 // QUY TẮC NGHIỆP VỤ (spec 2026-08-07):
 //   H列「キャンペーン開始日」-> T列「大量無料開始日」
@@ -578,7 +578,7 @@ function buildMassFreeLookup(records) {
   });
 
   // Bỏ hẳn ID mà mọi dòng đều bị loại (✕) hoặc không có ô ngày nào dùng được: giữ lại
-  // chỉ để cột T/U nhận '' thì không khác gì không có trong map, mà lại làm cảnh báo
+  // chỉ để cột nhận '' thì không khác gì không có trong map, mà lại làm cảnh báo
   // "ID này được N dòng chia sẻ" đếm cả những ID không ghi ra gì.
   var keysToDrop = [];
   lookup.forEach(function (entry, key) {
@@ -591,7 +591,7 @@ function buildMassFreeLookup(records) {
 }
 
 /**
- * Tra cặp 大量無料開始日 / 大量無料終了日 (cột T/U) cho 1 tác phẩm theo タイトルID.
+ * Tra cặp 大量無料開始日 / 大量無料終了日 cho 1 tác phẩm theo タイトルID.
  * @param {{titleId: *}} work
  * @param {Map<string, object>} massFreeLookup - Kết quả buildMassFreeLookup()
  * @returns {{start: *, end: *}} Giá trị nguyên bản, cả 2 là '' nếu không tra ra
@@ -605,7 +605,7 @@ function lookupMassFreePeriod(work, massFreeLookup) {
 
 // ==============================================================================
 // NGUỒN 7 — 出稿コミット管理表（新作・既存・キャン強化）, sheet 広告出稿必須タイトル
-//           -> cột E タイトル区分
+//           -> cột タイトル区分
 
 // QUY TẮC NGHIỆP VỤ (user chốt 2026-08-13):
 //   C列のフラグ × F列のタイトル名 → 先行タイトル情報 と掛け算
@@ -694,7 +694,7 @@ function buildCommitFlagLookup(records) {
 }
 
 /**
- * Tra 区分 (cột E) cho 1 tác phẩm theo タイトル名.
+ * Tra タイトル区分 cho 1 tác phẩm theo タイトル名.
  * @param {{titleName: *}} work
  * @param {Map<string, object>} commitFlagLookup - Kết quả buildCommitFlagLookup()
  * @returns {string} TITLE_CATEGORY_COMMIT hoặc TITLE_CATEGORY_EXCLUSIVE

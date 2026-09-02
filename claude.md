@@ -1,0 +1,1 @@
+không tác động bất cứ thứ gì vào các file spreadsheet + drive

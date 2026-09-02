@@ -159,7 +159,7 @@ function buildCopyrightWarningRows(entries, runAt, errorMessage) {
 }
 
 /**
- * 掲載停止注意 — 2 tình huống của nguồn TSV cột I (multi_title_yyyyMMdd.tsv).
+ * 掲載停止注意 — 2 tình huống của nguồn TSV cột (multi_title_yyyyMMdd.tsv).
  * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
  * @param {Map<string, string>} suspensionLookup - buildSuspensionLookup(), Map rỗng nếu không có file
  * @param {string|null} suspensionFileName - Tên file đã dùng, null nếu không tìm thấy file nào
@@ -198,7 +198,7 @@ function buildSuspensionWarningRows(records, suspensionLookup, suspensionFileNam
 }
 
 /**
- * 先行延長注意 — cảnh báo của nguồn 5 (cột R/S).
+ * 先行延長注意 — cảnh báo của nguồn 【先行作品】独占期間の延長.
  * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
  * @param {Map<string, object>} extensionLookup - buildPreEndExtensionLookup(), Map rỗng nếu nguồn lỗi
  * @param {Date} runAt
@@ -263,7 +263,7 @@ function buildPreEndExtensionWarningRows(records, extensionLookup, runAt, errorM
 }
 
 /**
- * 大量無料注意 — cảnh báo của nguồn 6 (cột T/U).
+ * 大量無料注意 — cảnh báo của nguồn 大量無料希望作品リスト_CA様.
  * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
  * @param {Map<string, object>} massFreeLookup - buildMassFreeLookup(), Map rỗng nếu nguồn lỗi
  * @param {Date} runAt
@@ -298,7 +298,7 @@ function buildMassFreeWarningRows(records, massFreeLookup, runAt, errorMessage) 
 }
 
 /**
- * タイトル区分注意 — 2 tình huống của nguồn 出稿コミット管理表 (cột E).
+ * タイトル区分注意 — 2 tình huống của nguồn 出稿コミット管理表.
  * @param {Array<object>} records - Tác phẩm được vào master (đã có titleNo)
  * @param {Map<string, object>} commitFlagLookup - buildCommitFlagLookup(), Map rỗng nếu nguồn lỗi
  * @param {Date} runAt
@@ -344,7 +344,7 @@ function buildUpdatedAtWarningRows(stamps, runAt) {
 }
 
 /**
- * 出版社事前確認注意 — 2 tình huống làm cột Q của コピーライトマスタ không được điền.
+ * 出版社事前確認注意 — 2 tình huống làm cột của コピーライトマスタ không được điền.
  * @param {boolean} hasColumn - readCopyrightMaster().hasPreConfirmationColumn
  * @param {Array<object>} rules - parsePublisherCopyrightRules(), mảng rỗng nếu nguồn lỗi
  * @param {Date} runAt

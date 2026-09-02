@@ -252,7 +252,7 @@ function diffTitleMaster(options) {
     // sẽ chôn vùi những cảnh báo thật.
     if (options.copyrightAvailable && !copyright) {
       warnings.push(buildWarning(runAt, WARNING_KIND_NO_COPYRIGHT, record,
-        'Không tìm thấy タイトルNo này trên コピーライトマスタ — 3 cột S/T/AA để rỗng.'));
+        'Không tìm thấy タイトルNo này trên コピーライトマスタ — 3 cột lấy từ コピーライトマスタ để rỗng.'));
     }
 
     var previous = existingByKey.get(key);

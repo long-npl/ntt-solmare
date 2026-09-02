@@ -170,7 +170,7 @@ function runGas2() {
       }
     } catch (copyrightError) {
       copyrightAvailable = false;
-      errors.push('コピーライトマスタ đọc không được (3 cột S/T/AA giữ nguyên): ' + String(copyrightError));
+      errors.push('コピーライトマスタ đọc không được (3 cột lấy từ nó giữ nguyên): ' + String(copyrightError));
     }
 
     var titleMaster = readTitleMaster();
