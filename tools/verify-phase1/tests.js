@@ -996,9 +996,90 @@ function test_copyrightOrphans(ctx) {
   check('khong co rac -> khong dong nao', src.buildCopyrightOrphanWarningRows([], runAt).length, 0);
 }
 
+
+// ==============================================================================
+// DUONG GHI — writeMaster() chua he co test nao vi no goi SpreadsheetApp.
+// Stub duoc, nen khong co ly do de nguyen no khong duoc phu.
+// ==============================================================================
+function test_writeMaster(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  function fakeSheet(values) {
+    var writes = [];
+    return {
+      writes: writes,
+      getDataRange: function () { return { getValues: function () { return values; } }; },
+      getLastRow: function () { return values.length; },
+      getLastColumn: function () {
+        return values.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
+      },
+      getRange: function (row, colStart, numRows, numCols) {
+        return {
+          setValues: function (v) { writes.push({ row: row, numCols: numCols, values: v }); },
+          setValue: function (v) { writes.push({ row: row, col: colStart, single: v }); },
+        };
+      },
+    };
+  }
+
+  // Layout that: cot A dem, nhan 更新日 o hang 5, header hang 15.
+  var hdr = [''].concat(src.COPYRIGHT_COLUMNS.map(function (c) { return c.header; }));
+  var values = [];
+  for (var i = 0; i < 14; i++) values.push(i === 4 ? ['', '更新日', '', ''] : ['ghi chu']);
+  values.push(hdr);
+  var r16 = new Array(hdr.length).fill('');
+  r16[1] = 1; r16[4] = 'A cu';
+  var r17 = new Array(hdr.length).fill('');
+  r17[1] = 1990; r17[4] = 'rac cu';
+  values.push(r16, r17);
+
+  var sheet = fakeSheet(values);
+  var saved = src.SpreadsheetApp;
+  src.SpreadsheetApp = { openById: function () {
+    return { getSheetByName: function () { return sheet; } }; } };
+
+  var cfg = { spreadsheetId: 'x', sheetName: 'y' };
+  var existing = src.readMaster(cfg, src.COPYRIGHT_COLUMNS);
+  check('readMaster bo 14 hang ghi chu + hang header',
+    existing.records.map(function (r) { return r.titleNo; }), [1, 1990]);
+  check('readMaster gan sheetRow that',
+    existing.records.map(function (r) { return r.sheetRow; }), [16, 17]);
+
+  function rec(no, name) {
+    return { titleNo: no, titleName: name, individualCopyright: '(c)J' + no,
+      publisherCopyright: '(c)K' + no, preConfirmation: 'x',
+      history1: '', history2: '', history3: '', history4: '', history5: '' };
+  }
+  var diff = src.diffUpsert(existing.records, [rec(1, 'A moi'), rec(2, 'B moi')],
+    function (r) { return String(r.titleNo); },
+    function (a, b) { return src.recordsEqual(a, b, src.COPYRIGHT_COLUMNS); });
+  check('diff: 1 them / 1 update / 1 rac',
+    [diff.toAdd.length, diff.toUpdate.length, diff.orphans.length], [1, 1, 1]);
+
+  var stamp = src.writeMaster(cfg, src.COPYRIGHT_COLUMNS, diff, new Date(2026, 8, 2));
+  src.SpreadsheetApp = saved;
+
+  check('dong da co -> ghi DE tai cho, dung so hang that', sheet.writes[0].row, 16);
+  check('dong moi -> APPEND sau getLastRow, khong de len dong cu', sheet.writes[1].row, 18);
+  check('ghi du be rong sheet', sheet.writes[0].numCols, hdr.length);
+  check('dong dau 更新日 vao o ben phai nhan', stamp, 'C5');
+
+  // Gia tri ban quyen phai vao DUNG cot, khong lech.
+  var hIdx = {};
+  hdr.forEach(function (h, i) { hIdx[h] = i; });
+  var written = sheet.writes[0].values[0];
+  check('gia tri ban quyen vao dung cot',
+    [written[hIdx['タイトル名']], written[hIdx['タイトル個別コピーライト(あれば優先使用)']],
+      written[hIdx['出版社コピーライト']]],
+    ['A moi', '(c)J1', '(c)K1']);
+  // Cot A la cot dem — KHONG duoc ghi gi vao do.
+  check('cot dem dau tien khong bi ghi', written[0], '');
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
-    test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans,
+    test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation],
   data: [test_firstVolumeDataset],
 };

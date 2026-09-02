@@ -493,8 +493,12 @@ function probe_diagnoseCopyright() {
   Logger.log('URL: https://docs.google.com/spreadsheets/d/' + cfg.spreadsheetId + '/edit');
 
   ss.getSheets().forEach(function (sh) {
+    // isSheetHidden: nếu sheet GAS ghi vào đang BỊ ẨN thì người mở file sẽ thấy một
+    // sheet khác và kết luận "không được cập nhật".
     Logger.log('  sheet "' + sh.getName() + '": ' + sh.getLastRow() + ' hàng x '
-      + sh.getLastColumn() + ' cột' + (sh.getName() === cfg.sheetName ? '   <-- GAS GHI VÀO ĐÂY' : ''));
+      + sh.getLastColumn() + ' cột'
+      + (sh.isSheetHidden() ? '  [ĐANG BỊ ẨN]' : '')
+      + (sh.getName() === cfg.sheetName ? '   <-- GAS GHI VÀO ĐÂY' : ''));
   });
 
   var resolved = readMaster(cfg, COPYRIGHT_COLUMNS);
