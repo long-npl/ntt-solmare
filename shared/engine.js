@@ -13,6 +13,7 @@
 //     type:   'text',          // 'text' | 'date' — chỉ có tác dụng khi write === '上書'
 //     keep:   false,           // true = nguồn phụ lỗi thì lấy lại giá trị đang có
 //     optional: false,         // true = cột có thể chưa tồn tại trên sheet
+//     rowKey: false,           // true = cột quyết định "hàng này có dữ liệu" (đúng 1 cột)
 //     skipCompare: false,      // true = không tham gia quyết định có ghi hay không
 //   }
 //
@@ -121,18 +122,33 @@ function toSheetRow(record, headerIndex, columnCount, columns, previousRow) {
 }
 
 /**
- * Số hàng THẬT của các hàng TRỐNG trong vùng dữ liệu (không có タイトル名).
+ * Cột quyết định "hàng này có dữ liệu hay không" của một master.
+ *
+ * PHẢI khai báo, không được mặc định: 顧客作品マスタ dùng タイトル名 (trường duy nhất
+ * chắc chắn có ở mọi dòng GAS ghi), còn コピーライトマスタ và タイトルマスタ dùng
+ * タイトルNo. Gộp 2 hàm đọc thành một mà mặc định về タイトル名 đã làm dòng có No mà
+ * không có tên biến thành vô hình. Xem docs/decisions.md #rowkey-01
+ */
+function rowKeyColumn(columns) {
+  for (var i = 0; i < columns.length; i++) {
+    if (columns[i].rowKey === true) return columns[i];
+  }
+  throw new Error('Bảng cột thiếu cột rowKey — cần đúng 1 cột đánh dấu "hàng này có dữ liệu"');
+}
+
+/**
+ * Số hàng THẬT của các hàng TRỐNG trong vùng dữ liệu (không có giá trị ở cột rowKey).
  *
  * readMaster() bỏ qua chúng, còn đường ghi vốn luôn append tại getLastRow()+1 — nên
  * một khi có hàng trống, chúng ở đó vĩnh viễn và sheet trông như chưa được ghi dù dữ
  * liệu nằm ngay phía dưới. Xem docs/decisions.md #write-01
  */
-function blankDataRows(resolved) {
-  var nameIndex = resolved.headerIndex.get(normalizeHeaderText('タイトル名'));
+function blankDataRows(resolved, columns) {
+  var keyIndex = resolved.headerIndex.get(normalizeHeaderText(rowKeyColumn(columns).header));
   var rows = [];
   for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
     var row = resolved.values[i];
-    if (row && normalizeJapaneseText(row[nameIndex]) !== '') continue;
+    if (row && normalizeJapaneseText(row[keyIndex]) !== '') continue;
     rows.push(i + 1);
   }
   return rows;
@@ -156,16 +172,16 @@ function contiguousRuns(rows) {
  * Đặt các record MỚI vào sheet: LẤP hàng trống trước, phần còn lại mới append.
  *
  * Hàng trống được coi là hàng MỚI (previousRow = undefined) chứ không phải hàng cần
- * bảo toàn: hàng không có タイトル名 thì không ai đang giữ dữ liệu gì ở đó, và với
- * GAS❷ thì đó cũng là điều kiện để cột đóng dấu 素材共有日 được ghi.
+ * bảo toàn: hàng không có giá trị ở cột rowKey thì không ai đang giữ dữ liệu gì ở đó,
+ * và với GAS❷ thì đó cũng là điều kiện để cột đóng dấu 素材共有日 được ghi.
  *
  * @param {function(object): Array<*>} buildRow - Dựng mảng giá trị cho 1 record
  */
-function placeNewRows(sheet, resolved, records, buildRow) {
+function placeNewRows(sheet, resolved, columns, records, buildRow) {
   var width = resolved.columnCount;
   var pending = records.slice();
 
-  contiguousRuns(blankDataRows(resolved)).forEach(function (run) {
+  contiguousRuns(blankDataRows(resolved, columns)).forEach(function (run) {
     if (pending.length === 0) return;
     var take = pending.splice(0, run.length);
     sheet.getRange(run[0], 1, take.length, width).setValues(take.map(buildRow));
@@ -179,18 +195,18 @@ function placeNewRows(sheet, resolved, records, buildRow) {
 }
 
 /**
- * Đọc mọi dòng dữ liệu của một master. Bỏ dòng không có タイトル名 — đó là trường duy
- * nhất chắc chắn có giá trị ở mọi dòng do GAS ghi.
+ * Đọc mọi dòng dữ liệu của một master. Bỏ dòng không có giá trị ở cột rowKey —
+ * mỗi master khai báo cột đó riêng, xem rowKeyColumn().
  */
 function readMaster(outputConfig, columns) {
   var resolved = resolveMasterHeader(outputConfig.spreadsheetId, outputConfig.sheetName,
     requiredHeaders(columns));
-  var nameIndex = resolved.headerIndex.get(normalizeHeaderText('タイトル名'));
+  var keyIndex = resolved.headerIndex.get(normalizeHeaderText(rowKeyColumn(columns).header));
   var records = [];
   for (var i = resolved.headerRowIndex + 1; i < resolved.values.length; i++) {
     var row = resolved.values[i];
     if (!row) continue;
-    if (normalizeJapaneseText(row[nameIndex]) === '') continue;
+    if (normalizeJapaneseText(row[keyIndex]) === '') continue;
     records.push(readRecord(row, resolved.headerIndex, columns, i + 1));
   }
   resolved.records = records;
@@ -219,7 +235,7 @@ function writeMaster(outputConfig, columns, diffResult, runAt) {
   });
 
   if (diffResult.toAdd.length > 0) {
-    placeNewRows(sheet, resolved, diffResult.toAdd, function (record) {
+    placeNewRows(sheet, resolved, columns, diffResult.toAdd, function (record) {
       return toSheetRow(record, resolved.headerIndex, width, columns, undefined);
     });
   }

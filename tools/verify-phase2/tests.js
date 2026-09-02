@@ -40,6 +40,8 @@ function test_titleColumns(ctx) {
     src.TITLE_COLUMNS.filter(function (c) {
       return c.optional && src.TITLE_REQUIRED_HEADERS.indexOf(c.header) >= 0; }).length, 0);
 
+  check('dung 1 cot rowKey', src.TITLE_COLUMNS.filter(function (c) { return c.rowKey; }).length, 1);
+  check('cot rowKey la タイトルNo', src.rowKeyColumn(src.TITLE_COLUMNS).header, 'タイトルNo');
   check('khong header nao trung nhau',
     new Set(src.TITLE_COLUMNS.map(function (c) { return c.header; })).size, 25);
   check('khong field nao trung nhau',

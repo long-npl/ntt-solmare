@@ -142,6 +142,8 @@ function test_customerColumns(ctx) {
       .map(function (c) { return c.field; }),
     ['preStart', 'preEnd', 'preEndExtended', 'preEndFinal', 'massFreeStart', 'massFreeEnd']);
   check('requiredHeaders sinh dung 21 ten', src.requiredHeaders(src.CUSTOMER_COLUMNS).length, 21);
+  check('dung 1 cot rowKey', src.CUSTOMER_COLUMNS.filter(function (c) { return c.rowKey; }).length, 1);
+  check('cot rowKey la タイトル名', src.rowKeyColumn(src.CUSTOMER_COLUMNS).header, 'タイトル名');
   check('khong header nao trung nhau',
     new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.header; })).size, 21);
   check('khong field nao trung nhau',

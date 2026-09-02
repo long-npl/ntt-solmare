@@ -304,7 +304,9 @@ function copyrightHistoryHeaderName(slot) {
  * ガワ. Cột tuỳ chọn không vào requiredHeaders nên sheet thiếu nó vẫn chạy được.
  */
 var COPYRIGHT_COLUMNS = [
-  { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書' },
+  // rowKey: master này khoá theo タイトルNo, và bản cũ cũng lọc dòng theo chính nó.
+  // Đổi sang タイトル名 làm dòng có No mà không có tên biến thành vô hình.
+  { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書', rowKey: true },
   { header: 'CMS ID', field: 'cmsId', from: 'customer', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'customer', write: '上書' },
   { header: 'タイトル名', field: 'titleName', from: 'customer', write: '上書' },

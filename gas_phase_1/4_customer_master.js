@@ -107,7 +107,9 @@ var CUSTOMER_COLUMNS = [
   { header: '③シーモアロゴ判定', field: 'logoJudgement', from: 'regulation', write: '条件' },
   { header: '掲載停止日付', field: 'suspensionDate', from: 'lookup:suspension', write: '1回' },
   { header: 'LP制作', field: 'lpProduction', from: 'derive', rule: ruleLpProduction, write: '条件' },
-  { header: 'タイトル名', field: 'titleName', from: 'cms', write: '上書' },
+  // rowKey: trường duy nhất chắc chắn có giá trị ở mọi dòng GAS ghi (0/5.649 dòng CMS
+  // trống, so với タイトルID có 104 dòng trống). Xem docs/decisions.md #rowkey-01
+  { header: 'タイトル名', field: 'titleName', from: 'cms', write: '上書', rowKey: true },
   { header: '初回配信巻数', field: 'firstVolume', from: 'derive', rule: ruleFirstVolume, write: '上書' },
   { header: '作家名', field: 'author', from: 'cms', write: '上書' },
   { header: 'ジャンル', field: 'genre', from: 'cms', write: '上書' },

@@ -8,7 +8,8 @@
 // nhap tay — engine khong dung toi vi chung khong co trong bang.
 
 var TITLE_COLUMNS = [
-  { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書' },
+  // rowKey: parseTitleMasterRows() cũng lọc dòng theo chính cột này.
+  { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書', rowKey: true },
   { header: 'CMS ID', field: 'cmsId', from: 'customer', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'customer', write: '上書' },
   // Cột này tên trên sheet là 素材共有日 (đổi 2026-08-31, trước đó là マスタ追加日).
