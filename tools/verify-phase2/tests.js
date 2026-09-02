@@ -1,7 +1,7 @@
 // tools/verify-phase2/tests.js — test cho gas_phase_2/.
 //
 // GAS❷ không tính gì từ nguồn ngoài: nó chép từ 2 master của GAS❶ và đóng dấu
-// マスタ追加日 cho dòng mới. Nên test ở đây tập trung vào BẢNG CỘT và đường ghi.
+// 素材共有日 cho dòng mới. Nên test ở đây tập trung vào BẢNG CỘT và đường ghi.
 
 function test_titleColumns(ctx) {
   var src = ctx.src;
@@ -25,19 +25,17 @@ function test_titleColumns(ctx) {
       .slice(src.TITLE_COLUMNS.map(function (c) { return c.field; }).indexOf('titleName'), 12 + 1)
       .slice(0, 2), ['titleName', 'firstVolume']);
 
-  // マスタ追加日 là cột ghi MỘT LẦN: chỉ đóng dấu lúc append, dòng đã có không đụng.
-  check('マスタ追加日 la cot 1回', byField.masterAddedAt.write, '1回');
-  check('マスタ追加日 do GAS❷ tu sinh', byField.masterAddedAt.from, 'stamp');
-  check('マスタ追加日 la tuy chon — sheet that da doi ten', byField.masterAddedAt.optional, true);
+  // 素材共有日 là cột ghi MỘT LẦN: chỉ đóng dấu lúc append, dòng đã có không đụng.
+  check('素材共有日 la cot 1回', byField.materialSharedAt.write, '1回');
+  check('素材共有日 do GAS❷ tu sinh', byField.materialSharedAt.from, 'stamp');
 
   // Cột này có thể chưa tồn tại bên nguồn -> phải là optional, nếu không sheet thiếu
   // nó sẽ làm cả lần chạy throw.
   check('出版社事前確認 la cot tuy chon', byField.preConfirmation.optional, true);
-  // 2 cot tuy chon: 出版社事前確認 (co the chua ton tai ben nguon) va マスタ追加日
-  // (sheet that da doi ten thanh 素材共有日 — xem docs/decisions.md #master-added-01).
-  check('requiredHeaders bo ca 2 cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 23);
+  // Chi con 1 cot tuy chon: 出版社事前確認 (co the chua ton tai ben nguon).
+  check('requiredHeaders bo cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 24);
   check('TITLE_REQUIRED_HEADERS ton trong optional (khong map thang)',
-    src.TITLE_REQUIRED_HEADERS.length, 23);
+    src.TITLE_REQUIRED_HEADERS.length, 24);
   check('khong cot optional nao lot vao TITLE_REQUIRED_HEADERS',
     src.TITLE_COLUMNS.filter(function (c) {
       return c.optional && src.TITLE_REQUIRED_HEADERS.indexOf(c.header) >= 0; }).length, 0);
@@ -72,10 +70,10 @@ function test_titleWriteModes(ctx) {
   check('cot ngay -> compareFor tra sameDateValue (bo qua gio)',
     src.compareFor(byField.preStart)(
       new Date('2026-03-27T00:00:00+09:00'), new Date('2026-03-27T15:00:00+09:00')), true);
-  check('マスタ追加日 -> o da co ngay thi khong bao gio doi',
-    src.compareFor(byField.masterAddedAt)('2026-08-19', '2026-09-02'), true);
-  check('マスタ追加日 -> o trong thi duoc dong dau',
-    src.compareFor(byField.masterAddedAt)('', '2026-09-02'), false);
+  check('素材共有日 -> o da co ngay thi khong bao gio doi',
+    src.compareFor(byField.materialSharedAt)('2026-08-19', '2026-09-02'), true);
+  check('素材共有日 -> o trong thi duoc dong dau',
+    src.compareFor(byField.materialSharedAt)('', '2026-09-02'), false);
 }
 
 function test_customerSourceHeaders(ctx) {
@@ -127,7 +125,7 @@ function test_titleRecordToRow(ctx) {
     preConfirmation: '必要' };
   var runAt = new Date(2026, 8, 2);
 
-  // ---- dòng MỚI: マスタ追加日 được đóng dấu ----
+  // ---- dòng MỚI: 素材共有日 được đóng dấu ----
   var added = src.titleRecordToRow({
     record: record, copyright: copyright, copyrightAvailable: true,
     preConfirmationAvailable: true, headerIndex: headerIndex, columnCount: width,
@@ -138,19 +136,19 @@ function test_titleRecordToRow(ctx) {
   check('dong moi: 初回配信巻数 duoc chep sang', at(added, '初回配信巻数'), '4');
   check('dong moi: 3 cot tu コピーライトマスタ',
     [at(added, '出版社コピーライト'), at(added, '出版社事前確認')], ['©NXB', '必要']);
-  check('dong moi: マスタ追加日 duoc dong dau', at(added, 'マスタ追加日'), runAt);
+  check('dong moi: 素材共有日 duoc dong dau', at(added, '素材共有日'), runAt);
 
-  // ---- dòng CŨ: マスタ追加日 KHÔNG bị đụng ----
+  // ---- dòng CŨ: 素材共有日 KHÔNG bị đụng ----
   var prev = new Array(width).fill('');
-  prev[headerIndex.get(src.normalizeHeaderText('マスタ追加日'))] = new Date(2026, 7, 19);
+  prev[headerIndex.get(src.normalizeHeaderText('素材共有日'))] = new Date(2026, 7, 19);
   prev[width - 1] = 'nguoi go tay';
   var updated = src.titleRecordToRow({
     record: record, copyright: copyright, copyrightAvailable: true,
     preConfirmationAvailable: true, headerIndex: headerIndex, columnCount: width,
     runAt: runAt, previousRow: prev,
   });
-  check('dong cu: マスタ追加日 giu nguyen ngay cu',
-    at(updated, 'マスタ追加日'), new Date(2026, 7, 19));
+  check('dong cu: 素材共有日 giu nguyen ngay cu',
+    at(updated, '素材共有日'), new Date(2026, 7, 19));
   check('dong cu: cot GAS khong so huu duoc bao toan', updated[width - 1], 'nguoi go tay');
 
   // ---- nguồn コピーライトマスタ lỗi: 3 cột đó phải GIỮ NGUYÊN, không bị xoá ----

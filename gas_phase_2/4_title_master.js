@@ -2,7 +2,7 @@
 //
 // Cung khuon voi gas_phase_1/4_customer_master.js: bang cot o dau, quy tac o duoi.
 // GAS❷ khong tinh gi tu nguon ngoai — no chep tu 2 master cua GAS❶ va dong dau
-// マスタ追加日 cho dong moi.
+// 素材共有日 cho dong moi.
 //
 // Ngoai 25 cot duoi day, sheet con co タイトルキー va AB〜AK 掲出可能媒体 la cot NGUOI
 // nhap tay — engine khong dung toi vi chung khong co trong bang.
@@ -11,11 +11,11 @@ var TITLE_COLUMNS = [
   { header: 'タイトルNo', field: 'titleNo', from: 'customer', write: '上書' },
   { header: 'CMS ID', field: 'cmsId', from: 'customer', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'customer', write: '上書' },
-  // Trên sheet thật, cột này đã bị đổi tên thành 素材共有日 (2026-08-31). Hai khái niệm
-  // KHÁC NHAU — "ngày dòng vào master" vs "ngày chia sẻ tư liệu" — nên code không tự
-  // chọn giùm: để optional để GAS❷ chạy được, kèm 1 dòng 設定注意 mỗi lần chạy.
+  // Cột này tên trên sheet là 素材共有日 (đổi 2026-08-31, trước đó là マスタ追加日).
+  // User chốt hai cái là MỘT: ngày dòng được đưa vào master = ngày tư liệu được chia
+  // sẻ. GAS❷ tự đóng dấu, GHI MỘT LẦN — dòng đã có ngày thì không bao giờ đụng tới.
   // Xem docs/decisions.md #master-added-01
-  { header: 'マスタ追加日', field: 'masterAddedAt', from: 'stamp', write: '1回', optional: true },
+  { header: '素材共有日', field: 'materialSharedAt', from: 'stamp', write: '1回' },
   { header: 'タイトル区分', field: 'titleCategory', from: 'customer', write: '上書' },
   { header: '①広告出稿ポリシー', field: 'policy', from: 'customer', write: '上書' },
   { header: '②一般面出稿NG', field: 'general', from: 'customer', write: '上書' },

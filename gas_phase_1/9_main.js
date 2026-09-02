@@ -478,3 +478,59 @@ function probe_diagnose() {
       }
     });
 }
+
+/**
+ * Chẩn đoán sâu コピーライトマスタ: ô 更新日 đang là gì, tỉ lệ ô có dữ liệu của từng
+ * cột, và 3 dòng mẫu. KHÔNG ghi gì.
+ *
+ * Dùng khi số dòng nói "đã ghi" mà người xem sheet nói "chưa cập nhật" — nó phân biệt
+ * "ghi nhầm sheet" với "ghi rồi nhưng cột quan trọng rỗng".
+ */
+function probe_diagnoseCopyright() {
+  var cfg = CONFIG.OUTPUTS.COPYRIGHT_MASTER;
+  var ss = SpreadsheetApp.openById(cfg.spreadsheetId);
+  Logger.log('file: ' + ss.getName());
+  Logger.log('URL: https://docs.google.com/spreadsheets/d/' + cfg.spreadsheetId + '/edit');
+
+  ss.getSheets().forEach(function (sh) {
+    Logger.log('  sheet "' + sh.getName() + '": ' + sh.getLastRow() + ' hàng x '
+      + sh.getLastColumn() + ' cột' + (sh.getName() === cfg.sheetName ? '   <-- GAS GHI VÀO ĐÂY' : ''));
+  });
+
+  var resolved = readMaster(cfg, COPYRIGHT_COLUMNS);
+
+  // Ô 更新日: dò lại đúng cách stampUpdatedAt() dò, rồi in giá trị.
+  for (var r = 0; r < resolved.headerRowIndex; r++) {
+    var row = resolved.values[r];
+    if (!row) continue;
+    for (var c = 0; c < row.length - 1; c++) {
+      if (normalizeHeaderText(row[c]) !== '更新日') continue;
+      Logger.log('更新日 ở ô ' + columnIndexToLetter(c + 2) + (r + 1) + ' = ' + row[c + 1]);
+    }
+  }
+
+  // Tỉ lệ ô CÓ dữ liệu của từng cột — cột nào 0% là cột không được ghi.
+  Logger.log('--- tỉ lệ ô có dữ liệu / ' + resolved.records.length + ' dòng ---');
+  COPYRIGHT_COLUMNS.forEach(function (column) {
+    var filled = 0;
+    resolved.records.forEach(function (rec) {
+      if (normalizeJapaneseText(rec[column.field]) !== '') filled += 1;
+    });
+    var pct = resolved.records.length === 0 ? 0
+      : Math.round(filled * 100 / resolved.records.length);
+    Logger.log('  ' + (pct === 0 ? '!! ' : '   ') + column.header
+      + ': ' + filled + ' (' + pct + '%)');
+  });
+
+  Logger.log('--- 3 dòng đầu ---');
+  resolved.records.slice(0, 3).forEach(function (rec) {
+    Logger.log('  No=' + rec.titleNo + ' | ' + rec.titleName
+      + ' | 個別=' + rec.individualCopyright + ' | 出版社=' + rec.publisherCopyright
+      + ' | 事前確認=' + rec.preConfirmation);
+  });
+  Logger.log('--- 3 dòng cuối ---');
+  resolved.records.slice(-3).forEach(function (rec) {
+    Logger.log('  No=' + rec.titleNo + ' | ' + rec.titleName
+      + ' | 個別=' + rec.individualCopyright + ' | 出版社=' + rec.publisherCopyright);
+  });
+}
