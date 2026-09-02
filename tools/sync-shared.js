@@ -24,9 +24,15 @@ const ROOT = path.resolve(__dirname, '..');
 // Mỗi file trong shared/ được chép tới những đích nào. Thêm file dùng chung = thêm 1
 // dòng ở đây, không phải sửa logic bên dưới.
 const TARGETS = [
-  { source: 'shared/common.js', copies: ['src/common.js', 'gas2/common.js'] },
+  { source: 'shared/common.js', copies: ['src/common.js', 'gas2/common.js',
+      'gas_phase_1/1_common.js', 'gas_phase_2/1_common.js'] },
   { source: 'shared/masterHeaders.js', copies: ['src/masterHeaders.js', 'gas2/masterHeaders.js'] },
+  { source: 'shared/sheet.js', copies: ['gas_phase_1/2_sheet.js', 'gas_phase_2/2_sheet.js'] },
+  { source: 'shared/engine.js', copies: ['gas_phase_1/8_engine.js', 'gas_phase_2/8_engine.js'] },
 ];
+// masterHeaders.js cố tình KHÔNG có đích ở 2 project mới: bản mới suy danh sách cột
+// bắt buộc từ chính bảng cột (requiredHeaders trong engine), không còn danh sách rời
+// phải giữ khớp tay.
 
 /**
  * Banner dán lên đầu mỗi file được sinh ra.

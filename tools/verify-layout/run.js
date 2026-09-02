@@ -56,5 +56,33 @@ check('gas_phase_1/.claspignore chan gas_phase_2',
 check('gas_phase_2/.claspignore chan gas_phase_1',
   (read('gas_phase_2/.claspignore') || '').indexOf('gas_phase_1/**') >= 0, true);
 
+// shared/ phải được chép sang cả 2 project mới, và bản chép phải khớp bản gốc.
+// Bản chép trôi khỏi bản gốc là loại lệch không ai nhìn thấy — xem tools/sync-shared.js.
+['common.js', 'masterHeaders.js', 'sheet.js', 'engine.js'].forEach(function (f) {
+  check('shared/' + f + ' ton tai', fs.existsSync(path.join(ROOT, 'shared', f)), true);
+});
+
+const COPIES = [
+  ['shared/common.js', 'gas_phase_1/1_common.js'],
+  ['shared/common.js', 'gas_phase_2/1_common.js'],
+  ['shared/sheet.js', 'gas_phase_1/2_sheet.js'],
+  ['shared/sheet.js', 'gas_phase_2/2_sheet.js'],
+  ['shared/engine.js', 'gas_phase_1/8_engine.js'],
+  ['shared/engine.js', 'gas_phase_2/8_engine.js'],
+];
+// Bản chép = banner + nội dung gốc, nên so bằng "kết thúc bằng", không phải "bằng".
+// Bỏ \r vì repo checkout trên Windows với core.autocrlf — giống cách sync-shared so.
+COPIES.forEach(function (pair) {
+  const a = read(pair[0]);
+  const b = read(pair[1]);
+  if (a === null || b === null) {
+    check(pair[1] + ' la ban chep cua ' + pair[0], 'thieu file', 'khop');
+    return;
+  }
+  const strip = function (s) { return s.replace(/\r/g, ''); };
+  check(pair[1] + ' la ban chep cua ' + pair[0],
+    strip(b).endsWith(strip(a)), true);
+});
+
 console.log(failed === 0 ? 'layout OK' : failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
