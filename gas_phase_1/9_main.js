@@ -329,6 +329,14 @@ function runGas1() {
       + copyrightDiff.toUpdate.length + ' 件 / 変化なし ' + copyrightDiff.unchangedKeys.length
       + ' 件 / 孤立行 ' + copyrightDiff.orphans.length + ' 行');
 
+    // Kiểm header CẢ HAI master TRƯỚC khi ghi cái nào. Nếu master thứ hai gãy header,
+    // lệnh ghi thứ nhất đã xong rồi -> 2 master lệch nhau, và 顧客作品マスタ có tác phẩm
+    // mà コピーライトマスタ không có. Xem docs/decisions.md #order-02
+    resolveMasterHeader(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER.spreadsheetId,
+      CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER.sheetName, requiredHeaders(CUSTOMER_COLUMNS));
+    resolveMasterHeader(CONFIG.OUTPUTS.COPYRIGHT_MASTER.spreadsheetId,
+      CONFIG.OUTPUTS.COPYRIGHT_MASTER.sheetName, requiredHeaders(COPYRIGHT_COLUMNS));
+
     // runAt lấy MỘT lần ở đây: ô 更新日, tab 変更詳細 và tab 警告 dùng chung một mốc
     // thời gian nên 3 nơi đối chiếu được với nhau cho cùng một lần chạy.
     var runAt = new Date();

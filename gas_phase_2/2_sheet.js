@@ -37,10 +37,25 @@ function resolveMasterHeader(spreadsheetId, sheetName, requiredHeaders) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) throw new Error('Không tìm thấy sheet: ' + sheetName + ' (spreadsheet ' + spreadsheetId + ')');
   var values = sheet.getDataRange().getValues();
-  var headerRowIndex = findHeaderRowIndex(values, requiredHeaders);
+  // Bọc lỗi dò header để nó nói RÕ sheet nào — findHeaderRowIndex() chỉ biết mảng nó
+  // được đưa, nên thông báo gốc chỉ liệt kê tên cột. Khi 2 master cùng đi qua đây, một
+  // lỗi không tên buộc người đọc phải đoán. Xem docs/decisions.md #sheet-03
+  var headerRowIndex;
+  try {
+    headerRowIndex = findHeaderRowIndex(values, requiredHeaders);
+  } catch (failure) {
+    throw new Error('[' + ss.getName() + ' / sheet "' + sheetName + '" / '
+      + sheet.getLastRow() + ' hàng x ' + sheet.getLastColumn() + ' cột] ' + String(failure)
+      + ' — nếu vừa xoá dữ liệu sheet này thì hàng header có thể đã bị xoá theo;'
+      + ' hàng header PHẢI được giữ lại.');
+  }
   var headerRow = values[headerRowIndex];
   var headerIndex = buildHeaderIndex(headerRow);
-  requiredHeaders.forEach(function (name) { col(headerIndex, name); });
+  requiredHeaders.forEach(function (name) {
+    if (headerIndex.get(normalizeHeaderText(name)) !== undefined) return;
+    throw new Error('[' + ss.getName() + ' / sheet "' + sheetName + '" / header hàng '
+      + (headerRowIndex + 1) + '] Không tìm thấy cột: ' + name);
+  });
   return {
     sheet: sheet,
     headerIndex: headerIndex,
