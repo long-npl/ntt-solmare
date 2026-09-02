@@ -177,6 +177,14 @@ function writeTitleMaster(sheetContext, diffResult, runAt) {
       function (item) { return item.values; });
   }
 
+  // Cùng cơ chế dọn với 2 master của GAS❶ — xem docs/decisions.md #write-02
+  try {
+    var removed = deleteEmptyRows(sheet, sheetContext.headerRowIndex);
+    if (removed > 0) Logger.log('タイトルマスタ: đã xoá ' + removed + ' hàng trống hoàn toàn');
+  } catch (cleanupFailure) {
+    Logger.log('タイトルマスタ: dọn hàng trống thất bại (bỏ qua): ' + String(cleanupFailure));
+  }
+
   return {
     updatedAtCell: stampUpdatedAt(sheet, sheetContext.values, sheetContext.headerRowIndex, runAt),
   };

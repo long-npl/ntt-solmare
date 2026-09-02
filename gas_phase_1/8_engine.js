@@ -204,6 +204,46 @@ function placeNewRows(sheet, resolved, columns, records, buildRow) {
 }
 
 /**
+ * Xoá các hàng TRỐNG HOÀN TOÀN trong vùng dữ liệu — mọi ô đều rỗng, không chỉ ô rowKey.
+ *
+ * Phân biệt với 2 thứ KHÔNG được đụng:
+ *   - Hàng có dữ liệu nhưng タイトルNo cũ (孤立行): CÓ dữ liệu -> quy tắc 削除等はしない
+ *     vẫn áp dụng, chỉ cảnh báo.
+ *   - Hàng trống rowKey nhưng có chữ ở cột khác: vẫn là dữ liệu của ai đó -> giữ.
+ *
+ * Vì sao phải xoá chứ không chỉ lấp: placeNewRows() chỉ lấp được khi CÓ dòng mới,
+ * còn 62 hàng trống nằm trên đầu sheet trong khi diff ra 追加 0 thì nằm đó vĩnh viễn
+ * và sheet trông như chưa được ghi. Xem docs/decisions.md #write-02
+ *
+ * ĐỌC LẠI sheet thay vì dùng values đã đọc từ đầu lần chạy: placeNewRows() có thể vừa
+ * lấp vài hàng trong số đó, dùng ảnh cũ sẽ xoá nhầm hàng vừa ghi.
+ *
+ * Xoá theo dải, TỪ DƯỚI LÊN — xoá dải trên trước làm mọi số hàng phía dưới dịch lên.
+ *
+ * @returns {number} Số hàng đã xoá.
+ */
+function deleteEmptyRows(sheet, headerRowIndex) {
+  var values = sheet.getDataRange().getValues();
+  var empty = [];
+  for (var i = headerRowIndex + 1; i < values.length; i++) {
+    var row = values[i];
+    var hasContent = false;
+    for (var c = 0; c < row.length; c++) {
+      if (normalizeJapaneseText(row[c]) !== '') { hasContent = true; break; }
+    }
+    if (!hasContent) empty.push(i + 1);
+  }
+  if (empty.length === 0) return 0;
+
+  var runs = contiguousRuns(empty);
+  for (var r = runs.length - 1; r >= 0; r--) {
+    sheet.deleteRows(runs[r][0], runs[r].length);
+  }
+  return empty.length;
+}
+
+
+/**
  * Đọc mọi dòng dữ liệu của một master. Bỏ dòng không có giá trị ở cột rowKey —
  * mỗi master khai báo cột đó riêng, xem rowKeyColumn().
  */
@@ -247,6 +287,15 @@ function writeMaster(outputConfig, columns, diffResult, runAt) {
     placeNewRows(sheet, resolved, columns, diffResult.toAdd, function (record) {
       return toSheetRow(record, resolved.headerIndex, width, columns, undefined);
     });
+  }
+
+  // Dọn hàng trống hoàn toàn SAU khi mọi lệnh ghi đã xong: xoá trước sẽ làm sheetRow
+  // của toUpdate trỏ sai. Lỗi dọn không được làm hỏng lần chạy — dữ liệu đã ghi xong.
+  try {
+    var removed = deleteEmptyRows(sheet, resolved.headerRowIndex);
+    if (removed > 0) Logger.log(outputConfig.sheetName + ': đã xoá ' + removed + ' hàng trống hoàn toàn');
+  } catch (cleanupFailure) {
+    Logger.log(outputConfig.sheetName + ': dọn hàng trống thất bại (bỏ qua): ' + String(cleanupFailure));
   }
 
   return stampUpdatedAt(sheet, resolved.values, resolved.headerRowIndex, runAt);

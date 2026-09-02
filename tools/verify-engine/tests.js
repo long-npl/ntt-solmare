@@ -253,8 +253,53 @@ function test_rowKey(ctx) {
     src.blankDataRows(resolved, byName), [2]);
 }
 
+
+// Don hang trong HOAN TOAN o cuoi moi lan ghi. placeNewRows chi lap duoc khi CO dong
+// moi; 62 hang trong nam tren dau sheet trong khi 追加 0 thi nam do vinh vien.
+function test_deleteEmptyRows(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  function fake(values) {
+    var deletes = [];
+    return {
+      deletes: deletes,
+      values: values,
+      getDataRange: function () { return { getValues: function () { return values; } }; },
+      deleteRows: function (row, n) { deletes.push([row, n]); },
+    };
+  }
+
+  // header hang 3 (index 2); trong: 4,5 va 8; hang 7 chi co chu o cot phu -> GIU.
+  var sheet = fake([
+    ['ghi chu'], ['', '更新日', 'x'], ['', 'タイトルNo', 'タイトル名', 'メモ'],
+    ['', '', '', ''],            // hang 4: trong hoan toan
+    ['', '', '', ''],            // hang 5: trong hoan toan
+    ['', 7, 'A', ''],            // hang 6: co du lieu
+    ['', '', '', 'nguoi go tay'],// hang 7: trong rowKey nhung CO chu -> khong duoc xoa
+    ['', '', '', ''],            // hang 8: trong hoan toan
+  ]);
+  var removed = src.deleteEmptyRows(sheet, 2);
+  check('dem dung so hang da xoa', removed, 3);
+  check('xoa theo dai, TU DUOI LEN (8 truoc, roi 4-5)',
+    sheet.deletes, [[8, 1], [4, 2]]);
+
+  // Hang co BAT KY chu nao -> giu: khong co lenh xoa nao dung vao hang 6 va 7.
+  var touched = sheet.deletes.some(function (d) { return d[0] <= 7 && d[0] + d[1] - 1 >= 6; });
+  check('hang co du lieu / co chu o cot phu KHONG bi xoa', touched, false);
+
+  // Khong co hang trong -> khong xoa gi, khong goi deleteRows.
+  var clean = fake([['ghi chu'], ['', 'タイトルNo', 'タイトル名'], ['', 1, 'A']]);
+  check('sheet sach -> 0 lenh xoa', [src.deleteEmptyRows(clean, 1), clean.deletes.length], [0, 0]);
+
+  // Vung tren header khong bi quet: hang ghi chu trong o dau sheet khong bi dung.
+  var withBlankNote = fake([[''], ['', 'タイトルNo', 'タイトル名'], ['', 1, 'A']]);
+  check('hang trong TREN header khong bi xoa',
+    [src.deleteEmptyRows(withBlankNote, 1), withBlankNote.deletes.length], [0, 0]);
+}
+
 module.exports = {
   unit: [test_compareFor, test_requiredHeaders, test_readAndCompare, test_toSheetRow,
-    test_applyRules, test_placeNewRows, test_rowKey],
+    test_applyRules, test_placeNewRows, test_rowKey, test_deleteEmptyRows],
   data: [],
 };
