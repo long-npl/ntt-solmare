@@ -1,0 +1,9 @@
+# Push từ TRONG thư mục này: `cd gas_phase_2 && npx @google/clasp push`.
+#
+# rootDir "" + skipSubdirectories false nghĩa là clasp đi vào mọi thư mục con, nên
+# phải chặn mọi thứ không thuộc GAS❷. Đẩy nhầm gas_phase_1 lên đây sẽ nạp 2 bản của
+# mọi hàm vào chung một global scope — kể cả `var CONFIG`, và GAS❷ sẽ chạy với
+# CONFIG của GAS❶.
+gas_phase_1/**
+**/node_modules/**
+*.md

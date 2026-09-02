@@ -11,6 +11,11 @@
 
 **/node_modules/**
 gas2/**
+# gas_phase_1 và gas_phase_2 là 2 project Apps Script RIÊNG (script ID riêng, push từ
+# trong chính thư mục của chúng). Cùng lý do với gas2/** ngay trên: đẩy chúng lên đây
+# sẽ nạp 2 bản của mọi hàm vào chung một global scope.
+gas_phase_1/**
+gas_phase_2/**
 shared/**
 tools/**
 docs/**
