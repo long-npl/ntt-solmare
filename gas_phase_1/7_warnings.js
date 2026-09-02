@@ -19,6 +19,10 @@ var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
 var WARNING_KIND_UPDATED_AT = '更新日注意';
 var WARNING_KIND_REGULATION_LOST = '判定消失注意';
 
+// Vượt ngưỡng này thì gộp thành 1 dòng tổng: 268 dòng cảnh báo riêng lẻ sẽ chôn
+// mất mọi cảnh báo khác của lần chạy đó.
+var COPYRIGHT_ORPHAN_SUMMARY_THRESHOLD = 20;
+
 /** Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告. */
 function warningRow(runAt, kind, titleNo, titleId, titleName, detail) {
   return {
@@ -439,7 +443,29 @@ function buildChangeDetailRows(masterLabel, toUpdateItems, columns, runAt) {
 
 
 /**
- * Gom cả 13 loại cảnh báo thành 1 mảng.
+ * 孤立行 của コピーライトマスタ — dòng có タイトルNo mà 顧客作品マスタ không còn nữa.
+ *
+ * 顧客作品マスタ vốn đã có cảnh báo này; コピーライトマスタ thì không, nên khi
+ * 顧客作品マスタ bị xoá làm lại (タイトルNo cấp lại từ 1) mà コピーライトマスタ không xoá
+ * theo, nó tích dòng rác hoàn toàn im lặng. Xem docs/decisions.md #orphan-01
+ */
+function buildCopyrightOrphanWarningRows(orphans, runAt) {
+  if (!orphans || orphans.length === 0) return [];
+  if (orphans.length > COPYRIGHT_ORPHAN_SUMMARY_THRESHOLD) {
+    var nos = orphans.slice(0, 10).map(function (record) { return record.titleNo; });
+    return [warningRow(runAt, WARNING_KIND_ORPHAN, '', '', 'コピーライトマスタ',
+      'コピーライトマスタ の ' + orphans.length + ' 行に対応する タイトルNo が 顧客作品マスタ に'
+      + 'ありません。顧客作品マスタ を作り直した場合は コピーライトマスタ も消してください'
+      + '（タイトルNo が 1 から振り直され、古い番号は別の作品を指します）。例: ' + nos.join(', '))];
+  }
+  return orphans.map(function (record) {
+    return warningRow(runAt, WARNING_KIND_ORPHAN, record.titleNo, record.titleId, record.titleName,
+      'コピーライトマスタ のこの行に対応する タイトルNo が 顧客作品マスタ にありません。行は削除していません');
+  });
+}
+
+/**
+ * Gom cả 14 loại cảnh báo thành 1 mảng.
  *
  * Nhận nguyên ctx thay vì 13 tham số rời: thêm một loại cảnh báo về sau chỉ phải
  * sửa ở đây và ở 9_main.js chỗ dựng ctx, không phải đổi chữ ký.
@@ -462,6 +488,7 @@ function buildAllWarnings(ctx) {
     .concat(buildRegulationLostWarningRows(ctx.matches, ctx.runAt))
     .concat(buildPreConfirmationWarningRows(ctx.hasPreConfirmationColumn,
       ctx.publisherCopyrightRules || [], ctx.runAt))
+    .concat(buildCopyrightOrphanWarningRows(ctx.copyrightOrphans, ctx.runAt))
     .concat(buildUpdatedAtWarningRows(ctx.stamps, ctx.runAt));
 }
 

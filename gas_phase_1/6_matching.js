@@ -293,6 +293,10 @@ function diffUpsert(existingRecords, newRecords, keyFn, isEqualFn) {
   var toUpdate = [];
   var toAdd = [];
   var unchangedKeys = [];
+  // Dòng cũ nào KHÔNG record nào khớp. diffUpsert() từng im lặng về chúng, nên
+  // コピーライトマスタ tích 268 dòng rác mà không có dòng cảnh báo nào —
+  // xem docs/decisions.md #orphan-01
+  var claimed = new Set();
 
   newRecords.forEach(function (record) {
     var key = keyFn(record);
@@ -301,6 +305,7 @@ function diffUpsert(existingRecords, newRecords, keyFn, isEqualFn) {
       toAdd.push(record);
       return;
     }
+    claimed.add(key);
     if (isEqualFn(existing, record)) {
       unchangedKeys.push(key);
     } else {
@@ -311,7 +316,13 @@ function diffUpsert(existingRecords, newRecords, keyFn, isEqualFn) {
     }
   });
 
-  return { toUpdate: toUpdate, toAdd: toAdd, unchangedKeys: unchangedKeys };
+  var orphans = [];
+  existingRecords.forEach(function (record) {
+    if (claimed.has(keyFn(record))) return;
+    orphans.push(record);
+  });
+
+  return { toUpdate: toUpdate, toAdd: toAdd, unchangedKeys: unchangedKeys, orphans: orphans };
 }
 
 /**

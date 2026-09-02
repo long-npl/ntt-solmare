@@ -949,9 +949,56 @@ function test_firstVolumeDataset(ctx) {
   check('khong o nao rong', counts['1'] + counts.XX + counts['顧客確認'], kept.length);
 }
 
+
+// ==============================================================================
+// 孤立行 cua コピーライトマスタ — dong co タイトルNo ma 顧客作品マスタ khong con nua.
+// Truoc day diffUpsert() im lang ve chung, nen master do tich 268 dong rac ma khong
+// dong canh bao nao (do duoc tren sheet that 2026-09-02).
+// ==============================================================================
+function test_copyrightOrphans(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var COLS = [{ header: 'タイトル名', field: 'titleName', from: 'customer', write: '上書' }];
+  var keyFn = function (r) { return String(r.titleNo); };
+  var eq = function (a, b) { return src.recordsEqual(a, b, COLS); };
+
+  // 顧客作品マスタ bi xoa lam lai: タイトルNo cap lai tu 1, con コピーライトマスタ giu
+  // nguyen so cu 1988/1990 -> 2 dong do thanh rac.
+  var existing = [
+    { titleNo: 1, titleName: 'A', sheetRow: 16 },
+    { titleNo: 1988, titleName: 'cu 1', sheetRow: 17 },
+    { titleNo: 1990, titleName: 'cu 2', sheetRow: 18 },
+  ];
+  var incoming = [{ titleNo: 1, titleName: 'A' }, { titleNo: 2, titleName: 'B' }];
+  var diff = src.diffUpsert(existing, incoming, keyFn, eq);
+
+  check('diffUpsert bao dung 2 dong rac',
+    diff.orphans.map(function (r) { return r.titleNo; }), [1988, 1990]);
+  check('dong khop khong bi tinh la rac',
+    [diff.toAdd.length, diff.unchangedKeys.length], [1, 1]);
+
+  var runAt = new Date(2026, 8, 2);
+  var few = src.buildCopyrightOrphanWarningRows(diff.orphans, runAt);
+  check('duoi nguong -> 1 dong moi tac pham',
+    few.map(function (r) { return [r.kind, r.titleNo]; }),
+    [['孤立行', 1988], ['孤立行', 1990]]);
+
+  // 268 dong canh bao rieng le se chon mat moi canh bao khac cua lan chay do.
+  var many = [];
+  for (var i = 0; i < 268; i++) many.push({ titleNo: 1000 + i, titleName: 'x', titleId: '' });
+  var summary = src.buildCopyrightOrphanWarningRows(many, runAt);
+  check('vuot nguong -> gop thanh 1 dong tong', summary.length, 1);
+  check('dong tong noi ro so luong va cach xu ly',
+    [summary[0].detail.indexOf('268 行') >= 0,
+      summary[0].detail.indexOf('コピーライトマスタ も消してください') >= 0], [true, true]);
+
+  check('khong co rac -> khong dong nao', src.buildCopyrightOrphanWarningRows([], runAt).length, 0);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
-    test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord,
+    test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation],
   data: [test_firstVolumeDataset],
 };

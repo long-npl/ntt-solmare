@@ -326,7 +326,8 @@ function runGas1() {
     var existingCopyright = readMaster(CONFIG.OUTPUTS.COPYRIGHT_MASTER, COPYRIGHT_COLUMNS);
     var copyrightDiff = buildCopyrightDiff(matches, existingCopyright);
     Logger.log('コピーライトマスタ 集計: 追加 ' + copyrightDiff.toAdd.length + ' 件 / 更新 '
-      + copyrightDiff.toUpdate.length + ' 件 / 変化なし ' + copyrightDiff.unchangedKeys.length + ' 件');
+      + copyrightDiff.toUpdate.length + ' 件 / 変化なし ' + copyrightDiff.unchangedKeys.length
+      + ' 件 / 孤立行 ' + copyrightDiff.orphans.length + ' 行');
 
     // runAt lấy MỘT lần ở đây: ô 更新日, tab 変更詳細 và tab 警告 dùng chung một mốc
     // thời gian nên 3 nơi đối chiếu được với nhau cho cùng một lần chạy.
@@ -355,6 +356,7 @@ function runGas1() {
       massFreeLookup: loaded.values.massFree || new Map(),
       commitLookup: loaded.values.commit || new Map(),
       copyrightWarnings: copyrightWarnings,
+      copyrightOrphans: copyrightDiff.orphans,
       hasPreConfirmationColumn: existingCopyright.headerIndex.has(
         normalizeHeaderText('出版社事前確認')),
       publisherCopyrightRules: [],
