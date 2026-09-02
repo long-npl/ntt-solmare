@@ -796,3 +796,50 @@ function loadSourcesFrom(sources, startedAt) {
 function loadSources(startedAt) {
   return loadSourcesFrom(SOURCES, startedAt);
 }
+
+
+// ==============================================================================
+// PHẦN 2 — ĐỌC FILE TSV TRÊN DRIVE
+// ==============================================================================
+
+/**
+ * Tìm file TSV mới nhất trong folder mà không vượt quá ngày chạy.
+ * @param {{folderId: string, filePattern: string}} config - CONFIG.SOURCES.SUSPENSION
+ * @param {Date} today - Thời điểm chạy (truyền startedAt của runGas1 vào)
+ * @returns {{file: File, dateKey: string}|null} null nếu folder không có file nào khớp
+ */
+function findLatestSuspensionFile(config, today) {
+  var folder = DriveApp.getFolderById(config.folderId);
+  var pattern = new RegExp(config.filePattern);
+  var todayKey = Utilities.formatDate(today, CONFIG.TRIGGER_TIMEZONE, 'yyyyMMdd');
+
+  var files = folder.getFiles();
+  var best = null;
+  while (files.hasNext()) {
+    var file = files.next();
+    var matched = pattern.exec(file.getName());
+    if (!matched) continue;
+    if (matched[1] > todayKey) continue;
+    if (best === null || matched[1] > best.dateKey) best = { file: file, dateKey: matched[1] };
+  }
+  return best;
+}
+
+/**
+ * Đọc 1 file TSV thành mảng 2 chiều, cùng dạng với kết quả
+ * sheet.getDataRange().getValues() — nhờ vậy các hàm parse trong sources/ dùng
+ * được resolveHeaderIndex()/col() y như với dữ liệu đọc từ Sheets.
+ * @param {File} file - Từ findLatestSuspensionFile()
+ * @param {string} encoding - vd 'UTF-8' hoặc 'Shift_JIS' (CONFIG.SOURCES.SUSPENSION.encoding)
+ * @returns {Array<Array<string>>}
+ */
+function readTsvRows(file, encoding) {
+  var text = file.getBlob().getDataAsString(encoding);
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter(function (line) { return line !== ''; })
+    .map(function (line) { return line.split('\t'); });
+}
+

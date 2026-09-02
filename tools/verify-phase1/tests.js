@@ -914,9 +914,44 @@ function test_preConfirmation(ctx) {
 // ==============================================================================
 
 
+
+// ==============================================================================
+// ĐỐI CHIẾU DỮ LIỆU THẬT — cột 初回配信巻数 trên 1.976 tác phẩm vào master.
+// Số không khớp thì tìm hiểu nguyên nhân trước, đừng sửa expected cho hết đỏ.
+// ==============================================================================
+function test_firstVolumeDataset(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var index = src.buildRegulationIndex(src.parseRegulation(ctx.fixtures.load('regulation')));
+  var loaded = { values: { regulation: index }, errors: { regulation: null } };
+  var kept = src.parseCms(ctx.fixtures.load('cms'))
+    .map(function (cms) { return src.buildCustomerRecord(cms, loaded); })
+    .filter(function (w) { return src.isWorkEligible(w); });
+  check('vao master: 1.976 tac pham', kept.length, 1976);
+
+  var counts = { '1': 0, XX: 0, '顧客確認': 0 };
+  kept.forEach(function (w) {
+    var v = src.ruleFirstVolume(w);
+    if (v === '1') counts['1'] += 1;
+    else if (v === '顧客確認') counts['顧客確認'] += 1;
+    else counts.XX += 1;
+  });
+  // 17 ca 顧客確認 gồm: 8 o 巻数 TRONG, 4 o bi Sheets nuot thanh NGAY (nguoi go 1-5,
+  // 1-12, 1-6), 2 o so khac 1 ('5', '2'), va 3 o co duoi ('3巻目', '1~7(7話完結)',
+  // '4(シーモア限定BOOK)').
+  //
+  // Con so nay do tren FIXTURES (tools/verify/fixtures), khong phai tren example/*.xlsx.
+  // Hai ban chup khac ngay: xlsx cho 1.977 tac pham vao master va 1 o 巻数 trong,
+  // fixtures cho 1.976 va 8 o trong. Fixtures moi la thu suite nay chay tren.
+  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1784, 17]);
+  // Cột này KHÔNG BAO GIỜ rỗng: nhánh cuối vét cạn mọi thứ còn lại.
+  check('khong o nao rong', counts['1'] + counts.XX + counts['顧客確認'], kept.length);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation],
-  data: [],
+  data: [test_firstVolumeDataset],
 };
