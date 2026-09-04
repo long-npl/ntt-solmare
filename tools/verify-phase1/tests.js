@@ -79,11 +79,28 @@ function test_firstVolume(ctx) {
   // Mot minh dau '-' (khong phai khoang) van la 顧客確認 — quy tac cu KHONG bi pha.
   check('mot minh dau gach ngang (khong phai khoang) -> 顧客確認', fv('-'), '顧客確認');
 
-  check('so khac 1 -> 顧客確認',
-    [fv('2'), fv('3'), fv('44563')], ['顧客確認', '顧客確認', '顧客確認']);
-  check('co duoi -> 顧客確認 (dung mat chu rule)',
-    [fv('1~5(全話一挙配信)'), fv('1~3巻'), fv('1(初回配信話数確認中)'), fv('12話目')],
-    ['顧客確認', '顧客確認', '顧客確認', '顧客確認']);
+  // Dao nguoc quyet dinh cu (2026-09-04): so DON LE khac 1 gio tra CHINH NO, khong
+  // con roi vao 顧客確認 nua. '44563' la serial Excel bi loi (xem canh bao rieng, KHONG
+  // co co che loc: se chay thang vao cot nay giong nhu moi so hop le khac).
+  check('so don le (khac 1) -> chinh no',
+    [fv('2'), fv('3'), fv('44563')], ['2', '3', '44563']);
+
+  // Dao nguoc quyet dinh cu: khoang CO DUOI chu sau so thu 2 gio boc duoc so, thay vi
+  // 顧客確認 nhu truoc. Duoi khong con quyet dinh ket qua, chi so & dau ngan moi quyet dinh.
+  check('khoang + duoi chu -> boc so ra',
+    [fv('1~5(全話一挙配信)'), fv('1~3巻'), fv('1~7(7話完結)')], ['5', '3', '7']);
+
+  // Pattern MOI 'XX巻目[...]' -> lay XX, bat ke co gi sau '巻目'.
+  check('XX巻目[...] -> lay XX',
+    [fv('5巻目'), fv('5巻目まで'), fv('5巻目(予定)'), fv('2巻目として配信')],
+    ['5', '5', '5', '2']);
+  // '話目' (khac han '巻目') va '1巻完結' (khong phai pattern 'XX巻目') KHONG khop —
+  // van la ca mo ho that su, roi vao 顧客確認.
+  check('話目 va 1巻完結 KHONG khop pattern 巻目 -> van 顧客確認',
+    [fv('12話目'), fv('5話目'), fv('1巻完結')], ['顧客確認', '顧客確認', '顧客確認']);
+  // Chu xen ngay sau so ma KHONG qua dau ngan/巻目 da biet -> van mo ho that su.
+  check('chu xen sau so, khong qua dau ngan/巻目 -> van 顧客確認',
+    [fv('1(初回配信話数確認中)'), fv('4(シーモア限定BOOK)')], ['顧客確認', '顧客確認']);
   check('o trong -> 顧客確認',
     [fv(''), fv(null), fv(undefined)], ['顧客確認', '顧客確認', '顧客確認']);
   // 5 ô đã bị Sheets nuốt thành ngày vì người gõ 1-5 / 1-12 — dữ liệu gốc đã mất.
@@ -948,14 +965,19 @@ function test_firstVolumeDataset(ctx) {
     else if (v === '顧客確認') counts['顧客確認'] += 1;
     else counts.XX += 1;
   });
-  // 17 ca 顧客確認 gồm: 8 o 巻数 TRONG, 4 o bi Sheets nuot thanh NGAY (nguoi go 1-5,
-  // 1-12, 1-6), 2 o so khac 1 ('5', '2'), va 3 o co duoi ('3巻目', '1~7(7話完結)',
-  // '4(シーモア限定BOOK)').
+  // 13 ca 顧客確認 con lai (giam tu 17 sau khi them bare-number/巻目/range-co-duoi
+  // 2026-09-04): 8 o 巻数 TRONG, 4 o bi Sheets nuot thanh NGAY (nguoi go 1-5, 1-12,
+  // 1-6), 1 o '4(シーモア限定BOOK)' (khong khop bare/range/巻目 vi co dau '(' ngay
+  // sau so, khong phai dau ngan da biet).
+  //
+  // 4 ca DA CHUYEN tu 顧客確認 sang nhom XX: 2 o so don le khac 1 (bare-number gio
+  // tra chinh no), va 2 o range/巻目 co duoi ('...巻目', '1~7(7話完結)' kieu) gio
+  // boc duoc so.
   //
   // Con so nay do tren FIXTURES (tools/verify/fixtures), khong phai tren example/*.xlsx.
   // Hai ban chup khac ngay: xlsx cho 1.977 tac pham vao master va 1 o 巻数 trong,
   // fixtures cho 1.976 va 8 o trong. Fixtures moi la thu suite nay chay tren.
-  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1784, 17]);
+  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1788, 13]);
   // Cột này KHÔNG BAO GIỜ rỗng: nhánh cuối vét cạn mọi thứ còn lại.
   check('khong o nao rong', counts['1'] + counts.XX + counts['顧客確認'], kept.length);
 }

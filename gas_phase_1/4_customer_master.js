@@ -50,24 +50,41 @@ function ruleLpProduction(record, existing) {
 
 var FIRST_VOLUME_CONFIRM = '顧客確認';
 
+// Số ĐƠN LẺ (toàn bộ chuỗi chỉ là chữ số, không kèm gì khác) -> chính nó. Không riêng
+// gì "1" nữa (user chốt 2026-09-04, đảo ngược quyết định cũ "số khác 1 -> 顧客確認").
+// Xem docs/decisions.md #volume-03
+var FIRST_VOLUME_BARE = /^(\d+)$/;
+
 // Dấu ngăn thật trên sheet không chỉ có ~: còn gặp -／_／ー (chouonpu tiếng Nhật).
 // normalizeJapaneseText() đã tự gộp ~/～/〜 về '~' và -/_full-width về '-'/'_', nhưng
 // KHÔNG đụng tới ー — U+30FC không đổi qua NFKC, nên nó phải có mặt trực tiếp ở đây.
-// Xem docs/decisions.md #volume-01
-var FIRST_VOLUME_RANGE = /^(\d+)[~\-_ー](\d+)$/;
+//
+// KHÔNG neo $ ở cuối (user chốt 2026-09-04): cho phép có đuôi chữ sau số thứ hai —
+// '1~5(全話一挙配信)' và '1~3巻' giờ bóc ra '5'/'3' thay vì rơi vào 顧客確認. Đảo ngược
+// quyết định cũ "顧客確認 hết, đúng mặt chữ rule". Xem docs/decisions.md #volume-01 #volume-03
+var FIRST_VOLUME_RANGE = /^(\d+)[~\-_ー](\d+)/;
+
+// '5巻目', '5巻目まで', '5巻目(予定)'... -> lấy số đầu, đuôi sau '巻目' không quan trọng.
+// CHỈ khớp đúng '巻目' — '1巻完結' (nghĩa khác hẳn: "trọn bộ 1 tập") và '12話目' ('話目'
+// không phải '巻目') KHÔNG khớp, vẫn rơi vào 顧客確認. Xem docs/decisions.md #volume-03
+var FIRST_VOLUME_MAKI_ME = /^(\d+)巻目/;
 
 /**
- * 初回配信巻数 — 1 giữ nguyên, 〇〇~XX lấy XX, mọi thứ khác là 顧客確認.
+ * 初回配信巻数 — số đơn lẻ giữ nguyên, 〇〇[ngăn]XX (kể cả có đuôi) lấy XX, XX巻目[...]
+ * lấy XX, mọi thứ khác là 顧客確認.
  *
- * Nhánh cuối cố tình vét cạn: số khác 1, chữ, giá trị có đuôi (1~5(全話一挙配信)),
- * ô trống, và cả ô đã bị Google Sheets nuốt thành NGÀY vì người gõ 1-5.
- * Xem docs/decisions.md #volume-02
+ * Nhánh cuối giờ hẹp hơn bản đầu (2026-09-02): chỉ còn giữ 顧客確認 cho giá trị THẬT
+ * SỰ mơ hồ — chữ xen giữa số không qua dấu ngăn/巻目 đã biết (vd '1(初回配信話数確認中)',
+ * '4(シーモア限定BOOK)'), ô trống, và ô bị Sheets nuốt thành NGÀY. Xem docs/decisions.md #volume-02
  */
 function ruleFirstVolume(record) {
   var value = normalizeJapaneseText(record.volumes);
-  if (value === '1') return '1';
+  var bare = FIRST_VOLUME_BARE.exec(value);
+  if (bare !== null) return bare[1];
   var range = FIRST_VOLUME_RANGE.exec(value);
   if (range !== null) return range[2];
+  var makiMe = FIRST_VOLUME_MAKI_ME.exec(value);
+  if (makiMe !== null) return makiMe[1];
   return FIRST_VOLUME_CONFIRM;
 }
 
