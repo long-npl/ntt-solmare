@@ -50,10 +50,11 @@ function ruleLpProduction(record, existing) {
 
 var FIRST_VOLUME_CONFIRM = '顧客確認';
 
-// Chỉ cần ~ ASCII: normalizeJapaneseText() đã gộp ~ / ～ / 〜 và số full-width về dạng
-// này. Bắt đúng mặt chữ ∼ của rule thì 1.792 dòng rơi hết xuống 顧客確認.
+// Dấu ngăn thật trên sheet không chỉ có ~: còn gặp -／_／ー (chouonpu tiếng Nhật).
+// normalizeJapaneseText() đã tự gộp ~/～/〜 về '~' và -/_full-width về '-'/'_', nhưng
+// KHÔNG đụng tới ー — U+30FC không đổi qua NFKC, nên nó phải có mặt trực tiếp ở đây.
 // Xem docs/decisions.md #volume-01
-var FIRST_VOLUME_RANGE = /^(\d+)~(\d+)$/;
+var FIRST_VOLUME_RANGE = /^(\d+)[~\-_ー](\d+)$/;
 
 /**
  * 初回配信巻数 — 1 giữ nguyên, 〇〇~XX lấy XX, mọi thứ khác là 顧客確認.

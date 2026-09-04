@@ -66,9 +66,18 @@ function test_firstVolume(ctx) {
   check('1 -> 1', fv('1'), '1');
   check('khoang 1~4 -> 4', fv('1~4'), '4');
   check('khoang 2 chu so 10~12 -> 12', fv('10~12'), '12');
-  // normalizeJapaneseText gộp cả 3 biến thể dấu ngăn + số full-width về một dạng.
-  check('3 bien the dau ngan + so full-width deu ra XX',
+  // normalizeJapaneseText gộp cả 3 biến thể dấu ngăn ~ + số full-width về một dạng.
+  check('3 bien the dau ngan ~ + so full-width deu ra XX',
     [fv('1~5'), fv('1～5'), fv('1〜5'), fv('１～５')], ['5', '5', '5', '5']);
+
+  // Dau ngan tren sheet khong chi co ~: gap ca -／_／ー (chouonpu). NFKC gop san
+  // -/_full-width ve ban half-width, nhung KHONG dung toi ー nen no phai co trong regex.
+  check('dau ngan -/_/ー deu duoc coi nhu ~',
+    [fv('1-5'), fv('1－5'), fv('1_5'), fv('1＿5'), fv('1ー5')],
+    ['5', '5', '5', '5', '5']);
+  check('khoang 2 chu so voi dau - -> 12', fv('10-12'), '12');
+  // Mot minh dau '-' (khong phai khoang) van la 顧客確認 — quy tac cu KHONG bi pha.
+  check('mot minh dau gach ngang (khong phai khoang) -> 顧客確認', fv('-'), '顧客確認');
 
   check('so khac 1 -> 顧客確認',
     [fv('2'), fv('3'), fv('44563')], ['顧客確認', '顧客確認', '顧客確認']);
