@@ -38,6 +38,14 @@ function resolveRegulationTitleIdColumn(headerIndex) {
 
 var REGULATION_STATUS_OK = '判定済み';
 
+// 3 giá trị của cột レギュレーション判定状況. Đây là giá trị GAS SUY RA, không phải copy
+// nguyên văn ステータス: nguồn có 8 cách viết (判定済み 5.158 / trống 1.376 / 削除 145 /
+// Wチェック完了 16 / Wチェック待ち 11 / 担当者依頼中 9 / 再判定依頼 6 / 依頼中 1) và user chốt
+// gộp về đúng 3 giá trị của ガワ. Xem docs/decisions.md #regulation-status-01
+var REGULATION_STATE_JUDGED = 'レギュレーション判定済';
+var REGULATION_STATE_PENDING = '顧客確認中';
+var REGULATION_STATE_NONE = 'レギュレーション未判定';
+
 // Prefix của 2 cột có ghi chú kèm trong ô header:
 //   '①広告出稿ポリシー\n（出稿NG）'
 //   '②一般面出稿NG\n（アダルト作品扱い）'
@@ -60,9 +68,12 @@ var REGULATION_VERDICT_FIELDS = [
 ];
 
 /**
- * Đọc + lọc dữ liệu thô của sheet 作品レギュレーション判定.
+ * Đọc dữ liệu thô của sheet 作品レギュレーション判定. KHÔNG lọc theo ステータス nữa (xem
+ * docs/decisions.md #regulation-status-01) — mang cả dòng chưa 判定済み theo, việc lọc
+ * chuyển xuống lớp verdict của buildRegulationIndex().
  * @param {Array<Array<*>>} rawRows - Kết quả sheet.getDataRange().getValues() của sheet シート1
- * @returns {Array<{titleName: string, policy: string, general: string, logoJudgement: string}>}
+ * @returns {Array<{titleName: string, titleId: string, status: string, policy: string,
+ *   general: string, logoJudgement: string}>}
  */
 function parseRegulation(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, REGULATION_REQUIRED_HEADERS);
@@ -78,12 +89,17 @@ function parseRegulation(rawRows) {
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
     if (!row) continue;
-    if (normalizeJapaneseText(row[colStatus]) !== REGULATION_STATUS_OK) continue;
+    // Trước 2026-09-08 chỗ này lọc `ステータス !== 判定済み -> continue`. Bỏ đi vì cột
+    // レギュレーション判定状況 cần phân biệt "có dòng nhưng chưa 判定済み" với "không có dòng
+    // nào". Việc lọc 判定済み chuyển xuống buildRegulationIndex (lớp verdict).
+    var titleName = row[colTitleName];
+    var titleId = colTitleId === undefined ? '' : row[colTitleId];
+    // Dòng trống hoàn toàn ở đuôi sheet: không có tên lẫn ID thì không tra được bằng gì.
+    if (normalizeJapaneseText(titleName) === '' && normalizeJapaneseText(titleId) === '') continue;
     records.push({
-      titleName: row[colTitleName],
-      // '' (không phải undefined) khi sheet không có cột ID — buildRegulationIndex()
-      // bỏ qua giá trị không phải số nên 2 tầng dùng ID tự tắt, không cần cờ riêng.
-      titleId: colTitleId === undefined ? '' : row[colTitleId],
+      titleName: titleName,
+      titleId: titleId,
+      status: row[colStatus],
       policy: row[colPolicy],
       general: row[colGeneral],
       logoJudgement: row[colLogo],
@@ -108,14 +124,19 @@ function isRegulationNg(record) {
 }
 
 /**
- * Build 3 bảng tra của nguồn này — CASCADE 3 TẦNG (2026-09-01):
+ * Build bảng tra của nguồn này — CASCADE 3 TẦNG (2026-09-01), 2 lớp (2026-09-08, xem
+ * docs/decisions.md #regulation-status-01):
+ *   - VERDICT (byBoth/byName/byId): chỉ dòng 判定済み, mang ①②③ + isNg.
+ *   - PRESENCE (presenceByBoth/presenceByName/presenceById): mọi dòng, chỉ để biết
+ *     "có dòng hay không" — nguồn cho lookupRegulationStatus().
  * @param {Array<object>} records - Kết quả từ parseRegulation()
- * @returns {{byBoth: Map, byName: Map, byId: Map}} Giá trị trong map là NGUYÊN VĂN
+ * @returns {{byBoth: Map, byName: Map, byId: Map, presenceByBoth: Map,
+ *   presenceByName: Map, presenceById: Map}} Giá trị trong map VERDICT là NGUYÊN VĂN
  */
 function buildRegulationIndex(records) {
-  function build(keyOf) {
+  function build(source, keyOf) {
     var lookup = new Map();
-    records.forEach(function (record) {
+    source.forEach(function (record) {
       var key = keyOf(record);
       if (key === null) return;
       var incoming = {
@@ -129,10 +150,28 @@ function buildRegulationIndex(records) {
     });
     return lookup;
   }
+  // Lớp PRESENCE chỉ trả lời "có dòng nào cho tác phẩm này hay không", không mang phán định.
+  function buildPresence(source, keyOf) {
+    var lookup = new Map();
+    source.forEach(function (record) {
+      var key = keyOf(record);
+      if (key === null) return;
+      lookup.set(key, true);
+    });
+    return lookup;
+  }
+  // Lớp VERDICT: CHỈ dòng 判定済み. Đây là ranh giới không được nới — dòng đang chờ xử lý
+  // không bao giờ được cấp ①②③ hay làm tác phẩm bị coi là NG.
+  var judged = records.filter(function (record) {
+    return normalizeJapaneseText(record.status) === REGULATION_STATUS_OK;
+  });
   return {
-    byBoth: build(regulationKeyBoth),
-    byName: build(regulationKeyName),
-    byId: build(regulationKeyId),
+    byBoth: build(judged, regulationKeyBoth),
+    byName: build(judged, regulationKeyName),
+    byId: build(judged, regulationKeyId),
+    presenceByBoth: buildPresence(records, regulationKeyBoth),
+    presenceByName: buildPresence(records, regulationKeyName),
+    presenceById: buildPresence(records, regulationKeyId),
   };
 }
 
@@ -177,6 +216,34 @@ function lookupRegulation(work, index) {
     };
   }
   return null;
+}
+
+/**
+ * Trạng thái phán định của 1 tác phẩm — giá trị cột レギュレーション判定状況.
+ *
+ * Dùng ĐÚNG cascade 3 tầng của lookupRegulation() để hai cột không bao giờ kể hai câu
+ * chuyện khác nhau về cùng một tác phẩm.
+ *
+ * @param {{titleId: *, titleName: *}} work
+ * @param {object} index - buildRegulationIndex()
+ * @returns {string} REGULATION_STATE_JUDGED | REGULATION_STATE_PENDING | REGULATION_STATE_NONE
+ */
+function lookupRegulationStatus(work, index) {
+  if (lookupRegulation(work, index) !== null) return REGULATION_STATE_JUDGED;
+  // Dung regulationKeyBoth() chu KHONG tu noi ten + ID: khoa ghep dung ky tu NUL
+  // (xem docs/decisions.md #cascade-02) va noi tay o cho thu hai la cho thu hai de sai.
+  var both = regulationKeyBoth(work);
+  var name = regulationKeyName(work);
+  var id = regulationKeyId(work);
+  var tiers = [
+    both !== null ? index.presenceByBoth.get(both) : undefined,
+    name !== null ? index.presenceByName.get(name) : undefined,
+    id !== null ? index.presenceById.get(id) : undefined,
+  ];
+  for (var i = 0; i < tiers.length; i++) {
+    if (tiers[i] !== undefined) return REGULATION_STATE_PENDING;
+  }
+  return REGULATION_STATE_NONE;
 }
 
 // ==============================================================================

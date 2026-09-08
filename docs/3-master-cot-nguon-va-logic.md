@@ -184,7 +184,7 @@ tên header** — xem quy ước ở đầu tài liệu.
 | `タイトルID` | ② CMS › `タイトルID` | nguyên văn (có thể trống / là ghi chú kiểu `ー`, `4415行目と同一`) | 上書 | ✅ |
 | `素材共有日` | **không có nguồn** — GAS❶ đóng dấu | Ngày dòng được **append**. Dòng cũ để **trống** (không backfill ngày sai). Là **nguồn duy nhất** của `素材共有日` bên `タイトルマスタ` | **1回** | ✅ |
 | `タイトル区分` | ⑧ 出稿コミット管理表 › `タイトル区分` + `タイトル名` | **Logic §4.4** — `コミット` / `独占`, không bao giờ trống | 上書 | ✅ |
-| `レギュレーション判定状況` | ① レギュレーション › `ステータス` | **Logic §4.16** — `レギュレーション判定済` / `顧客確認中` / `レギュレーション未判定`. Kiểu `上書` để **luôn kể lần chạy hiện tại** → là manh mối duy nhất biết 3 cột phán định là mới hay đang 据え置き | 上書 | ❌ **chưa code** (cột mới của ガワ) |
+| `レギュレーション判定状況` | ① レギュレーション › `ステータス` | **Logic §4.16** — `レギュレーション判定済` / `顧客確認中` / `レギュレーション未判定`. Kiểu `上書` để **luôn kể lần chạy hiện tại** → là manh mối duy nhất biết 3 cột phán định là mới hay đang 据え置き | 上書 | ✅ |
 | `①広告出稿ポリシー` | ① レギュレーション › `①広告出稿ポリシー…` | nguyên văn của dòng `判定済み` khớp qua cascade 3 tầng (§1.1). Ô header có hậu tố ghi chú `（出稿NG）` → tra theo **tiền tố** | **条件** | ✅ |
 | `②一般面出稿NG` | ① レギュレーション › `②一般面出稿NG…` | như trên (header có hậu tố `（アダルト作品扱い）`) | **条件** | ✅ |
 | `③シーモアロゴ判定` | ① レギュレーション › `③シーモアロゴ判定` | nguyên văn | **条件** | ✅ |
@@ -641,7 +641,7 @@ Bên `タイトルマスタ`, cột cùng tên **chỉ là bản copy**: GAS❷ 
 Hàng 13 ghi `制御シート` (tức **nhập tay**), ghi chú cùng cột lại ghi `→GASで更新`. Hai chỗ mâu
 thuẫn. Hiện GAS❷ **không đụng** → giá trị nhập tay được giữ nguyên qua mọi lần chạy.
 
-### 4.16 `レギュレーション判定状況` — 3 trạng thái, CHƯA CODE ❌
+### 4.16 `レギュレーション判定状況` — 3 trạng thái ✅
 Cột mới của ガワ, nằm ở `顧客作品マスタ` (**không** có bên `タイトルマスタ` — cố ý, không transfer).
 Nó tồn tại để trả lời đúng một câu: *3 cột phán định bên cạnh là của lần chạy này, hay là giá
 trị cũ đang 据え置き?*
@@ -663,9 +663,8 @@ Hai ràng buộc **không được phá** khi code:
   `①②③`, không tham gia phán định NG, không đổi bộ lọc ở §1.1 — nới ra là cho tác phẩm NG
   lọt vào master.
 
-Kéo theo 1 thay đổi ở nguồn ①: `parseRegulation()` hiện **lọc bỏ** mọi dòng ≠ `判定済み` nên
-code còn không "thấy" được là có dòng đang chờ xử lý hay không. Phải bỏ filter đó và mang
-`ステータス` đi theo. Xem `docs/superpowers/specs/2026-09-08-gawa-alignment-design.md` §4.
+Cài 2026-09-08: parseRegulation() không còn lọc 判定済み, việc lọc chuyển xuống lớp verdict của
+buildRegulationIndex(). Xem `docs/superpowers/specs/2026-09-08-gawa-alignment-design.md` §4.
 
 ---
 

@@ -151,7 +151,7 @@ function test_customerColumns(ctx) {
   var src = ctx.src;
   var check = ctx.check;
 
-  check('dung 22 cot', src.CUSTOMER_COLUMNS.length, 22);
+  check('dung 23 cot', src.CUSTOMER_COLUMNS.length, 23);
   check('moi cot co du header + field + from + write',
     src.CUSTOMER_COLUMNS.filter(function (c) {
       return !c.header || !c.field || !c.from || !c.write; }).length, 0);
@@ -167,21 +167,21 @@ function test_customerColumns(ctx) {
     src.CUSTOMER_COLUMNS.filter(function (c) { return c.type === 'date'; })
       .map(function (c) { return c.field; }),
     ['preStart', 'preEnd', 'preEndExtended', 'preEndFinal', 'massFreeStart', 'massFreeEnd']);
-  check('requiredHeaders sinh dung 22 ten', src.requiredHeaders(src.CUSTOMER_COLUMNS).length, 22);
+  check('requiredHeaders sinh dung 23 ten', src.requiredHeaders(src.CUSTOMER_COLUMNS).length, 23);
   check('dung 1 cot rowKey', src.CUSTOMER_COLUMNS.filter(function (c) { return c.rowKey; }).length, 1);
   check('cot rowKey la タイトル名', src.rowKeyColumn(src.CUSTOMER_COLUMNS).header, 'タイトル名');
   check('khong header nao trung nhau',
-    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.header; })).size, 22);
+    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.header; })).size, 23);
   check('khong field nao trung nhau',
-    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.field; })).size, 22);
+    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.field; })).size, 23);
 }
 
 function test_buildCustomerRecord(ctx) {
   var src = ctx.src;
   var check = ctx.check;
   var index = src.buildRegulationIndex([
-    { titleName: 'A', titleId: '100', policy: '問題なし', general: '一般面OK', logoJudgement: 'ロゴあり' },
-    { titleName: 'B', titleId: '200', policy: '問題あり', general: '', logoJudgement: 'ロゴなし' },
+    { titleName: 'A', titleId: '100', status: '判定済み', policy: '問題なし', general: '一般面OK', logoJudgement: 'ロゴあり' },
+    { titleName: 'B', titleId: '200', status: '判定済み', policy: '問題あり', general: '', logoJudgement: 'ロゴなし' },
   ]);
   var loaded = { values: { regulation: index }, errors: { regulation: null } };
 
@@ -860,6 +860,59 @@ function test_regulationCascadeAndHold(ctx) {
     [['判定消失注意', 1]]);
 }
 
+// ==============================================================================
+function test_regulationStatus(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var HEADER = ['ステータス', 'タイトルID', 'タイトル名', '①広告出稿ポリシー（出稿NG）',
+    '②一般面出稿NG（アダルト作品扱い）', '③シーモアロゴ判定'];
+  var rows = [HEADER,
+    ['判定済み', '111', 'Da phan dinh', '問題なし', '一般面OK', 'ロゴあり'],
+    ['依頼中', '222', 'Dang cho', '問題あり', 'アダルト作品扱い', 'ロゴなし'],
+    ['削除', '333', 'Da xoa', '問題なし', '一般面OK', 'ロゴあり'],
+    ['', '444', 'Trong status', '問題なし', '一般面OK', 'ロゴあり'],
+    ['判定済み', '', '', '', '', ''],
+  ];
+
+  var records = src.parseRegulation(rows);
+  check('parseRegulation KHONG con loc 判定済み', records.length, 4);
+  check('parseRegulation mang theo status',
+    records.map(function (r) { return r.status; }), ['判定済み', '依頼中', '削除', '']);
+
+  var index = src.buildRegulationIndex(records);
+  function st(id, name) { return src.lookupRegulationStatus({ titleId: id, titleName: name }, index); }
+  check('co dong 判定済み -> 判定済', st('111', 'Da phan dinh'), 'レギュレーション判定済');
+  check('dong 依頼中 -> 顧客確認中', st('222', 'Dang cho'), '顧客確認中');
+  check('dong 削除 -> 顧客確認中', st('333', 'Da xoa'), '顧客確認中');
+  check('status trong -> 顧客確認中', st('444', 'Trong status'), '顧客確認中');
+  check('khong tra ra dong nao -> 未判定', st('999', 'Khong ton tai'), 'レギュレーション未判定');
+  check('chi khop ID (ten khac) van ra ket qua', st('222', 'Ten da doi'), '顧客確認中');
+
+  // BAT BIEN: dong khong phai 判定済み chi cap DUNG cot trang thai.
+  check('dong 依頼中 khong cap phan dinh',
+    src.lookupRegulation({ titleId: '222', titleName: 'Dang cho' }, index), null);
+  var pending = src.buildCustomerRecord({ titleId: '222', titleName: 'Dang cho' },
+    { values: { regulation: index } });
+  check('dong 依頼中 -> judged=false va isNg=false', [pending.judged, pending.isNg], [false, false]);
+  check('dong 依頼中 -> ①②③ rong (de engine giu nguyen o)',
+    [pending.policy, pending.general, pending.logoJudgement], ['', '', '']);
+  check('dong 依頼中 -> KHONG du dieu kien vao master', src.isWorkEligible(pending), false);
+  check('dong 依頼中 -> cot trang thai la 顧客確認中', pending.regulationStatus, '顧客確認中');
+
+  var judged = src.buildCustomerRecord({ titleId: '111', titleName: 'Da phan dinh' },
+    { values: { regulation: index } });
+  check('dong 判定済み -> cot trang thai la 判定済', judged.regulationStatus, 'レギュレーション判定済');
+
+  // Bang cot: phai la 上書, neu 条件 thi cot nay vo dung.
+  var column = src.CUSTOMER_COLUMNS.filter(function (c) {
+    return c.header === 'レギュレーション判定状況'; })[0];
+  check('レギュレーション判定状況 la 上書', column.write, '上書');
+  check('レギュレーション判定状況 nam ngay sau タイトル区分',
+    src.CUSTOMER_COLUMNS.map(function (c) { return c.header; }).slice(4, 7),
+    ['タイトル区分', 'レギュレーション判定状況', '①広告出稿ポリシー']);
+}
+
 
 // ==============================================================================
 function test_preConfirmation(ctx) {
@@ -1145,6 +1198,6 @@ module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation,
-    test_materialSharedAt],
+    test_materialSharedAt, test_regulationStatus],
   data: [test_firstVolumeDataset],
 };

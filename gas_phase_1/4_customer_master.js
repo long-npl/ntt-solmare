@@ -125,6 +125,10 @@ var CUSTOMER_COLUMNS = [
   // hôm nay không phải ngày tư liệu được chia sẻ. Xem docs/decisions.md #material-shared-02
   { header: '素材共有日', field: 'materialSharedAt', from: 'stamp', write: '1回' },
   { header: 'タイトル区分', field: 'titleCategory', from: 'lookup:commit', write: '上書', keep: true },
+  // Kiểu ghi PHẢI là 上書: cột này chỉ có giá trị khi nó luôn kể lần chạy hiện tại. 3 cột
+  // phán định bên cạnh là 条件 (据え置き) nên có thể đang là phán định của tuần trước; đây là
+  // manh mối duy nhất để phân biệt. Xem docs/decisions.md #regulation-status-01
+  { header: 'レギュレーション判定状況', field: 'regulationStatus', from: 'regulation', write: '上書' },
   { header: '①広告出稿ポリシー', field: 'policy', from: 'regulation', write: '条件' },
   { header: '②一般面出稿NG', field: 'general', from: 'regulation', write: '条件' },
   { header: '③シーモアロゴ判定', field: 'logoJudgement', from: 'regulation', write: '条件' },
@@ -174,6 +178,7 @@ function buildCustomerRecord(cms, loaded) {
     policy: judged ? regulation.policy : '',
     general: judged ? regulation.general : '',
     logoJudgement: judged ? regulation.logoJudgement : '',
+    regulationStatus: lookupRegulationStatus(cms, loaded.values.regulation),
     judged: judged,
     isNg: judged ? regulation.isNg : false,
     // Tầng nào của cascade đã khớp — chỉ để đọc log, không tham gia phán định nào.
