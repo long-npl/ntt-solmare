@@ -317,8 +317,15 @@ function runGas1() {
     var copyrightWarnings = resolveCopyrightFor(filtered.matches, loaded);
     applyRules(filtered.matches, CUSTOMER_COLUMNS, loaded);
 
+    // runAt lấy MỘT lần ở đây: ô 更新日, tab 変更詳細, tab 警告 và cột 素材共有日 dùng chung
+    // một mốc thời gian nên 4 nơi đối chiếu được với nhau cho cùng một lần chạy.
+    var runAt = new Date();
+
     var matches = resolveNumbersFromMatches(filtered.matches, existingCustomer.records, 'titleNo');
     var customerDiff = diffUpsertFromMatches(matches, CUSTOMER_COLUMNS);
+    // CHỈ dòng mới được đóng dấu. Dòng update không có field này -> '' -> write:'1回' không
+    // ghi, và sameWriteOnceValue('', '') = "không đổi" nên 8.000 dòng cũ không bị churn.
+    customerDiff.toAdd.forEach(function (record) { record.materialSharedAt = runAt; });
     Logger.log('顧客作品マスタ 集計: 追加 ' + customerDiff.toAdd.length + ' 件 / 更新 '
       + customerDiff.toUpdate.length + ' 件 / 変化なし ' + customerDiff.unchangedKeys.length
       + ' 件 / 孤立行 ' + filtered.orphanOffsets.length + ' 行');
@@ -337,9 +344,6 @@ function runGas1() {
     resolveMasterHeader(CONFIG.OUTPUTS.COPYRIGHT_MASTER.spreadsheetId,
       CONFIG.OUTPUTS.COPYRIGHT_MASTER.sheetName, requiredHeaders(COPYRIGHT_COLUMNS));
 
-    // runAt lấy MỘT lần ở đây: ô 更新日, tab 変更詳細 và tab 警告 dùng chung một mốc
-    // thời gian nên 3 nơi đối chiếu được với nhau cho cùng một lần chạy.
-    var runAt = new Date();
     var customerStamp = writeMaster(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS,
       customerDiff, runAt);
     var copyrightStamp = writeMaster(CONFIG.OUTPUTS.COPYRIGHT_MASTER, COPYRIGHT_COLUMNS,

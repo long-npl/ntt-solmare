@@ -182,7 +182,7 @@ tên header** — xem quy ước ở đầu tài liệu.
 | `タイトルNo` | **không có nguồn** | Dòng cũ: dùng lại số đang có. Dòng mới: `max(現在) + 1`, cấp theo đúng thứ tự CMS | 上書 | ✅ |
 | `CMS ID` | ② CMS › `CMSID` | nguyên văn | 上書 | ✅ |
 | `タイトルID` | ② CMS › `タイトルID` | nguyên văn (có thể trống / là ghi chú kiểu `ー`, `4415行目と同一`) | 上書 | ✅ |
-| `素材共有日` | **không có nguồn** — GAS❶ đóng dấu | Ngày dòng được **append**. Dòng cũ để **trống** (không backfill ngày sai). Là **nguồn duy nhất** của `素材共有日` bên `タイトルマスタ` | **1回** | ❌ **chưa code** (cột mới của ガワ) |
+| `素材共有日` | **không có nguồn** — GAS❶ đóng dấu | Ngày dòng được **append**. Dòng cũ để **trống** (không backfill ngày sai). Là **nguồn duy nhất** của `素材共有日` bên `タイトルマスタ` | **1回** | ✅ |
 | `タイトル区分` | ⑧ 出稿コミット管理表 › `タイトル区分` + `タイトル名` | **Logic §4.4** — `コミット` / `独占`, không bao giờ trống | 上書 | ✅ |
 | `レギュレーション判定状況` | ① レギュレーション › `ステータス` | **Logic §4.16** — `レギュレーション判定済` / `顧客確認中` / `レギュレーション未判定`. Kiểu `上書` để **luôn kể lần chạy hiện tại** → là manh mối duy nhất biết 3 cột phán định là mới hay đang 据え置き | 上書 | ❌ **chưa code** (cột mới của ガワ) |
 | `①広告出稿ポリシー` | ① レギュレーション › `①広告出稿ポリシー…` | nguyên văn của dòng `判定済み` khớp qua cascade 3 tầng (§1.1). Ô header có hậu tố ghi chú `（出稿NG）` → tra theo **tiền tố** | **条件** | ✅ |

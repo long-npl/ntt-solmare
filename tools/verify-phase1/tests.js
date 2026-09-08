@@ -151,7 +151,7 @@ function test_customerColumns(ctx) {
   var src = ctx.src;
   var check = ctx.check;
 
-  check('dung 21 cot', src.CUSTOMER_COLUMNS.length, 21);
+  check('dung 22 cot', src.CUSTOMER_COLUMNS.length, 22);
   check('moi cot co du header + field + from + write',
     src.CUSTOMER_COLUMNS.filter(function (c) {
       return !c.header || !c.field || !c.from || !c.write; }).length, 0);
@@ -167,13 +167,13 @@ function test_customerColumns(ctx) {
     src.CUSTOMER_COLUMNS.filter(function (c) { return c.type === 'date'; })
       .map(function (c) { return c.field; }),
     ['preStart', 'preEnd', 'preEndExtended', 'preEndFinal', 'massFreeStart', 'massFreeEnd']);
-  check('requiredHeaders sinh dung 21 ten', src.requiredHeaders(src.CUSTOMER_COLUMNS).length, 21);
+  check('requiredHeaders sinh dung 22 ten', src.requiredHeaders(src.CUSTOMER_COLUMNS).length, 22);
   check('dung 1 cot rowKey', src.CUSTOMER_COLUMNS.filter(function (c) { return c.rowKey; }).length, 1);
   check('cot rowKey la タイトル名', src.rowKeyColumn(src.CUSTOMER_COLUMNS).header, 'タイトル名');
   check('khong header nao trung nhau',
-    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.header; })).size, 21);
+    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.header; })).size, 22);
   check('khong field nao trung nhau',
-    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.field; })).size, 21);
+    new Set(src.CUSTOMER_COLUMNS.map(function (c) { return c.field; })).size, 22);
 }
 
 function test_buildCustomerRecord(ctx) {
@@ -1110,9 +1110,41 @@ function test_writeMaster(ctx) {
   check('cot dem dau tien khong bi ghi', written[0], '');
 }
 
+function test_materialSharedAt(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var headers = src.CUSTOMER_COLUMNS.map(function (c) { return c.header; });
+  check('素材共有日 nam ngay sau タイトルID', headers.slice(0, 5),
+    ['タイトルNo', 'CMS ID', 'タイトルID', '素材共有日', 'タイトル区分']);
+  var column = src.CUSTOMER_COLUMNS.filter(function (c) { return c.header === '素材共有日'; })[0];
+  check('素材共有日 la write-once', column.write, '1回');
+
+  var idx = src.buildHeaderIndex(['', '素材共有日', 'タイトル名']);
+  var cols = [
+    { header: '素材共有日', field: 'materialSharedAt', from: 'stamp', write: '1回' },
+    { header: 'タイトル名', field: 'titleName', from: 'cms', write: '上書', rowKey: true },
+  ];
+  var runAt = new Date(2026, 8, 8);
+
+  var added = src.toSheetRow({ materialSharedAt: runAt, titleName: 'A' }, idx, 3, cols, undefined);
+  check('dong MOI -> dong dau ngay chay', added[1], runAt);
+
+  var updatedBlank = src.toSheetRow({ titleName: 'A moi' }, idx, 3, cols, ['', '', 'A cu']);
+  check('dong CU o dang trong -> VAN de trong (khong backfill ngay hom nay)', updatedBlank[1], '');
+
+  var updatedFilled = src.toSheetRow({ titleName: 'A moi' }, idx, 3, cols,
+    ['', new Date(2026, 0, 5), 'A cu']);
+  check('dong CU da co ngay -> khong doi', updatedFilled[1], new Date(2026, 0, 5));
+
+  check('dong CU o trong + incoming rong -> KHONG bi coi la thay doi',
+    src.recordsEqual({ materialSharedAt: '', titleName: 'A' }, { titleName: 'A' }, cols), true);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
-    test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation],
+    test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation,
+    test_materialSharedAt],
   data: [test_firstVolumeDataset],
 };

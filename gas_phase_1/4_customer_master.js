@@ -119,6 +119,11 @@ var CUSTOMER_COLUMNS = [
   { header: 'タイトルNo', field: 'titleNo', from: 'self', write: '上書' },
   { header: 'CMS ID', field: 'cmsId', from: 'cms', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'cms', write: '上書' },
+  // Ngày dòng được đưa vào master. GAS❶ chỉ đóng dấu cho dòng MỚI: runGas1() gán
+  // materialSharedAt cho customerDiff.toAdd, dòng update không có field này nên nhận ''
+  // và write:'1回' không ghi gì — kể cả khi ô đang trống. Cố ý KHÔNG backfill dòng cũ:
+  // hôm nay không phải ngày tư liệu được chia sẻ. Xem docs/decisions.md #material-shared-02
+  { header: '素材共有日', field: 'materialSharedAt', from: 'stamp', write: '1回' },
   { header: 'タイトル区分', field: 'titleCategory', from: 'lookup:commit', write: '上書', keep: true },
   { header: '①広告出稿ポリシー', field: 'policy', from: 'regulation', write: '条件' },
   { header: '②一般面出稿NG', field: 'general', from: 'regulation', write: '条件' },
