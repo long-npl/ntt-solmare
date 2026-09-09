@@ -627,7 +627,15 @@ Bốn lý do **chưa code được** (xem §5):
 | 2 | `〇〇[dấu ngăn]XX`, **cho phép có đuôi chữ** | **`XX`** (số thứ hai) | `1~5` → `5`, `1~5(全話一挙配信)` → `5`, `1~3巻` → `3` |
 | 3 | `XX巻目` + bất kỳ đuôi gì | **`XX`** | `5巻目` → `5`, `5巻目まで` → `5`, `5巻目(予定)` → `5` |
 | 4 | `XX(ghi chú)` — ngoặc **ngay sau** số | **`XX`** | `4（シーモア限定BOOK）` → `4`, `1(初回配信話数確認中)` → `1` |
-| 5 | Còn lại | **`顧客確認`** | trống, `12話目`, `1巻完結`, `P29まで`, `2025/2/25まで1巻無料`, ô bị Sheets nuốt thành ngày |
+| 5 | Ô là **`Date`** (Sheets nuốt `1-N` thành ngày) | **thành phần `ngày`** + 1 dòng `巻数復元注意` | `2026/01/12` → `12`, `2026/01/05` → `5` |
+| 6 | Còn lại | **`顧客確認`** | trống, `12話目`, `1巻完結`, `P29まで`, `2025/2/25まで1巻無料` |
+
+**Nhánh 5 phải xét TRƯỚC mọi nhánh khác**, vì `normalizeJapaneseText(Date)` ra
+`'Mon Jan 12 2026...'` — không còn chữ số ở đầu nên mọi regex đều trượt. Và nó là **phép
+đoán, không phải đọc**: một ngày thật ai đó gõ vào cột này cũng cho ra số (`2026/07/31` →
+`31`). Cái giá đó được chấp nhận vì không sửa được sheet CMS, bù lại **mỗi ô suy ra đều sinh
+1 dòng `巻数復元注意`** nêu tên tác phẩm + số đã suy + cách sửa ở nguồn — giá trị đoán không
+bao giờ ghi im lặng. Xem `docs/decisions.md #volume-05`.
 
 **Thứ tự nhánh 2 trước nhánh 4 là một phần của quy tắc:** `1~5(全話一挙配信)` là khoảng *có*
 ghi chú, phải ra `5` (số cuối) chứ không phải `1`.

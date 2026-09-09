@@ -124,9 +124,24 @@ function test_firstVolume(ctx) {
   check('khoang co duoi ngoac -> van lay so THU HAI', fv('1~5(全話一挙配信)'), '5');
   check('o trong -> 顧客確認',
     [fv(''), fv(null), fv(undefined)], ['顧客確認', '顧客確認', '顧客確認']);
-  // 5 ô đã bị Sheets nuốt thành ngày vì người gõ 1-5 / 1-12 — dữ liệu gốc đã mất.
-  check('o bi Sheets nuot thanh ngay -> 顧客確認',
-    fv(new Date('2026-01-05T00:00:00+09:00')), '顧客確認');
+  // Ô bị Sheets nuốt thành NGÀY vì người gõ '1-5' / '1-12'. Text gốc mất, nhưng khôi
+  // phục được: Sheets parse '1-N' thành tháng 1 ngày N, nên NGÀY chính là số tập cuối.
+  // Chốt 2026-09-09 khi user cho biết KHÔNG sửa được sheet CMS. Xem #volume-05.
+  check('o bi Sheets nuot thanh ngay -> lay NGAY lam so tap',
+    [fv(new Date(2026, 0, 12)), fv(new Date(2026, 0, 5)), fv(new Date(2026, 0, 6)),
+      fv(new Date(2026, 0, 3))],
+    ['12', '5', '6', '3']);
+  // Khoi phuc phai chay TRUOC normalize: normalizeJapaneseText(Date) ra 'Mon Jan 12...'
+  // khong con chu so o dau, nen neu dat sai thu tu se roi vao 顧客確認 nhu cu.
+  check('ngay 2 chu so ca thang lan ngay -> van lay ngay', fv(new Date(2026, 11, 25)), '25');
+  check('gia tri KHONG phai Date thi khong bi nham', fv('2026/01/12'), '顧客確認');
+  // isRecoveredFromDate: co de 9_main.js sinh dong canh bao — gia tri suy ra tu ngay
+  // KHONG BAO GIO duoc ghi im lang.
+  check('nhan dien duoc o vua khoi phuc tu ngay',
+    [src.isRecoveredFromDate({ volumes: new Date(2026, 0, 5) }),
+      src.isRecoveredFromDate({ volumes: '1-5' }),
+      src.isRecoveredFromDate({ volumes: '' })],
+    [true, false, false]);
 }
 
 function test_lpProduction(ctx) {
@@ -1058,14 +1073,14 @@ function test_firstVolumeDataset(ctx) {
     else if (v === '顧客確認') counts['顧客確認'] += 1;
     else counts.XX += 1;
   });
-  // 12 ca 顧客確認 con lai: 8 o 巻数 TRONG, va 4 o bi Sheets NUOT THANH NGAY (nguoi go
-  // 1-5, 1-12, 1-6 -> getValues() tra Date, text goc da mat). Ca thu 2 la ca DUY NHAT
-  // con lai ma regex khong the chua — muon het thi phai dat format cot 巻数 ben CMS
-  // thanh Text, khong phai sua code o day.
+  // 8 ca 顧客確認 con lai la 8 o 巻数 TRONG — het. Moi hinh dang co chu so o dau gio
+  // deu boc duoc so.
   //
-  // Giam tu 13 xuong 12 (2026-09-09): o '4(シーモア限定BOOK)' gio ra '4' nho rule
-  // 'XX(ghi chu)'. Truoc do da giam tu 17 xuong 13 (2026-09-04) nho bare-number tra
-  // chinh no + range co duoi + 巻目.
+  // Duong di cua con so nay: 17 -> 13 (2026-09-04, bare-number tra chinh no + range co
+  // duoi + 巻目) -> 12 (2026-09-09, rule 'XX(ghi chu)' lay o '4(シーモア限定BOOK)')
+  // -> 8 (2026-09-09, khoi phuc 4 o bi Sheets nuot thanh NGAY bang thanh phan ngay,
+  // #volume-05 — user khong sua duoc sheet CMS nen chap nhan phep doan nay, bu lai moi
+  // o nhu vay sinh 1 dong 巻数復元注意).
   //
   // Ho dau gach Unicode (U+2010..U+2015, U+2212) them cung ngay KHONG doi con so nao
   // tren fixtures nay — 0 dong dung chung. No la luoi cho du lieu tuong lai.
@@ -1073,7 +1088,11 @@ function test_firstVolumeDataset(ctx) {
   // Con so nay do tren FIXTURES (tools/verify/fixtures), khong phai tren example/*.xlsx.
   // Hai ban chup khac ngay: xlsx cho 1.977 tac pham vao master va 1 o 巻数 trong,
   // fixtures cho 1.976 va 8 o trong. Fixtures moi la thu suite nay chay tren.
-  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1789, 12]);
+  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1793, 8]);
+  check('顧客確認 con lai TOAN LA o trong', kept.filter(function (w) {
+    return src.ruleFirstVolume(w) === '顧客確認'
+      && src.normalizeJapaneseText(w.volumes) !== '';
+  }).length, 0);
   // Cột này KHÔNG BAO GIỜ rỗng: nhánh cuối vét cạn mọi thứ còn lại.
   check('khong o nao rong', counts['1'] + counts.XX + counts['顧客確認'], kept.length);
 }
@@ -1391,10 +1410,29 @@ function test_identityRefresh(ctx) {
     [copyrightDiff.toUpdate.length, copyrightDiff.toUpdate[0].record.titleName], [1, 'Ten moi']);
 }
 
+function test_volumeRecoveredWarning(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+  var runAt = new Date(2026, 8, 9);
+
+  var rows = src.buildVolumeRecoveredWarningRows([
+    { titleNo: 7, titleId: '111', titleName: 'Bi nuot thanh ngay',
+      volumes: new Date(2026, 0, 12), firstVolume: '12' },
+    { titleNo: 8, titleId: '222', titleName: 'Van la text', volumes: '1-5', firstVolume: '5' },
+    { titleNo: 9, titleId: '333', titleName: 'O trong', volumes: '', firstVolume: '顧客確認' },
+  ], runAt);
+
+  check('chi o bi nuot thanh ngay moi sinh canh bao', rows.length, 1);
+  check('dung loai canh bao', rows[0].kind, '巻数復元注意');
+  check('canh bao chi dung tac pham nao', rows[0].titleName, 'Bi nuot thanh ngay');
+  check('canh bao noi ro so da suy ra', rows[0].detail.indexOf('12') >= 0, true);
+  check('canh bao chi cach sua o nguon', rows[0].detail.indexOf('テキスト') >= 0, true);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation,
-    test_materialSharedAt, test_regulationStatus, test_appendMissingRules, test_identityRefresh],
+    test_materialSharedAt, test_regulationStatus, test_appendMissingRules, test_volumeRecoveredWarning, test_identityRefresh],
   data: [test_firstVolumeDataset],
 };

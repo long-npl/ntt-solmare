@@ -471,32 +471,58 @@ function createGas1Trigger() {
  * Xem docs/decisions.md #volume-04
  */
 function probe_dumpUnresolvedVolumes() {
-  var cms = parseCms(readSheetValues(CONFIG.SOURCES.CMS.spreadsheetId,
-    CONFIG.SOURCES.CMS.sheetName));
-  var eatenByDate = [];
+  var loaded = loadSources(new Date());
+  var cms = loaded.values.cms;
+  var existing = readMaster(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS);
+  var works = cms.map(function (record) { return buildCustomerRecord(record, loaded); });
+  var filtered = filterAndMatchWorks(works, existing.records);
+
+  // Tra được "lần chạy này GAS có chạm vào dòng của tác phẩm đó không" — dùng chính
+  // identity của object work, y như filterAndMatchWorks() làm.
+  var matchByWork = new Map();
+  filtered.matches.forEach(function (match) { matchByWork.set(match.record, match); });
+
+  var recoveredFromDate = [];
   var stillText = [];
   var blankCount = 0;
-  cms.forEach(function (record) {
-    if (ruleFirstVolume(record) !== FIRST_VOLUME_CONFIRM) return;
-    if (record.volumes instanceof Date) {
-      eatenByDate.push(String(record.titleName) + '  ->  '
-        + Utilities.formatDate(record.volumes, CONFIG.TRIGGER_TIMEZONE, 'yyyy/MM/dd'));
+  works.forEach(function (work) {
+    var resolved = ruleFirstVolume(work);
+    var isRecovered = isRecoveredFromDate(work);
+    if (!isRecovered && resolved !== FIRST_VOLUME_CONFIRM) return;
+
+    // 3 thứ trả lời câu "sao chạy lại mà không cập nhật": ô CMS thật là gì, master
+    // đang giữ gì, và dòng đó có được lần chạy này chạm tới hay không.
+    var match = matchByWork.get(work);
+    var reach;
+    if (!match) reach = 'KHÔNG vào master (' + (work.isNg ? 'NG' : 'chưa 判定済み')
+      + ' và chưa có dòng nào)';
+    else if (!match.existing) reach = 'dòng MỚI (sẽ được thêm)';
+    else reach = 'khớp dòng cũ ở tầng ' + match.tier + ', master đang giữ '
+      + JSON.stringify(String(match.existing.firstVolume));
+
+    var line = String(work.titleName) + '\n        ' + reach;
+    if (isRecovered) {
+      recoveredFromDate.push('巻数 = NGÀY ' + Utilities.formatDate(work.volumes,
+        CONFIG.TRIGGER_TIMEZONE, 'yyyy/MM/dd') + ' -> suy ra ' + resolved + '  | ' + line);
       return;
     }
-    if (normalizeJapaneseText(record.volumes) === '') {
+    if (normalizeJapaneseText(work.volumes) === '') {
       blankCount += 1;
       return;
     }
-    stillText.push(String(record.titleName) + '  ->  ' + JSON.stringify(String(record.volumes)));
+    stillText.push('巻数 = ' + JSON.stringify(String(work.volumes)) + '  | ' + line);
   });
 
-  Logger.log('巻数 không bóc được số: ' + (eatenByDate.length + stillText.length + blankCount)
-    + ' ô  (bị nuốt thành ngày: ' + eatenByDate.length + ' / còn là text: ' + stillText.length
-    + ' / trống: ' + blankCount + ')');
-  Logger.log('--- ' + eatenByDate.length + ' ô BỊ SHEETS NUỐT THÀNH NGÀY ---');
-  Logger.log('    (regex không chữa được: đặt format cột 巻数 = テキスト rồi gõ lại các ô này)');
-  eatenByDate.forEach(function (line) { Logger.log('  ' + line); });
-  Logger.log('--- ' + stillText.length + ' ô CÒN LÀ TEXT ---');
+  Logger.log('巻数 cần để mắt: ' + (recoveredFromDate.length + stillText.length + blankCount)
+    + ' ô  (suy từ ngày: ' + recoveredFromDate.length + ' / text không bóc được: '
+    + stillText.length + ' / trống: ' + blankCount + ')');
+  Logger.log('孤立行 lần chạy này (dòng master không tác phẩm nào khớp, GAS KHÔNG chạm): '
+    + filtered.orphanOffsets.length);
+  Logger.log('--- ' + recoveredFromDate.length + ' ô BỊ SHEETS NUỐT THÀNH NGÀY, ĐÃ SUY RA SỐ ---');
+  Logger.log('    (số lấy từ thành phần NGÀY. Đây là PHÉP ĐOÁN: nếu ô nào là ngày THẬT thì'
+    + ' số đó sai — mỗi ô đều có 1 dòng 巻数復元注意 trong GAS1警告)');
+  recoveredFromDate.forEach(function (line) { Logger.log('  ' + line); });
+  Logger.log('--- ' + stillText.length + ' ô CÒN LÀ TEXT, KHÔNG bóc được số ---');
   Logger.log('    (ca nào đáng bóc ra số thì báo để thêm rule; số tập nằm trong câu khác thì để nguyên)');
   stillText.forEach(function (line) { Logger.log('  ' + line); });
 }

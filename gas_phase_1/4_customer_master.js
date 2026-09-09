@@ -99,7 +99,33 @@ var FIRST_VOLUME_PAREN_NOTE = /^(\d+)\s*\(/;
  * thành NGÀY — ca cuối này KHÔNG chữa được bằng regex vì text gốc đã mất.
  * Xem docs/decisions.md #volume-02 #volume-04
  */
+/**
+ * Ô 巻数 này có phải ô đã bị Sheets nuốt thành NGÀY hay không.
+ *
+ * Tách riêng vì 9_main.js cần nó để sinh cảnh báo: giá trị suy ra từ ngày là một PHÉP
+ * ĐOÁN, không bao giờ được ghi im lặng. Xem docs/decisions.md #volume-05
+ */
+function isRecoveredFromDate(record) {
+  // Object.prototype.toString chứ không `instanceof Date` — cùng lý do đã ghi ở
+  // toDateOrNull()/toDateKey(): harness Node chạy code trong vm context riêng nên Date
+  // của test không phải instanceof Date của sandbox.
+  return Object.prototype.toString.call(record.volumes) === '[object Date]';
+}
+
 function ruleFirstVolume(record) {
+  // Phải xét TRƯỚC normalize: normalizeJapaneseText(Date) ra 'Mon Jan 12 2026...' —
+  // không còn chữ số ở đầu nên mọi regex dưới đây đều trượt.
+  //
+  // Người ta gõ '1-12' vào ô không đặt format text, Sheets nuốt thành ngày 12 tháng 1 và
+  // XOÁ chuỗi gốc. Khôi phục bằng thành phần NGÀY, vì khoảng số tập luôn viết tăng dần
+  // ('tập 1 đến tập N') nên N — số tập cuối, đúng nghĩa 'お尻の巻数' — nằm ở vị trí thứ
+  // hai, tức ngày. Đo trên 5 ô thật: cả 5 đều tháng 1, ngày = 12/5/5/6/3.
+  //
+  // Đây là ĐOÁN, không phải đọc: một ngày THẬT ai đó gõ vào cột này cũng sẽ cho ra số.
+  // Chấp nhận vì user không sửa được sheet CMS (2026-09-09), và bù lại mỗi ô như vậy
+  // sinh 1 dòng 巻数復元注意. Xem docs/decisions.md #volume-05
+  if (isRecoveredFromDate(record)) return String(record.volumes.getDate());
+
   var value = normalizeJapaneseText(record.volumes);
   var bare = FIRST_VOLUME_BARE.exec(value);
   if (bare !== null) return bare[1];

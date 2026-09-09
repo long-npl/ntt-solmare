@@ -19,6 +19,7 @@ var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
 var WARNING_KIND_UPDATED_AT = '更新日注意';
 var WARNING_KIND_REGULATION_LOST = '判定消失注意';
 var WARNING_KIND_RULE_APPENDED = 'ルール自動追記';
+var WARNING_KIND_VOLUME_RECOVERED = '巻数復元注意';
 
 // Vượt ngưỡng này thì gộp thành 1 dòng tổng: 268 dòng cảnh báo riêng lẻ sẽ chôn
 // mất mọi cảnh báo khác của lần chạy đó.
@@ -513,6 +514,27 @@ function buildRuleAppendedWarningRows(appended, runAt) {
 }
 
 /**
+ * 巻数復元注意 — ô 巻数 bị Sheets nuốt thành NGÀY, số tập được SUY RA từ thành phần ngày.
+ *
+ * Bắt buộc phải có dòng này: giá trị đó là một phép đoán (xem docs/decisions.md
+ * #volume-05), và một ngày THẬT ai đó gõ vào cột 巻数 cũng sẽ cho ra số y như vậy. Ghi im
+ * lặng thì không ai biết để sửa nguồn.
+ */
+function buildVolumeRecoveredWarningRows(records, runAt) {
+  var rows = [];
+  records.forEach(function (record) {
+    if (!isRecoveredFromDate(record)) return;
+    rows.push(warningRow(runAt, WARNING_KIND_VOLUME_RECOVERED, record.titleNo,
+      record.titleId, record.titleName,
+      'CMS の 巻数 が日付になっています（Sheets が「1-N」を日付に変換）。'
+      + '初回配信巻数 は日付の「日」から復元した ' + String(record.firstVolume)
+      + ' です。本当の日付が入力されている場合はこの値が誤りなので、CMS 側で'
+      + ' 巻数 列の表示形式をテキストにして入力し直してください'));
+  });
+  return rows;
+}
+
+/**
  * Gom cả 14 loại cảnh báo thành 1 mảng.
  *
  * Nhận nguyên ctx thay vì 13 tham số rời: thêm một loại cảnh báo về sau chỉ phải
@@ -538,6 +560,7 @@ function buildAllWarnings(ctx) {
       ctx.publisherCopyrightRules || [], ctx.runAt))
     .concat(buildCopyrightOrphanWarningRows(ctx.copyrightOrphans, ctx.runAt))
     .concat(buildRuleAppendedWarningRows(ctx.ruleAppended, ctx.runAt))
+    .concat(buildVolumeRecoveredWarningRows(ctx.records, ctx.runAt))
     .concat(buildUpdatedAtWarningRows(ctx.stamps, ctx.runAt));
 }
 
