@@ -1,6 +1,6 @@
-// 7_warnings.js — 13 loại cảnh báo ghi vào tab GAS1警告.
+// 7_warnings.js — 14 loại cảnh báo ghi vào tab GAS1警告.
 //
-// Mỗi loại một hàm nhỏ. buildAllWarnings() ở cuối gom cả 13 lại để 9_main.js chỉ
+// Mỗi loại một hàm nhỏ. buildAllWarnings() ở cuối gom cả 14 lại để 9_main.js chỉ
 // gọi một dòng và ghi một lần — mỗi lần chạy là một khối dòng liền nhau trên sheet.
 
 // ==============================================================================
@@ -23,6 +23,11 @@ var WARNING_KIND_RULE_APPENDED = 'ルール自動追記';
 // Vượt ngưỡng này thì gộp thành 1 dòng tổng: 268 dòng cảnh báo riêng lẻ sẽ chôn
 // mất mọi cảnh báo khác của lần chạy đó.
 var COPYRIGHT_ORPHAN_SUMMARY_THRESHOLD = 20;
+
+// Cùng lý do, cùng ngưỡng: lần ĐẦU bổ sung rule vào sheet 手動入力 (④) có thể ghi
+// hàng trăm cặp (出版社, レーベル) một lúc — 1 dòng cảnh báo / cặp sẽ chôn vùi mọi
+// cảnh báo khác của lần chạy đó, đúng kiểu buildCopyrightOrphanWarningRows() ở trên.
+var RULE_APPENDED_SUMMARY_THRESHOLD = 20;
 
 /** Dựng 1 dòng cảnh báo theo đúng thứ tự cột của tab GAS1警告. */
 function warningRow(runAt, kind, titleNo, titleId, titleName, detail) {
@@ -467,6 +472,11 @@ function buildCopyrightOrphanWarningRows(orphans, runAt) {
 
 /**
  * ルール自動追記 — các cặp (出版社/レーベル) GAS vừa ghi bổ sung vào ④, hoặc lý do ghi lỗi.
+ *
+ * Vượt ngưỡng RULE_APPENDED_SUMMARY_THRESHOLD thì gộp thành 1 dòng tổng (nêu số lượng +
+ * ~10 cặp đầu) thay vì 1 dòng/cặp — lần ĐẦU bổ sung có thể ra hàng trăm dòng cùng lúc,
+ * và ngần ấy dòng cảnh báo sẽ chôn vùi mọi cảnh báo khác của lần chạy đó. Cùng tinh thần
+ * buildCopyrightOrphanWarningRows() ở trên.
  */
 function buildRuleAppendedWarningRows(appended, runAt) {
   var rows = [];
@@ -477,10 +487,25 @@ function buildRuleAppendedWarningRows(appended, runAt) {
       + appended.error));
     return rows;
   }
-  (appended.added || []).forEach(function (pair) {
+  var added = appended.added || [];
+  if (added.length === 0) return rows;
+
+  function pairLabel(pair) {
     var label = normalizeJapaneseText(pair.label) === '' ? '' : '／' + String(pair.label);
-    rows.push(warningRow(runAt, WARNING_KIND_RULE_APPENDED, '', '',
-      String(pair.publisher) + label,
+    return String(pair.publisher) + label;
+  }
+
+  if (added.length > RULE_APPENDED_SUMMARY_THRESHOLD) {
+    var examples = added.slice(0, 10).map(pairLabel);
+    rows.push(warningRow(runAt, WARNING_KIND_RULE_APPENDED, '', '', '',
+      'ルール未登録のため 出版社別コピーライトマスタ の最下部に ' + added.length + ' 行を追加しました。'
+      + 'テンプレート列を記入してください（記入までは 出版社コピーライト は空欄のままです）。例: '
+      + examples.join(', ')));
+    return rows;
+  }
+
+  added.forEach(function (pair) {
+    rows.push(warningRow(runAt, WARNING_KIND_RULE_APPENDED, '', '', pairLabel(pair),
       'ルール未登録のため 出版社別コピーライトマスタ の最下部に行を追加しました。'
       + 'テンプレート列を記入してください（記入までは 出版社コピーライト は空欄のままです）'));
   });

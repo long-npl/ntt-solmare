@@ -211,8 +211,18 @@ function test_materialSharedAtCopy(ctx) {
   var blankTarget = build({ titleNo: 1, materialSharedAt: fromCustomer }, blankRow());
   check('o dich trong + nguon co ngay -> copy', at(blankTarget, '素材共有日'), fromCustomer);
 
-  var blankBoth = build({ titleNo: 1, materialSharedAt: '' }, blankRow());
-  check('o dich trong + nguon trong -> fallback ngay chay', at(blankBoth, '素材共有日'), runAt);
+  // Dòng ĐÃ TỒN TẠI từ trước (previousRow != undefined) + nguồn cũng trống -> KHÔNG
+  // được bịa ngày hôm nay. Ô này chỉ trống vì chưa ai biết ngày chia sẻ, không phải
+  // "chưa từng được đóng dấu" — bịa ra là tạo dữ liệu sai trông như thật.
+  // Xem docs/decisions.md #material-shared-02
+  var blankBothExisting = build({ titleNo: 1, materialSharedAt: '' }, blankRow());
+  check('dong CU (da co truoc) + nguon trong -> VAN de trong, khong bia ngay',
+    at(blankBothExisting, '素材共有日'), '');
+  // Đối chiếu với addedNoSource ở trên (previousRow === undefined, cũng nguồn trống):
+  // đó là CA DUY NHẤT còn được fallback đóng dấu runAt — hai case này phải cho ra
+  // 2 kết quả KHÁC nhau, không phải trùng ngẫu nhiên.
+  check('doi lap voi dong THAT SU MOI (addedNoSource) o tren',
+    [at(addedNoSource, '素材共有日'), at(blankBothExisting, '素材共有日')], [runAt, '']);
 }
 
 function test_customerSourceOptionalMaterialShared(ctx) {

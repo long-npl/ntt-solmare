@@ -354,9 +354,9 @@ function runGas1() {
 
     var matches = resolveNumbersFromMatches(filtered.matches, existingCustomer.records, 'titleNo');
     var customerDiff = diffUpsertFromMatches(matches, CUSTOMER_COLUMNS);
-    // CHỈ dòng mới được đóng dấu. Dòng update không có field này -> '' -> write:'1回' không
-    // ghi, và sameWriteOnceValue('', '') = "không đổi" nên 8.000 dòng cũ không bị churn.
-    customerDiff.toAdd.forEach(function (record) { record.materialSharedAt = runAt; });
+    // CHỈ dòng mới được đóng dấu — xem stampMaterialSharedAt() trong 4_customer_master.js
+    // (tách riêng để có test bảo vệ, vì file này nằm ngoài mọi suite unit).
+    stampMaterialSharedAt(customerDiff, runAt);
     Logger.log('顧客作品マスタ 集計: 追加 ' + customerDiff.toAdd.length + ' 件 / 更新 '
       + customerDiff.toUpdate.length + ' 件 / 変化なし ' + customerDiff.unchangedKeys.length
       + ' 件 / 孤立行 ' + filtered.orphanOffsets.length + ' 行');
@@ -646,6 +646,31 @@ function probe_listCopyrightOrphans() {
   for (var i = 0; i < nos.length; i += 30) {
     Logger.log('  ' + nos.slice(i, i + 30).join(', '));
   }
+}
+
+/**
+ * Đọc nguồn rồi in ra các cặp (出版社, レーベル) SẼ được ghi bổ sung vào ④ ở lần chạy
+ * kế tiếp, cùng phán định collectMissingPublisherRules() dùng thật. KHÔNG ghi gì.
+ *
+ * Trigger 9h/17h tự chạy runGas1() và tự ghi số dòng này vào sheet 手動入力 của 池永
+ * — cần thấy SỐ LƯỢNG trước khi nó tự thêm, nhất là lần đầu có thể ra hàng trăm dòng.
+ */
+function probe_dryRunMissingRules() {
+  var loaded = loadSources(new Date());
+  var existingCustomer = readMaster(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS);
+  var works = loaded.values.cms.map(function (cms) { return buildCustomerRecord(cms, loaded); });
+  var filtered = filterAndMatchWorks(works, existingCustomer.records);
+
+  applyLookups(filtered.matches, loaded);
+  var copyrightWarnings = resolveCopyrightFor(filtered.matches, loaded);
+  var missing = collectMissingPublisherRules(copyrightWarnings, loaded.values.publisherCopyright);
+
+  Logger.log('出版社別コピーライトマスタ: lần chạy tiếp theo sẽ ghi bổ sung ' + missing.length
+    + ' dòng (出版社, レーベル) chưa có rule');
+  missing.forEach(function (pair) {
+    Logger.log('  ' + String(pair.publisher)
+      + (normalizeJapaneseText(pair.label) === '' ? '' : ' / ' + String(pair.label)));
+  });
 }
 
 /**

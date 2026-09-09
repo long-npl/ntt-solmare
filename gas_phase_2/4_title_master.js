@@ -1,8 +1,9 @@
 // 4_title_master.js — dinh nghia TRON VEN cua タイトルマスタ.
 //
 // Cung khuon voi gas_phase_1/4_customer_master.js: bang cot o dau, quy tac o duoi.
-// GAS❷ khong tinh gi tu nguon ngoai — no chep tu 2 master cua GAS❶ va dong dau
-// 素材共有日 cho dong moi.
+// GAS❷ khong tinh gi tu nguon ngoai — no chep tu 2 master cua GAS❶. 素材共有日 cung
+// la ban COPY tu 顧客作品マスタ (nguồn duy nhất) — GAS❷ chỉ tự đóng dấu ngày chạy khi
+// dòng THẬT SỰ MỚI mà nguồn cũng trống (xem docs/decisions.md #material-shared-02).
 //
 // Ngoai 25 cot duoi day, sheet con co タイトルキー va AB〜AK 掲出可能媒体 la cot NGUOI
 // nhap tay — engine khong dung toi vi chung khong co trong bang.
@@ -13,9 +14,10 @@ var TITLE_COLUMNS = [
   { header: 'CMS ID', field: 'cmsId', from: 'customer', write: '上書' },
   { header: 'タイトルID', field: 'titleId', from: 'customer', write: '上書' },
   // Cột này tên trên sheet là 素材共有日 (đổi 2026-08-31, trước đó là マスタ追加日).
-  // User chốt hai cái là MỘT: ngày dòng được đưa vào master = ngày tư liệu được chia
-  // sẻ. GAS❷ tự đóng dấu, GHI MỘT LẦN — dòng đã có ngày thì không bao giờ đụng tới.
-  // Xem docs/decisions.md #master-added-01
+  // 顧客作品マスタ là nguồn duy nhất (GAS❶ đóng dấu ở đó) — GAS❷ COPY lại giá trị này,
+  // và chỉ tự đóng dấu ngày chạy làm fallback khi dòng THẬT SỰ MỚI mà nguồn cũng
+  // trống. GHI MỘT LẦN — dòng đã có ngày thì không bao giờ đụng tới, dù nguồn nói gì.
+  // Xem docs/decisions.md #master-added-01 #material-shared-02
   { header: '素材共有日', field: 'materialSharedAt', from: 'stamp', write: '1回' },
   { header: 'タイトル区分', field: 'titleCategory', from: 'customer', write: '上書' },
   { header: '①広告出稿ポリシー', field: 'policy', from: 'customer', write: '上書' },
@@ -68,14 +70,22 @@ function titleRecordToRow(options) {
 
   TITLE_COLUMNS.forEach(function (column) {
     if (column.from === 'stamp') {
-      // 顧客作品マスタ là nguồn duy nhất; GAS❷ chỉ tự đóng dấu khi nguồn trống (dòng có
-      // trước khi cột được thêm) — giữ đúng hành vi cũ làm fallback. Và luôn write-once:
-      // ô đích đã có ngày thì không bao giờ đụng, nên không dòng nào mất ngày đang có.
+      // 顧客作品マスタ là nguồn duy nhất. 3 điều kiện PHẢI cùng đúng, không cái nào
+      // được nới:
+      //   1. Ô đích ĐÃ có ngày -> không bao giờ đụng (write-once), dù nguồn nói gì.
+      //   2. Nguồn có ngày -> copy, kể cả vào một dòng ĐÃ CÓ TỪ TRƯỚC mà ô đang trống.
+      //   3. Nguồn cũng trống -> CHỈ đóng dấu runAt khi đây là dòng THẬT SỰ MỚI
+      //      (previousRow === undefined). Dòng cũ + nguồn trống nghĩa là "chưa biết
+      //      ngày chia sẻ" — để trống, không bịa ra ngày hôm nay trông như thật.
       // Xem docs/decisions.md #material-shared-02
       var stampIndex = col(options.headerIndex, column.header);
       if (normalizeJapaneseText(row[stampIndex]) !== '') return;
       var fromCustomer = blankIfEmpty(options.record[column.field]);
-      row[stampIndex] = normalizeJapaneseText(fromCustomer) === '' ? options.runAt : fromCustomer;
+      if (normalizeJapaneseText(fromCustomer) !== '') {
+        row[stampIndex] = fromCustomer;
+        return;
+      }
+      if (options.previousRow === undefined) row[stampIndex] = options.runAt;
       return;
     }
     if (column.from === 'copyright') {

@@ -126,12 +126,19 @@ function isRegulationNg(record) {
 /**
  * Build bảng tra của nguồn này — CASCADE 3 TẦNG (2026-09-01), 2 lớp (2026-09-08, xem
  * docs/decisions.md #regulation-status-01):
- *   - VERDICT (byBoth/byName/byId): chỉ dòng 判定済み, mang ①②③ + isNg.
- *   - PRESENCE (presenceByBoth/presenceByName/presenceById): mọi dòng, chỉ để biết
+ *   - VERDICT (byBoth/byName/byId, ở CẤP TRÊN CÙNG): chỉ dòng 判定済み, mang ①②③ + isNg.
+ *   - PRESENCE (lồng trong `presence.byBoth/byName/byId`): mọi dòng, chỉ để biết
  *     "có dòng hay không" — nguồn cho lookupRegulationStatus().
+ *
+ * Lồng PRESENCE vào 1 object con thay vì 3 key phẳng cùng cấp với VERDICT (trước
+ * 2026-09-09): 6 tên `byXxx`/`presenceByXxx` giống nhau tới mức một lần đọc nhầm map
+ * PRESENCE ở chỗ cần VERDICT chỉ lặng lẽ trả `true` — `hit.isNg` thành `undefined`,
+ * `judged` thành `true`, và `isWorkEligible()` cho một tác phẩm CHƯA 判定済み lọt vào
+ * master mang theo ①②③ cũ. Gộp cấp lồng biến lỗi đó thành TypeError ngay ở tác phẩm
+ * đầu tiên thay vì nới bộ lọc trong im lặng. Xem docs/decisions.md #regulation-status-01
  * @param {Array<object>} records - Kết quả từ parseRegulation()
- * @returns {{byBoth: Map, byName: Map, byId: Map, presenceByBoth: Map,
- *   presenceByName: Map, presenceById: Map}} Giá trị trong map VERDICT là NGUYÊN VĂN
+ * @returns {{byBoth: Map, byName: Map, byId: Map,
+ *   presence: {byBoth: Map, byName: Map, byId: Map}}} Giá trị trong map VERDICT là NGUYÊN VĂN
  */
 function buildRegulationIndex(records) {
   function build(source, keyOf) {
@@ -169,9 +176,11 @@ function buildRegulationIndex(records) {
     byBoth: build(judged, regulationKeyBoth),
     byName: build(judged, regulationKeyName),
     byId: build(judged, regulationKeyId),
-    presenceByBoth: buildPresence(records, regulationKeyBoth),
-    presenceByName: buildPresence(records, regulationKeyName),
-    presenceById: buildPresence(records, regulationKeyId),
+    presence: {
+      byBoth: buildPresence(records, regulationKeyBoth),
+      byName: buildPresence(records, regulationKeyName),
+      byId: buildPresence(records, regulationKeyId),
+    },
   };
 }
 
@@ -230,15 +239,15 @@ function lookupRegulation(work, index) {
  */
 function lookupRegulationStatus(work, index) {
   if (lookupRegulation(work, index) !== null) return REGULATION_STATE_JUDGED;
-  // Dung regulationKeyBoth() chu KHONG tu noi ten + ID: khoa ghep dung ky tu NUL
-  // (xem docs/decisions.md #cascade-02) va noi tay o cho thu hai la cho thu hai de sai.
+  // Dùng regulationKeyBoth() chứ KHÔNG tự nối tên + ID: khoá ghép đúng ký tự NUL
+  // (xem docs/decisions.md #cascade-02) và nối tay ở chỗ thứ hai là chỗ thứ hai dễ sai.
   var both = regulationKeyBoth(work);
   var name = regulationKeyName(work);
   var id = regulationKeyId(work);
   var tiers = [
-    both !== null ? index.presenceByBoth.get(both) : undefined,
-    name !== null ? index.presenceByName.get(name) : undefined,
-    id !== null ? index.presenceById.get(id) : undefined,
+    both !== null ? index.presence.byBoth.get(both) : undefined,
+    name !== null ? index.presence.byName.get(name) : undefined,
+    id !== null ? index.presence.byId.get(id) : undefined,
   ];
   for (var i = 0; i < tiers.length; i++) {
     if (tiers[i] !== undefined) return REGULATION_STATE_PENDING;

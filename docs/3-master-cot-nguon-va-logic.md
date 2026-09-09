@@ -360,7 +360,8 @@ mỗi lần dòng bị update, không có lỗi nào để nhận ra. Đây là 
 ## 4. Tổng hợp — 16 chỗ CẦN LOGIC PHÁN ĐOÁN
 
 Đây là phần trả lời trực tiếp câu "cột nào cần logic để phán đoán". **13 chỗ đã cài, 3 chưa**
-(và 2 trong 13 chỗ đã cài còn phần mới chưa code — xem `⚠️` ở §4.9 và §4.12).
+(và 1 trong 13 chỗ đã cài còn phần mới chưa code — xem `⚠️` ở §4.9. §4.12 đã hết phần
+`⚠️`, cả `顧客作品マスタ` lẫn `タイトルマスタ` của `素材共有日` giờ đã cài xong).
 
 ### 4.1 Bộ lọc dòng của `顧客作品マスタ` — quyết định TỒN TẠI ✅
 Xem §1.1. Không phải một cột, nhưng là logic đắt nhất: sai ở đây thì tác phẩm アダルト
@@ -580,7 +581,7 @@ dòng quy tắc nào thì mới không biết → rỗng.
 
 Giá trị **nguyên văn** `必要`/`不要`/rỗng, không map lại.
 
-### 4.12 `素材共有日` — write-once ✅ (đang đổi thành 1 nguồn duy nhất ⚠️)
+### 4.12 `素材共有日` — write-once, 1 nguồn duy nhất ✅
 Giá trị = **ngày dòng đó được append** vào master. Đóng dấu **đúng một lần**.
 Tên cũ là `マスタ追加日`; sheet đổi tên 2026-08-31, user chốt hai cái là **một** ngày, code đã
 theo tên mới.
@@ -588,9 +589,15 @@ theo tên mới.
 Ghi đè mỗi lần chạy sẽ biến cả cột thành "hôm nay" ngay lần đầu, xoá mất thông tin dòng nào
 cũ dòng nào mới — đúng thứ duy nhất cột này dùng để trả lời.
 
-**Hệ quả:** dòng đã có trên sheet mà ô này đang trống sẽ **trống mãi**. Muốn lấp phải điền tay.
+**Hệ quả trên `顧客作品マスタ`:** dòng đã có trên sheet mà ô này đang trống sẽ **trống mãi**
+(GAS❶ chỉ đóng dấu `customerDiff.toAdd`, không backfill dòng update). Muốn lấp phải điền tay.
 
-> Cài 2026-09-08: `顧客作品マスタ` là nguồn duy nhất, `タイトルマスタ` copy + fallback đóng dấu khi nguồn trống.
+**`タイトルマスタ` (cài 2026-09-08, sửa 2026-09-09):** `顧客作品マスタ` là nguồn duy nhất,
+`タイトルマスタ` COPY lại. Nguồn có ngày thì copy, kể cả vào dòng đã tồn tại có ô đích trống.
+Nguồn cũng trống thì CHỈ đóng dấu `runAt` khi dòng THẬT SỰ MỚI (`previousRow === undefined`)
+— dòng đã tồn tại từ trước với cả 2 bên đều trống thì **cũng trống mãi** như phía
+`顧客作品マスタ`, không bịa ngày hôm nay. (Bản cài đầu 2026-09-08 đóng dấu `runAt` cho MỌI ô
+đích trống bất kể mới/cũ — bug, đã sửa; xem `docs/decisions.md` #material-shared-02.)
 
 ### 4.13 10 cột `掲出可能媒体` (`GDN(CM)` → `新規媒体`) — CHƯA CHỐT ❌
 Rule dự kiến: `媒体除外マスタ` (`ロゴ有無` × `ジャンル` → `除外媒体`), media nào **không** bị
@@ -698,9 +705,9 @@ mới nhất đã có tag cho cột đó.
 | `【池永社内】顧客作品マスタ` | ✅ **Đã xong** — sheet thật giờ đúng 23 cột theo ガワ, có `初回配信巻数`, và user xác nhận đã thống nhất format (2026-09-08) | — |
 | `【池永社内】コピーライトマスタ` | ✅ **Đã xong** — cột `出版社事前確認` đã tồn tại (xác nhận 2026-09-01), GAS❶/GAS❷ tự kích hoạt đúng như thiết kế | — |
 
-Việc "chỉ cần thêm cột" giờ đã hết; 2 việc còn lại là **code**, không phải sheet:
-`素材共有日` và `レギュレーション判定状況` của `顧客作品マスタ` đã có cột trên sheet nhưng
-**GAS chưa ghi** (§4.12, §4.16).
+Việc "chỉ cần thêm cột" giờ đã hết, và phần **code** đi kèm cũng đã xong: `素材共有日` và
+`レギュレーション判定状況` của `顧客作品マスタ` giờ **GAS đã ghi đúng** (§4.12, §4.16) —
+không còn phần nào của 2 cột này chờ code.
 
 ### 5c. Một khoảng trống trong code (không phải câu hỏi cho team)
 

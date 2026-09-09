@@ -132,8 +132,16 @@ cột để tra chéo).
 
 | # | Điều kiện | Ý nghĩa |
 |---|---|---|
-| 1 | Tác phẩm có **cả** `出版社` và `レーベル名` → khớp rule có **cùng cả 2** | chắc ăn nhất |
-| 2 | Tác phẩm **không có** `レーベル名` → khớp đúng dòng rule có `出版社` khớp **và** `雑誌名/レーベル = ""` | rule "áp dụng cho mọi レーベル" của NXB đó |
+| 1 | Khớp rule có **cùng cả** `出版社` và `レーベル名` của tác phẩm | chắc ăn nhất |
+| 2 | **Case 1 trượt** (cặp chính xác không có dòng rule nào — dù tác phẩm CÓ hay KHÔNG có `レーベル名`) → khớp đúng dòng rule có `出版社` khớp **và** `雑誌名/レーベル = ""` | rule "áp dụng cho mọi レーベル" của NXB đó |
+
+Diễn đạt cũ của case 2 ("tác phẩm không có `レーベル名`") mô tả SAI điều kiện thật: code
+không hề xét tác phẩm có `レーベル名` hay không, nó chỉ xét cặp chính xác có tra ra được rule
+hay không (`resolvePublisherCopyright()`, `rule === undefined` thì mới thử lại với label
+rỗng). Bằng chứng: test `'レーベル la khong biet -> lui ve dong 出版社'`
+(`tools/verify-phase1/tests.js`) cho một tác phẩm CÓ `レーベル名` (nhưng không khớp rule nào)
+vẫn lùi về case 2. "Sửa" code cho khớp diễn đạt cũ sẽ làm mọi tác phẩm có label lạ bắt đầu ra
+`ルール無し` thay vì lùi về rule chung của NXB — đừng làm vậy, code đang đúng.
 
 **Đây chính xác là hành vi code hiện tại** ([5_copyright_master.js:194-195](../../../gas_phase_1/5_copyright_master.js#L194-L195)),
 nên **không sửa một dòng nào** trong `resolvePublisherCopyright()` /
@@ -190,14 +198,26 @@ dưới cùng*, không bao giờ sửa/ghi đè dòng người nhập, và khôn
 ## 6. `タイトルマスタ` › `素材共有日` — đổi thành bản copy
 
 Nguồn sự thật chuyển sang `素材共有日` của `顧客作品マスタ`. Nhánh `stamp` trong `titleRecordToRow()` đổi
-thành: lấy `record.materialSharedAt`; nếu trống thì dùng `runAt`; và **chỉ ghi khi ô đích
-đang trống**.
+thành: lấy `record.materialSharedAt`; nếu trống thì dùng `runAt` **chỉ khi dòng THẬT SỰ MỚI**
+(`previousRow === undefined`); và **chỉ ghi khi ô đích đang trống**. Ba điều kiện phải cùng
+đúng — không cái nào được nới, kể cả để tiện.
 
-| Ô đích (`タイトルマスタ`) | Nguồn (`顧客作品マスタ`) | Kết quả |
-|---|---|---|
-| đã có ngày | bất kỳ | **không đụng** (giữ toàn bộ ngày cũ) |
-| trống / dòng mới | có ngày | copy ngày từ 顧客作品マスタ |
-| trống / dòng mới | trống (dòng cũ có trước khi thêm cột) | đóng dấu `runAt` — giữ đúng hành vi hôm nay |
+**Không được bịa ngày.** Ô trống trên `タイトルマスタ` chỉ có 2 cách được lấp: copy một ngày
+THẬT từ `顧客作品マスタ`, hoặc đóng dấu `runAt` cho một dòng THẬT SỰ MỚI (chưa từng tồn tại
+trên `タイトルマスタ` trước lần chạy này). Một dòng ĐÃ CÓ TỪ TRƯỚC mà cả ô đích lẫn nguồn đều
+trống thì **giữ trống** — không suy ra "vậy thì hôm nay" chỉ vì tình cờ đang chạy hôm nay.
+
+| Ô đích (`タイトルマスタ`) | Dòng | Nguồn (`顧客作品マスタ`) | Kết quả |
+|---|---|---|---|
+| đã có ngày | bất kỳ | bất kỳ | **không đụng** (giữ toàn bộ ngày cũ) |
+| trống | bất kỳ | có ngày | copy ngày từ 顧客作品マスタ, kể cả vào dòng đã tồn tại từ trước |
+| trống | dòng THẬT SỰ MỚI (`previousRow === undefined`) | trống | đóng dấu `runAt` — fallback DUY NHẤT còn lại |
+| trống | dòng ĐÃ CÓ TỪ TRƯỚC | trống | **giữ trống** — không bịa ngày hôm nay |
+
+(Bản trước của bảng này ghi dòng cuối là "đóng dấu `runAt` — giữ đúng hành vi hôm nay";
+sai — hành vi trước khi sửa (2026-09-09) đóng dấu `runAt` cho MỌI ô đích trống bất kể dòng
+mới hay cũ, tức backfill toàn bộ dòng cũ ô trống bằng ngày hôm nay ngay lần chạy production
+đầu tiên. Đây đúng là điều `material-shared-02` cấm — xem anchor đó.)
 
 Đọc `素材共有日` từ 顧客作品マスタ bằng **`tryCol`**, và **không** thêm vào
 `CUSTOMER_SOURCE_HEADERS`. Lý do: danh sách đó là *bắt buộc* — thiếu 1 tên là

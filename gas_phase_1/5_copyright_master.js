@@ -308,9 +308,10 @@ function collectMissingPublisherRules(entries, rulesLookup) {
 /**
  * Dòng để append vào ④: ĐÚNG 2 ô 出版社 / 雑誌名/レーベル, mọi ô khác để trống.
  *
- * Để trống 自動化フラグ là có chủ ý: lần chạy sau rule TỒN TẠI nhưng rơi vào nhánh
- * `個別ルール` nên vẫn để cột bản quyền trống + cảnh báo. Placeholder không bao giờ tự sinh
- * ra một bản quyền sai.
+ * Để trống 自動化フラグ là có chủ ý: lần chạy sau rule TỒN TẠI nhưng flag VÀ template
+ * đều trống nên rơi vào nhánh `ルール未記入` (tách khỏi `個別ルール` vốn là viết tay CÓ CHỦ
+ * Ý) — vẫn để cột bản quyền trống + cảnh báo riêng nói rõ GAS đã thêm dòng này. Placeholder
+ * không bao giờ tự sinh ra một bản quyền sai. Xem docs/decisions.md #copyright-autoappend-01
  */
 function buildPublisherRuleRow(pair, headerIndex, columnCount) {
   var row = [];

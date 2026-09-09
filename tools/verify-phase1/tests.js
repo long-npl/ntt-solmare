@@ -881,6 +881,25 @@ function test_regulationStatus(ctx) {
     records.map(function (r) { return r.status; }), ['判定済み', '依頼中', '削除', '']);
 
   var index = src.buildRegulationIndex(records);
+
+  // BẤT BIẾN HÌNH DẠNG: lớp PRESENCE phải lồng trong 1 object con `presence`, KHÔNG
+  // được là 3 key phẳng (presenceByBoth/presenceByName/presenceById) đứng cạnh VERDICT.
+  // 6 tên gần giống nhau là rủi ro: đọc nhầm map PRESENCE ở chỗ cần VERDICT chỉ lặng
+  // lẽ trả về `true`, `hit.isNg` thành undefined, và isWorkEligible() cho tác phẩm
+  // CHƯA 判定済み lọt vào master. Xem docs/decisions.md #regulation-status-01
+  check('index KHONG con 3 key phang presenceBy*',
+    ['presenceByBoth' in index, 'presenceByName' in index, 'presenceById' in index],
+    [false, false, false]);
+  // Không dùng instanceof Map: sandbox vm có Map constructor RIÊNG, instanceof
+  // luôn false dù giá trị đúng là Map thật (khác REALM). Kiểm duck-type qua .get/.set.
+  function looksLikeMap(value) {
+    return !!value && typeof value.get === 'function' && typeof value.set === 'function';
+  }
+  check('lop presence long dung trong 1 object con, giu 3 Map ben trong',
+    [typeof index.presence, looksLikeMap(index.presence.byBoth),
+      looksLikeMap(index.presence.byName), looksLikeMap(index.presence.byId)],
+    ['object', true, true, true]);
+
   function st(id, name) { return src.lookupRegulationStatus({ titleId: id, titleName: name }, index); }
   check('co dong 判定済み -> 判定済', st('111', 'Da phan dinh'), 'レギュレーション判定済');
   check('dong 依頼中 -> 顧客確認中', st('222', 'Dang cho'), '顧客確認中');
@@ -1192,6 +1211,18 @@ function test_materialSharedAt(ctx) {
 
   check('dong CU o trong + incoming rong -> KHONG bi coi la thay doi',
     src.recordsEqual({ materialSharedAt: '', titleName: 'A' }, { titleName: 'A' }, cols), true);
+
+  // stampMaterialSharedAt() là NƠI DUY NHẤT quyết định "chỉ toAdd được đóng dấu" —
+  // tách riêng khỏi runGas1() (9_main.js nằm ngoài mọi suite test) để dòng quyết định
+  // này có test bảo vệ. Xem docs/decisions.md #material-shared-02
+  var diff = {
+    toAdd: [{ titleName: 'Dong moi' }],
+    toUpdate: [{ titleName: 'Dong cu' }],
+  };
+  src.stampMaterialSharedAt(diff, runAt);
+  check('toAdd nhan dung ngay chay', diff.toAdd[0].materialSharedAt, runAt);
+  check('toUpdate KHONG co field materialSharedAt (thieu han, khong phai chuoi rong)',
+    'materialSharedAt' in diff.toUpdate[0], false);
 }
 
 // ==============================================================================
@@ -1274,6 +1305,17 @@ function test_appendMissingRules(ctx) {
     [failed.length, failed[0].detail.indexOf('mat quyen ghi') >= 0], [1, true]);
   check('khong co gi de them -> khong co canh bao',
     src.buildRuleAppendedWarningRows({ added: [], error: null }, runAt).length, 0);
+
+  // Vượt ngưỡng RULE_APPENDED_SUMMARY_THRESHOLD -> gộp thành 1 dòng tổng, đúng tinh
+  // thần buildCopyrightOrphanWarningRows(): lần ĐẦU bổ sung có thể ra hàng trăm cặp
+  // cùng lúc, 1 dòng/cặp sẽ chôn vùi mọi cảnh báo khác của lần chạy đó.
+  var manyPairs = [];
+  for (var i = 0; i < 21; i++) manyPairs.push({ publisher: 'NXB' + i, label: '' });
+  var summaryRows = src.buildRuleAppendedWarningRows({ added: manyPairs, error: null }, runAt);
+  check('vuot nguong -> gop thanh 1 dong tong', summaryRows.length, 1);
+  check('dong tong noi ro so luong va vi du',
+    [summaryRows[0].detail.indexOf('21') >= 0, summaryRows[0].detail.indexOf('NXB0') >= 0],
+    [true, true]);
 }
 
 function test_identityRefresh(ctx) {

@@ -186,6 +186,25 @@ function buildCustomerRecord(cms, loaded) {
   };
 }
 
+/**
+ * Đóng dấu 素材共有日 — CHỈ cho dòng THẬT SỰ MỚI (diff.toAdd).
+ *
+ * Cố ý KHÔNG đụng tới diff.toUpdate: record của nó phải THIẾU HẲN field
+ * materialSharedAt (không phải gán '') để write:'1回' coi ô đích là "không đổi" và bỏ
+ * qua — có gán '' vẫn đúng hành vi ghi, nhưng để field vắng mặt hẳn là cách duy nhất
+ * một test đọc được sự khác biệt "record này có thuộc diện được đóng dấu hay không".
+ * Tách hàm ra khỏi runGas1() vì 9_main.js nằm ngoài mọi suite test — dòng quyết định
+ * "chỉ toAdd mới được đóng dấu" phải nằm ở chỗ có test bảo vệ, không phải chỗ chỉ có
+ * tools/verify-refs/run.js (chỉ kiểm hàm có tồn tại, không kiểm hành vi) đi qua.
+ * Xem docs/decisions.md #material-shared-02
+ * @param {{toAdd: Array<object>, toUpdate: Array<object>}} diff - diffUpsertFromMatches(...)
+ * @param {Date} runAt
+ * @returns {void}
+ */
+function stampMaterialSharedAt(diff, runAt) {
+  diff.toAdd.forEach(function (record) { record.materialSharedAt = runAt; });
+}
+
 /** Điền các cột lấy thẳng từ lookup (không phải derive, không phải cms/regulation). */
 function applyLookups(matches, loaded) {
   matches.forEach(function (match) {

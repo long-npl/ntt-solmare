@@ -37,7 +37,7 @@ var CUSTOMER_SOURCE_HEADERS = [
 /**
  * Đọc toàn bộ dòng dữ liệu của 顧客作品マスタ thành record.
  * @param {Array<Array<*>>} rawRows - Toàn bộ giá trị ô (kết quả getDataRange().getValues())
- * @returns {Array<object>} Mỗi phần tử là 1 tác phẩm, 20 field theo bảng map của spec §3
+ * @returns {Array<object>} Mỗi phần tử là 1 tác phẩm, 22 field theo bảng map của spec §3
  */
 function parseCustomerMasterRows(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, CUSTOMER_SOURCE_HEADERS);

@@ -1,6 +1,7 @@
 // 0_config.js — mọi spreadsheet ID và hằng số vận hành của GAS❶. Không có logic.
 //
-// SOURCES: 8 nguồn đọc vào. OUTPUTS: 2 master ghi ra.
+// SOURCES: 8 nguồn đọc vào. OUTPUTS: 3 entry ghi ra (2 master + quyền ghi bổ sung vào
+// sheet ④ 出版社別コピーライトマスタ — xem PUBLISHER_COPYRIGHT bên dưới).
 // Nguồn nào BẮT BUỘC / nguồn nào PHỤ được khai báo ở 3_sources.js, không phải ở đây —
 // file này chỉ trả lời "đọc ở đâu", không trả lời "hỏng thì sao".
 
