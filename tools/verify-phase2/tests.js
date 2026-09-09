@@ -237,9 +237,45 @@ function test_customerSourceOptionalMaterialShared(ctx) {
     src.parseCustomerMasterRows(withoutColumn)[0].materialSharedAt, '');
 }
 
+function test_identityRefreshTitleMaster(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  ['タイトルID', 'タイトル名'].forEach(function (header) {
+    var column = src.TITLE_COLUMNS.filter(function (c) { return c.header === header; })[0];
+    check('タイトルマスタ.' + header + ' phai la 上書', column.write, '上書');
+  });
+
+  var headerIndex = new Map();
+  src.TITLE_COLUMNS.forEach(function (c, i) {
+    headerIndex.set(src.normalizeHeaderText(c.header), i + 1);
+  });
+  var width = src.TITLE_COLUMNS.length + 2;
+  function at(row, header) { return row[headerIndex.get(src.normalizeHeaderText(header))]; }
+
+  var prev = new Array(width).fill('');
+  prev[headerIndex.get(src.normalizeHeaderText('タイトルNo'))] = 7;
+  prev[headerIndex.get(src.normalizeHeaderText('タイトル名'))] = 'Ten cu';
+  prev[headerIndex.get(src.normalizeHeaderText('タイトルID'))] = '111';
+
+  var row = src.titleRecordToRow({
+    record: { titleNo: 7, titleName: 'Ten moi', titleId: '222' },
+    copyright: null, copyrightAvailable: false, preConfirmationAvailable: false,
+    headerIndex: headerIndex, columnCount: width, runAt: new Date(2026, 8, 8), previousRow: prev,
+  });
+  check('ten/ID doi ben 顧客作品マスタ -> タイトルマスタ ghi gia tri moi',
+    [at(row, 'タイトル名'), at(row, 'タイトルID')], ['Ten moi', '222']);
+
+  var changed = src.collectChangedColumns(prev, row, headerIndex, new Date(2026, 8, 8),
+    { titleNo: 7, titleName: 'Ten moi' });
+  check('2 cot dinh danh duoc ghi vao GAS2変更詳細',
+    changed.filter(function (c) {
+      return c.field === 'タイトル名' || c.field === 'タイトルID'; }).length, 2);
+}
+
 module.exports = {
   unit: [test_titleColumns, test_titleWriteModes, test_customerSourceHeaders,
     test_readsFirstVolume, test_titleRecordToRow,
-    test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared],
+    test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared, test_identityRefreshTitleMaster],
   data: [],
 };

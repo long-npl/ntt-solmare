@@ -1276,10 +1276,59 @@ function test_appendMissingRules(ctx) {
     src.buildRuleAppendedWarningRows({ added: [], error: null }, runAt).length, 0);
 }
 
+function test_identityRefresh(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  // Dieu kien can: 2 cot dinh danh phai la 上書 -> chung tham gia recordsEqual.
+  ['タイトルID', 'タイトル名'].forEach(function (header) {
+    var column = src.CUSTOMER_COLUMNS.filter(function (c) { return c.header === header; })[0];
+    check(header + ' phai la 上書 (neu 条件 thi danh tinh dong bang)', column.write, '上書');
+    check(header + ' khong duoc skipCompare', column.skipCompare === true, false);
+  });
+
+  // Ca 1: doi TEN, ID so giu nguyen -> khop tang 2, giu タイトルNo, ghi ten moi.
+  var existing = [{ titleNo: 7, titleId: '111', titleName: 'Ten cu', sheetRow: 16 }];
+  var index = src.buildMasterMatchIndex(existing);
+  var incoming = { titleId: '111', titleName: 'Ten moi' };
+  var match = src.claimMatch(index, incoming);
+  check('doi ten + ID so giu nguyen -> khop tang 2', match.tier, 2);
+
+  var matches = src.resolveNumbersFromMatches(
+    [{ record: incoming, existing: match.existing, rowOffset: match.rowOffset }], existing, 'titleNo');
+  check('dung lai タイトルNo cu', matches[0].record.titleNo, 7);
+  var diff = src.diffUpsertFromMatches(matches, src.CUSTOMER_COLUMNS);
+  check('ten doi -> dong vao toUpdate, KHONG phai toAdd',
+    [diff.toUpdate.length, diff.toAdd.length], [1, 0]);
+  check('gia tri ghi ra la ten MOI', diff.toUpdate[0].record.titleName, 'Ten moi');
+
+  // Ca 2: ID tu chu -> so, ten giu nguyen -> khop tang 3, khong sinh dong trung.
+  var existing2 = [{ titleNo: 9, titleId: 'ー', titleName: 'Giu ten', sheetRow: 20 }];
+  var index2 = src.buildMasterMatchIndex(existing2);
+  var match2 = src.claimMatch(index2, { titleId: '222', titleName: 'Giu ten' });
+  check('ID tu chu thanh so -> khop tang 3', match2.tier, 3);
+  var matches2 = src.resolveNumbersFromMatches(
+    [{ record: { titleId: '222', titleName: 'Giu ten' }, existing: match2.existing, rowOffset: match2.rowOffset }],
+    existing2, 'titleNo');
+  var diff2 = src.diffUpsertFromMatches(matches2, src.CUSTOMER_COLUMNS);
+  check('ID moi -> update dong cu, khong them dong',
+    [diff2.toUpdate.length, diff2.toAdd.length], [1, 0]);
+  check('gia tri ghi ra la ID MOI', diff2.toUpdate[0].record.titleId, '222');
+
+  // Ca 3: コピーライトマスタ khoa theo タイトルNo nen ten moi cung lan sang.
+  var priorCopyright = [{ titleNo: 7, titleId: '111', titleName: 'Ten cu', sheetRow: 16 }];
+  var nextCopyright = [{ titleNo: 7, titleId: '111', titleName: 'Ten moi' }];
+  var copyrightDiff = src.diffUpsert(priorCopyright, nextCopyright,
+    function (r) { return String(r.titleNo); },
+    function (a, b) { return src.recordsEqual(a, b, src.COPYRIGHT_COLUMNS); });
+  check('コピーライトマスタ nhan ten moi qua khoa タイトルNo',
+    [copyrightDiff.toUpdate.length, copyrightDiff.toUpdate[0].record.titleName], [1, 'Ten moi']);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation,
-    test_materialSharedAt, test_regulationStatus, test_appendMissingRules],
+    test_materialSharedAt, test_regulationStatus, test_appendMissingRules, test_identityRefresh],
   data: [test_firstVolumeDataset],
 };
