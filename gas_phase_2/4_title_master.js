@@ -68,8 +68,14 @@ function titleRecordToRow(options) {
 
   TITLE_COLUMNS.forEach(function (column) {
     if (column.from === 'stamp') {
-      // Write-once: chỉ đóng dấu khi dòng được thêm mới.
-      if (previousRow === undefined) row[col(options.headerIndex, column.header)] = options.runAt;
+      // 顧客作品マスタ là nguồn duy nhất; GAS❷ chỉ tự đóng dấu khi nguồn trống (dòng có
+      // trước khi cột được thêm) — giữ đúng hành vi cũ làm fallback. Và luôn write-once:
+      // ô đích đã có ngày thì không bao giờ đụng, nên không dòng nào mất ngày đang có.
+      // Xem docs/decisions.md #material-shared-02
+      var stampIndex = col(options.headerIndex, column.header);
+      if (normalizeJapaneseText(row[stampIndex]) !== '') return;
+      var fromCustomer = blankIfEmpty(options.record[column.field]);
+      row[stampIndex] = normalizeJapaneseText(fromCustomer) === '' ? options.runAt : fromCustomer;
       return;
     }
     if (column.from === 'copyright') {

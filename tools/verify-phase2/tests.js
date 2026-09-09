@@ -172,8 +172,74 @@ function test_titleRecordToRow(ctx) {
   check('出版社事前確認 chua co ben nguon -> khong ghi', at(noPre, '出版社事前確認'), '');
 }
 
+function test_materialSharedAtCopy(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var headerRow = [''].concat(src.requiredHeaders(src.TITLE_COLUMNS));
+  var headerIndex = src.buildHeaderIndex(headerRow);
+  var width = headerRow.length;
+  function at(row, header) { return row[src.col(headerIndex, header)]; }
+  function blankRow() { return new Array(width).fill(''); }
+
+  var runAt = new Date(2026, 8, 8);
+  var fromCustomer = new Date(2026, 5, 1);
+  var already = new Date(2026, 0, 5);
+
+  function build(record, previousRow) {
+    return src.titleRecordToRow({
+      record: record, copyright: null, copyrightAvailable: false,
+      preConfirmationAvailable: false, headerIndex: headerIndex,
+      columnCount: width, runAt: runAt, previousRow: previousRow,
+    });
+  }
+
+  var added = build({ titleNo: 1, materialSharedAt: fromCustomer }, undefined);
+  check('dong moi + nguon co ngay -> copy ngay cua 顧客作品マスタ',
+    at(added, '素材共有日'), fromCustomer);
+
+  var addedNoSource = build({ titleNo: 1, materialSharedAt: '' }, undefined);
+  check('dong moi + nguon trong -> fallback dong dau ngay chay',
+    at(addedNoSource, '素材共有日'), runAt);
+
+  var prev = blankRow();
+  prev[src.col(headerIndex, '素材共有日')] = already;
+  var kept = build({ titleNo: 1, materialSharedAt: fromCustomer }, prev);
+  check('o dich DA co ngay -> khong dung tay vao, ke ca khi nguon khac',
+    at(kept, '素材共有日'), already);
+
+  var blankTarget = build({ titleNo: 1, materialSharedAt: fromCustomer }, blankRow());
+  check('o dich trong + nguon co ngay -> copy', at(blankTarget, '素材共有日'), fromCustomer);
+
+  var blankBoth = build({ titleNo: 1, materialSharedAt: '' }, blankRow());
+  check('o dich trong + nguon trong -> fallback ngay chay', at(blankBoth, '素材共有日'), runAt);
+}
+
+function test_customerSourceOptionalMaterialShared(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  check('素材共有日 KHONG nam trong danh sach cot bat buoc',
+    src.CUSTOMER_SOURCE_HEADERS.indexOf('素材共有日'), -1);
+
+  var headerRow = [''].concat(src.CUSTOMER_SOURCE_HEADERS);
+  var withColumn = [headerRow.concat(['素材共有日']), null];
+  var shared = new Date(2026, 5, 1);
+  var row = new Array(headerRow.length).fill('');
+  row[headerRow.indexOf('タイトル名')] = 'A';
+  row[headerRow.indexOf('タイトルNo')] = 7;
+  withColumn[1] = row.concat([shared]);
+  check('co cot -> doc duoc ngay',
+    src.parseCustomerMasterRows(withColumn)[0].materialSharedAt, shared);
+
+  var withoutColumn = [headerRow, row];
+  check('THIEU cot -> khong throw, tra ve rong',
+    src.parseCustomerMasterRows(withoutColumn)[0].materialSharedAt, '');
+}
+
 module.exports = {
   unit: [test_titleColumns, test_titleWriteModes, test_customerSourceHeaders,
-    test_readsFirstVolume, test_titleRecordToRow],
+    test_readsFirstVolume, test_titleRecordToRow,
+    test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared],
   data: [],
 };

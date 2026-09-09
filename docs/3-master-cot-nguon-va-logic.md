@@ -317,7 +317,7 @@ nằm ở GAS❶. GAS❷ cố ý không lặp lại một mảnh nào: rule đ�
 | `タイトルNo` | 顧客作品マスタ | **khoá join** | 上書 | ✅ |
 | `CMS ID` | 顧客作品マスタ | copy | 上書 | ✅ |
 | `タイトルID` | 顧客作品マスタ | copy | 上書 | ✅ |
-| `素材共有日` | **GAS❷ tự đóng dấu** | **Logic §4.12** — ngày dòng được **append**. Dòng đã có thì không đụng, kể cả khi ô đang trống | **1回** | ⚠️ đang chạy đúng (tên cột đã khớp `素材共有日`), nhưng spec mới đổi thành **copy từ `顧客作品マスタ`** + fallback đóng dấu — **chưa code** |
+| `素材共有日` | `顧客作品マスタ › 素材共有日` | Copy từ 顧客作品マスタ, write-once (ô đã có ngày thì không đụng). Nguồn trống → GAS❷ tự đóng dấu ngày chạy (fallback) | **1回** | ✅ |
 | `タイトル区分` | 顧客作品マスタ › `タイトル区分` | copy | 上書 | ✅ |
 | `①広告出稿ポリシー` | 顧客作品マスタ › cùng tên | copy | 上書 | ✅ |
 | `②一般面出稿NG` | 顧客作品マスタ › cùng tên | copy | 上書 | ✅ |
@@ -590,10 +590,7 @@ cũ dòng nào mới — đúng thứ duy nhất cột này dùng để trả l�
 
 **Hệ quả:** dòng đã có trên sheet mà ô này đang trống sẽ **trống mãi**. Muốn lấp phải điền tay.
 
-> ⚠️ **Chưa code:** ガワ mới nhất thêm `素材共有日` vào **cả** `顧客作品マスタ`. Spec 2026-09-08
-> chốt `顧客作品マスタ` là **nguồn duy nhất** (GAS❶ đóng dấu khi thêm dòng mới), còn
-> `タイトルマスタ` **copy** lại — vẫn write-once, và chỉ khi nguồn trống mới tự đóng dấu như
-> hôm nay. Nhờ vậy ngày cũ trên `タイトルマスタ` không mất dòng nào.
+> Cài 2026-09-08: `顧客作品マスタ` là nguồn duy nhất, `タイトルマスタ` copy + fallback đóng dấu khi nguồn trống.
 
 ### 4.13 10 cột `掲出可能媒体` (`GDN(CM)` → `新規媒体`) — CHƯA CHỐT ❌
 Rule dự kiến: `媒体除外マスタ` (`ロゴ有無` × `ジャンル` → `除外媒体`), media nào **không** bị

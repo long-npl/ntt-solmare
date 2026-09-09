@@ -42,6 +42,10 @@ var CUSTOMER_SOURCE_HEADERS = [
 function parseCustomerMasterRows(rawRows) {
   var resolved = resolveHeaderIndex(rawRows, CUSTOMER_SOURCE_HEADERS);
   var idx = resolved.headerIndex;
+  // tryCol chứ KHÔNG thêm vào CUSTOMER_SOURCE_HEADERS: danh sách đó là cột BẮT BUỘC, thiếu
+  // 1 tên là findHeaderRowIndex() throw và sập cả lần chạy GAS❷. Cột mới phải degrade về
+  // nhánh fallback (tự đóng dấu), không được thành ngòi nổ.
+  var colMaterialSharedAt = tryCol(idx, '素材共有日');
   var records = [];
   for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
     var row = rawRows[i];
@@ -70,6 +74,7 @@ function parseCustomerMasterRows(rawRows) {
       preEndFinal: row[col(idx, '先行終了日（最終確定）')],
       massFreeStart: row[col(idx, '大量無料開始日')],
       massFreeEnd: row[col(idx, '大量無料終了日')],
+      materialSharedAt: colMaterialSharedAt === undefined ? '' : row[colMaterialSharedAt],
     });
   }
   return records;
