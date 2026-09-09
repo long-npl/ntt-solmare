@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Đưa code bám đúng ガワ mới nhất — 2 cột mới của `顧客作品マスタ`, tra rule © thêm tầng 3 + tự ghi bổ sung, `素材共有日` của `タイトルマスタ` thành bản copy — kèm 4 anchor lý do và test hồi quy khoá chặt tính nhất quán danh tính.
+**Goal:** Đưa code bám đúng ガワ mới nhất — 2 cột mới của `顧客作品マスタ`, tự ghi bổ sung rule © còn thiếu (tra cứu giữ đúng 2 case, không thêm tầng nào), `素材共有日` của `タイトルマスタ` thành bản copy — kèm 4 anchor lý do và test hồi quy khoá chặt tính nhất quán danh tính.
 
 **Architecture:** Mọi thay đổi nằm ở tầng NGHIỆP VỤ của 2 project (`gas_phase_1/`, `gas_phase_2/`). **Không sửa `shared/*`** nên không phải chạy `tools/sync-shared.js`. Quyết định logic đặt ở file được suite pure nạp (`3_sources.js`, `4_customer_master.js`, `5_copyright_master.js`, `7_warnings.js`) để test được bằng Node; phần IO (đọc/ghi sheet, Slack) đặt ở `9_main.js` — không nằm trong suite, nên nó chỉ được phép gọi hàm thuần đã có test.
 
