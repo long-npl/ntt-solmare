@@ -739,14 +739,14 @@ không còn phần nào của 2 cột này chờ code.
 
 | GAS | Nằm trong | Tab | Mỗi dòng là |
 |---|---|---|---|
-| ❶ | `顧客作品マスタ` | `GAS1ログ` / `GAS1警告` / `GAS1変更詳細` | 1 lần chạy / 1 cảnh báo (14 loại) / 1 field đã đổi |
+| ❶ | `顧客作品マスタ` | `GAS1ログ` / `GAS1警告` / `GAS1変更詳細` | 1 lần chạy / 1 cảnh báo (15 loại) / 1 field đã đổi |
 | ❷ | `タイトルマスタ` | `GAS2ログ` / `GAS2警告` / `GAS2変更詳細` | 1 lần chạy / 1 cảnh báo (**5 loại**) / 1 cột đã đổi |
 
-**14** loại cảnh báo GAS❶: `照合注意` · `照合曖昧` · `孤立行` · `外部出稿NG注意` · `掲載停止注意` ·
+**15** loại cảnh báo GAS❶: `照合注意` · `照合曖昧` · `孤立行` · `外部出稿NG注意` · `掲載停止注意` ·
 `コピーライト注意` · `先行延長注意` · `大量無料注意` · `タイトル区分注意` · `LP制作注意` ·
 `出版社事前確認注意` · `更新日注意` · `判定消失注意` (thêm 2026-09-01: tác phẩm **đang** có
 `①②③` trên master mà lần chạy này tra không ra dòng `判定済み` — số này xấp xỉ tổng số dòng
-master nghĩa là sheet nguồn ① đã gãy, không phải vài tác phẩm lẻ đổi `ステータス`) · `ルール自動追記`.
+master nghĩa là sheet nguồn ① đã gãy, không phải vài tác phẩm lẻ đổi `ステータス`) · `ルール自動追記` · `巻数復元注意`.
 
 **5** loại cảnh báo GAS❷: `タイトルNo欠落` · `タイトルNo重複` · `コピーライト未登録` · `孤立行` ·
 `設定注意`. `GAS2ログ` có đúng 5 cột đếm tương ứng.

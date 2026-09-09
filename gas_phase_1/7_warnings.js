@@ -535,7 +535,7 @@ function buildVolumeRecoveredWarningRows(records, runAt) {
 }
 
 /**
- * Gom cả 14 loại cảnh báo thành 1 mảng.
+ * Gom cả 15 loại cảnh báo thành 1 mảng.
  *
  * Nhận nguyên ctx thay vì 13 tham số rời: thêm một loại cảnh báo về sau chỉ phải
  * sửa ở đây và ở 9_main.js chỗ dựng ctx, không phải đổi chữ ký.
