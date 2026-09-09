@@ -1,4 +1,4 @@
-// 7_warnings.js — 14 loại cảnh báo ghi vào tab GAS1警告.
+// 7_warnings.js — 15 loại cảnh báo ghi vào tab GAS1警告.
 //
 // Mỗi loại một hàm nhỏ. buildAllWarnings() ở cuối gom cả 14 lại để 9_main.js chỉ
 // gọi một dòng và ghi một lần — mỗi lần chạy là một khối dòng liền nhau trên sheet.
