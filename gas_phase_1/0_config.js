@@ -63,6 +63,14 @@ var CONFIG = {
       spreadsheetId: '1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc',
       sheetName: 'コピーライトマスタ',
     },
+    // Sheet ④ vốn là nguồn ĐỌC (SOURCES.PUBLISHER_COPYRIGHT, cùng spreadsheetId/sheetName).
+    // Khai báo lại ở OUTPUTS vì từ 2026-09-08 GAS còn GHI THÊM dòng rule trống vào đây —
+    // "GAS có quyền ghi vào sheet này" phải là một điều khai báo tường minh, không phải một
+    // lệnh ghi lén nằm trong nhánh SOURCES. Xem docs/decisions.md #copyright-autoappend-01
+    PUBLISHER_COPYRIGHT: {
+      spreadsheetId: '1FmW8IrpUQKDEdjsWvlLSPDvTKhWwdbEUf_HLWOgHuFM',
+      sheetName: '出版社別コピーライトマスタ',
+    },
   },
   // Đổi giá trị này rồi PHẢI chạy tay createGas1Trigger() một lần để cài lại.
   TRIGGER_HOURS: [9, 17],

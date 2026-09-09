@@ -18,6 +18,7 @@ var WARNING_KIND_LP_PRODUCTION = 'LP制作注意';
 var WARNING_KIND_PRE_CONFIRMATION = '出版社事前確認注意';
 var WARNING_KIND_UPDATED_AT = '更新日注意';
 var WARNING_KIND_REGULATION_LOST = '判定消失注意';
+var WARNING_KIND_RULE_APPENDED = 'ルール自動追記';
 
 // Vượt ngưỡng này thì gộp thành 1 dòng tổng: 268 dòng cảnh báo riêng lẻ sẽ chôn
 // mất mọi cảnh báo khác của lần chạy đó.
@@ -465,6 +466,28 @@ function buildCopyrightOrphanWarningRows(orphans, runAt) {
 }
 
 /**
+ * ルール自動追記 — các cặp (出版社/レーベル) GAS vừa ghi bổ sung vào ④, hoặc lý do ghi lỗi.
+ */
+function buildRuleAppendedWarningRows(appended, runAt) {
+  var rows = [];
+  if (!appended) return rows;
+  if (appended.error) {
+    rows.push(warningRow(runAt, WARNING_KIND_RULE_APPENDED, '', '', '',
+      '出版社別コピーライトマスタ への自動追記に失敗しました（処理は継続、コピーライトは据え置き）: '
+      + appended.error));
+    return rows;
+  }
+  (appended.added || []).forEach(function (pair) {
+    var label = normalizeJapaneseText(pair.label) === '' ? '' : '／' + String(pair.label);
+    rows.push(warningRow(runAt, WARNING_KIND_RULE_APPENDED, '', '',
+      String(pair.publisher) + label,
+      'ルール未登録のため 出版社別コピーライトマスタ の最下部に行を追加しました。'
+      + 'テンプレート列を記入してください（記入までは 出版社コピーライト は空欄のままです）'));
+  });
+  return rows;
+}
+
+/**
  * Gom cả 14 loại cảnh báo thành 1 mảng.
  *
  * Nhận nguyên ctx thay vì 13 tham số rời: thêm một loại cảnh báo về sau chỉ phải
@@ -489,6 +512,7 @@ function buildAllWarnings(ctx) {
     .concat(buildPreConfirmationWarningRows(ctx.hasPreConfirmationColumn,
       ctx.publisherCopyrightRules || [], ctx.runAt))
     .concat(buildCopyrightOrphanWarningRows(ctx.copyrightOrphans, ctx.runAt))
+    .concat(buildRuleAppendedWarningRows(ctx.ruleAppended, ctx.runAt))
     .concat(buildUpdatedAtWarningRows(ctx.stamps, ctx.runAt));
 }
 

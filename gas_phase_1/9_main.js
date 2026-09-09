@@ -247,6 +247,37 @@ function buildCopyrightDiff(matches, existingCopyright) {
     function (a, b) { return recordsEqual(a, b, COPYRIGHT_COLUMNS); });
 }
 
+/**
+ * Ghi bổ sung các cặp (出版社, レーベル) chưa có rule vào cuối sheet ④.
+ *
+ * Chỉ APPEND dòng mới dưới cùng — không sửa, không xoá dòng người nhập. Lỗi bị NUỐT: hàm
+ * này chạy SAU khi 2 master đã ghi xong, một lần mất quyền ghi không được phép biến lần
+ * chạy đã thành công thành thất bại. Xem docs/decisions.md #copyright-autoappend-01
+ *
+ * @param {Array<{publisher: *, label: *}>} pairs - collectMissingPublisherRules()
+ * @returns {{added: Array<object>, error: string|null}}
+ */
+function appendMissingPublisherRules(pairs) {
+  if (!pairs || pairs.length === 0) return { added: [], error: null };
+  try {
+    var cfg = CONFIG.OUTPUTS.PUBLISHER_COPYRIGHT;
+    var resolved = resolveMasterHeader(cfg.spreadsheetId, cfg.sheetName,
+      PUBLISHER_COPYRIGHT_REQUIRED_HEADERS);
+    var width = resolved.columnCount;
+    var values = pairs.map(function (pair) {
+      return buildPublisherRuleRow(pair, resolved.headerIndex, width);
+    });
+    // getLastRow() chứ không phải số dòng đã parse: dưới vùng dữ liệu có thể còn ghi chú.
+    var startRow = Math.max(resolved.sheet.getLastRow(), resolved.headerRowIndex + 1) + 1;
+    resolved.sheet.getRange(startRow, 1, values.length, width).setValues(values);
+    Logger.log('出版社別コピーライトマスタ: đã ghi bổ sung ' + values.length + ' dòng rule trống');
+    return { added: pairs, error: null };
+  } catch (failure) {
+    Logger.log('Ghi bổ sung rule vào ④ thất bại (bỏ qua): ' + String(failure));
+    return { added: [], error: String(failure) };
+  }
+}
+
 /** Báo Slack các tác phẩm không có bản quyền nào dùng được (cả 2 cột đều rỗng). */
 function notifyIrregular(matches) {
   var irregular = [];
@@ -356,6 +387,20 @@ function runGas1() {
         .concat(buildChangeDetailRows('コピーライトマスタ', copyrightDiff.toUpdate,
           COPYRIGHT_COLUMNS, runAt)));
 
+    // Sau khi 2 master đã ghi xong: bổ sung rule còn thiếu để lần chạy sau người ta có chỗ
+    // điền テンプレート. Không được đặt trước bước ghi — lỗi ở đây không được kéo theo gì.
+    var ruleAppended = appendMissingPublisherRules(
+      collectMissingPublisherRules(copyrightWarnings, loaded.values.publisherCopyright));
+    if (ruleAppended.added.length > 0) {
+      notifySlack('GAS❶: đã thêm ' + ruleAppended.added.length
+        + ' dòng (出版社/レーベル) chưa có rule vào 出版社別コピーライトマスタ.'
+        + ' Cần điền テンプレート:\n'
+        + ruleAppended.added.map(function (pair) {
+          return String(pair.publisher)
+            + (normalizeJapaneseText(pair.label) === '' ? '' : ' / ' + String(pair.label));
+        }).join('\n'));
+    }
+
     var warningRows = buildAllWarnings({
       matches: matches,
       records: matches.map(recordOf),
@@ -369,6 +414,7 @@ function runGas1() {
       commitLookup: loaded.values.commit || new Map(),
       copyrightWarnings: copyrightWarnings,
       copyrightOrphans: copyrightDiff.orphans,
+      ruleAppended: ruleAppended,
       hasPreConfirmationColumn: existingCopyright.headerIndex.has(
         normalizeHeaderText('出版社事前確認')),
       publisherCopyrightRules: [],

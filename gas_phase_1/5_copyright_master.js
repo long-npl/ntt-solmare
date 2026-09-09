@@ -114,6 +114,11 @@ var COPYRIGHT_REASON_NO_RULE = 'ルール無し';
 var COPYRIGHT_REASON_MANUAL_FLAG = '個別ルール';
 var COPYRIGHT_REASON_BAD_TEMPLATE = 'テンプレート不備';
 
+// Dòng placeholder do GAS tự thêm (xem appendMissingPublisherRules): flag VÀ template đều
+// trống. PHẢI tách khỏi 個別ルール — '02：個別ルール' là cố ý viết tay, còn cái này là việc
+// còn nợ và cần alert. Xem docs/decisions.md #copyright-autoappend-01
+var COPYRIGHT_REASON_UNFILLED = 'ルール未記入';
+
 /**
  * Template này là một bản quyền sinh được, hay chỉ là CHỈ THỊ cho con người?
  * @param {*} template
@@ -203,6 +208,15 @@ function resolvePublisherCopyright(work, rulesLookup) {
   }
 
   if (normalizeJapaneseText(rule.flag).indexOf(PUBLISHER_COPYRIGHT_FLAG_AUTO_PREFIX) !== 0) {
+    if (normalizeJapaneseText(rule.flag) === '' && normalizeJapaneseText(rule.template) === '') {
+      return {
+        value: null,
+        reason: COPYRIGHT_REASON_UNFILLED,
+        rule: rule,
+        detail: 'GAS が以前この行を追記しましたが、自動化フラグとテンプレートが未記入のままです。'
+          + '出版社別コピーライトマスタ に生成ルールを記入してください',
+      };
+    }
     return {
       value: null,
       reason: COPYRIGHT_REASON_MANUAL_FLAG,
@@ -256,6 +270,55 @@ function effectiveCopyright(record) {
   if (normalizeJapaneseText(record.individualCopyright) !== '') return record.individualCopyright;
   if (normalizeJapaneseText(record.publisherCopyright) !== '') return record.publisherCopyright;
   return '';
+}
+
+/**
+ * Các cặp (出版社, レーベル) cần ghi bổ sung vào ④.
+ *
+ * CHỈ nhận ca `ルール無し` thật — trượt cả 2 case tra cứu (spec §5.1). Ca `個別ルール` /
+ * `テンプレート不備` / `ルール未記入` thì rule ĐÃ tồn tại, thêm nữa chỉ làm bảng rule bẩn hơn.
+ *
+ * Dedupe 2 lớp: với bảng rule hiện có (kể cả dòng GAS đã thêm hôm trước) và trong chính
+ * lần chạy này — nên chạy 100 lần cũng không sinh dòng trùng.
+ * Xem docs/decisions.md #copyright-autoappend-01
+ *
+ * @param {Array<{record: object, copyrightReason: string}>} entries - resolveCopyrightFor()
+ * @param {Map<string, object>|null} rulesLookup - buildPublisherCopyrightLookup(), null khi nguồn ④ đọc lỗi
+ * @returns {Array<{publisher: *, label: *}>}
+ */
+function collectMissingPublisherRules(entries, rulesLookup) {
+  if (!entries || !rulesLookup) return [];
+  var seen = new Map();
+  var missing = [];
+  entries.forEach(function (entry) {
+    if (entry.copyrightReason !== COPYRIGHT_REASON_NO_RULE) return;
+    var publisher = entry.record.publisher;
+    // 出版社 trống thì không thành khoá rule được (publisherCopyrightKey trả ''), thêm vào
+    // chỉ là một dòng rác không ai tra được.
+    if (normalizeJapaneseText(publisher) === '') return;
+    var label = entry.record.label;
+    var key = publisherCopyrightKey(publisher, label);
+    if (rulesLookup.has(key) || seen.has(key)) return;
+    seen.set(key, true);
+    missing.push({ publisher: publisher, label: label });
+  });
+  return missing;
+}
+
+/**
+ * Dòng để append vào ④: ĐÚNG 2 ô 出版社 / 雑誌名/レーベル, mọi ô khác để trống.
+ *
+ * Để trống 自動化フラグ là có chủ ý: lần chạy sau rule TỒN TẠI nhưng rơi vào nhánh
+ * `個別ルール` nên vẫn để cột bản quyền trống + cảnh báo. Placeholder không bao giờ tự sinh
+ * ra một bản quyền sai.
+ */
+function buildPublisherRuleRow(pair, headerIndex, columnCount) {
+  var row = [];
+  for (var c = 0; c < columnCount; c++) row.push('');
+  row[col(headerIndex, '出版社')] = pair.publisher;
+  row[col(headerIndex, '雑誌名/レーベル')] = pair.label === null || pair.label === undefined
+    ? '' : pair.label;
+  return row;
 }
 
 // ==============================================================================

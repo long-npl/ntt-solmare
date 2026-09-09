@@ -1194,10 +1194,92 @@ function test_materialSharedAt(ctx) {
     src.recordsEqual({ materialSharedAt: '', titleName: 'A' }, { titleName: 'A' }, cols), true);
 }
 
+// ==============================================================================
+// TỰ GHI BỔ SUNG RULE THIẾU — gom cặp (出版社, レーベル) trượt cả 2 case tra cứu,
+// dựng dòng append đúng be rộng sheet, và cảnh báo phân biệt với 個別ルール.
+// Xem docs/decisions.md #copyright-autoappend-01
+// ==============================================================================
+function test_appendMissingRules(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var rules = [
+    { publisher: '集英社', label: '', flag: '01：自動化', template: '©集英社', preConfirmation: '必要' },
+  ];
+  var lookup = src.buildPublisherCopyrightLookup(rules);
+  function entry(publisher, label, reason) {
+    return { record: { publisher: publisher, label: label, titleName: 'T' }, copyrightReason: reason };
+  }
+
+  var pairs = src.collectMissingPublisherRules([
+    entry('新しい出版社', 'レーベルA', 'ルール無し'),
+    entry('新しい出版社', 'レーベルA', 'ルール無し'),
+    entry('新しい出版社', 'レーベルB', 'ルール無し'),
+    entry('集英社', '', 'テンプレート不備'),
+    entry('個別対応の出版社', '', '個別ルール'),
+    entry('追記済みだが未記入', '', 'ルール未記入'),
+    entry('', '', 'ルール無し'),
+  ], lookup);
+  check('chi gom ca ルール無し, dedupe theo (出版社,レーベル)',
+    pairs.map(function (p) { return p.publisher + '|' + p.label; }),
+    ['新しい出版社|レーベルA', '新しい出版社|レーベルB']);
+
+  // ---- Dong placeholder GAS da them nhung chua ai dien -> ly do RIENG de alert ----
+  function work(publisher) {
+    return { titleName: 'T', author: 'A', publisher: publisher, label: '' };
+  }
+  var withPlaceholder = src.buildPublisherCopyrightLookup([
+    // Dung y hinh dang GAS ghi ra o §5.2: chi 2 o, flag + template deu trong.
+    { publisher: '追記済み出版社', label: '', flag: '', template: '', preConfirmation: '' },
+    // 02：個別ルール la CO Y viet tay, khong phai viec con no -> phai giu ly do cu.
+    { publisher: '個別ルール出版社', label: '', flag: '02：個別ルール', template: '都度問い合わせ要', preConfirmation: '必要' },
+  ]);
+  check('placeholder chua ai dien -> ly do rieng ルール未記入',
+    src.resolvePublisherCopyright(work('追記済み出版社'), withPlaceholder).reason, 'ルール未記入');
+  check('... va van de trong, khong tu sinh ©',
+    src.resolvePublisherCopyright(work('追記済み出版社'), withPlaceholder).value, null);
+  check('... canh bao noi ro la GAS da them va cho nguoi dien',
+    src.resolvePublisherCopyright(work('追記済み出版社'), withPlaceholder).detail.indexOf('未記入') >= 0, true);
+  check('02：個別ルール KHONG bi doi thanh ルール未記入',
+    src.resolvePublisherCopyright(work('個別ルール出版社'), withPlaceholder).reason, '個別ルール');
+
+  check('nguon rule doc loi (lookup null) -> khong ghi gi',
+    src.collectMissingPublisherRules([entry('x', 'y', 'ルール無し')], null), []);
+
+  // CHAY LAI lan sau: dong GAS da them hom truoc nam trong bang rule -> khong them nua.
+  // Dong placeholder co flag/template trong, dung y hinh dang GAS ghi ra.
+  var afterAppend = src.buildPublisherCopyrightLookup(rules.concat([
+    { publisher: '新しい出版社', label: 'レーベルA', flag: '', template: '', preConfirmation: '' },
+  ]));
+  check('chay lai -> cap da co trong bang thi KHONG them lan 2',
+    src.collectMissingPublisherRules([entry('新しい出版社', 'レーベルA', 'ルール無し')], afterAppend), []);
+
+  // Dong ghi ra: DUNG 2 o, moi o khac de trong.
+  var idx = src.buildHeaderIndex(['', '', '', '', '出版社', '危険', '雑誌名/レーベル', '自動化フラグ']);
+  var row = src.buildPublisherRuleRow({ publisher: 'P', label: 'L' }, idx, 8);
+  check('dong ghi ra dung be rong sheet', row.length, 8);
+  check('出版社 vao dung cot', row[4], 'P');
+  check('雑誌名/レーベル vao dung cot', row[6], 'L');
+  check('moi o khac de trong (ke ca 自動化フラグ)',
+    [row[0], row[1], row[2], row[3], row[5], row[7]], ['', '', '', '', '', '']);
+
+  // Canh bao: 1 dong / 1 cap da them, va 1 dong rieng khi ghi loi.
+  var runAt = new Date(2026, 8, 8);
+  var rows = src.buildRuleAppendedWarningRows({ added: [{ publisher: 'P', label: 'L' }], error: null }, runAt);
+  check('them 1 cap -> 1 dong canh bao', rows.length, 1);
+  check('canh bao dung loai', rows[0].kind, 'ルール自動追記');
+  check('canh bao neu ten NXB/レーベル', rows[0].titleName, 'P／L');
+  var failed = src.buildRuleAppendedWarningRows({ added: [], error: 'mat quyen ghi' }, runAt);
+  check('ghi loi -> 1 dong canh bao noi ro nguyen nhan',
+    [failed.length, failed[0].detail.indexOf('mat quyen ghi') >= 0], [1, true]);
+  check('khong co gi de them -> khong co canh bao',
+    src.buildRuleAppendedWarningRows({ added: [], error: null }, runAt).length, 0);
+}
+
 module.exports = {
   unit: [test_loadSources, test_cmsVolumes, test_firstVolume,
     test_lpProduction, test_preEndFinal, test_customerColumns, test_buildCustomerRecord, test_copyrightOrphans, test_writeMaster,
     test_cascade, test_filter, test_warnings, test_suspension, test_preEndAndMassFree, test_regulationCascadeAndHold, test_preConfirmation,
-    test_materialSharedAt, test_regulationStatus],
+    test_materialSharedAt, test_regulationStatus, test_appendMissingRules],
   data: [test_firstVolumeDataset],
 };

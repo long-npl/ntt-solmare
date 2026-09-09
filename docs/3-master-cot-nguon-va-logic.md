@@ -246,7 +246,7 @@ Thứ tự dòng = thứ tự cột trên sheet theo ガワ mới nhất (`出�
 | `出版社` | 顧客作品マスタ | copy nguyên | 上書 | ✅ |
 | `レーベル名` | 顧客作品マスタ | copy nguyên | 上書 | ✅ |
 | `タイトル個別コピーライト(あれば優先使用)` | ② CMS › `コピーライト` | **nguyên văn**, không sinh, không sửa. Có giá trị ở đây thì nó là bản quyền **hiệu lực** | 上書 | ✅ |
-| `出版社コピーライト` | ④ 出版社別コピーライトマスタ | **Logic §4.9** — sinh lại **mỗi lần chạy** từ template; **4** trường hợp để trống + cảnh báo | 上書 | ⚠️ tra cứu 2 tầng ✅ (giữ nguyên, user chốt 2026-09-08); phần **tự ghi bổ sung rule thiếu + alert** đã có spec, **chưa code** |
+| `出版社コピーライト` | ④ 出版社別コピーライトマスタ | **Logic §4.9** — sinh lại **mỗi lần chạy** từ template; **4** trường hợp để trống + cảnh báo | 上書 | ✅ tra cứu 2 tầng (giữ nguyên, user chốt 2026-09-08); phần **tự ghi bổ sung rule thiếu + alert** đã có spec, **đã code** |
 | `出版社事前確認` | ④ › `(出版社)事前確認` | **Logic §4.11** — nguyên văn `必要`/`不要`. Tra cùng 2 tầng như `出版社コピーライト` nhưng **bỏ qua `自動化フラグ`** | 上書 | ✅ cột đã có trên sheet (xác nhận 2026-09-01) |
 | `コピーライト_過去分1`〜`5` | **giá trị cũ của chính sheet** | **Logic §4.10** — chỉ dịch xuống 1 bậc khi bản quyền **hiệu lực** thật sự đổi; quá slot 5 thì **xoá** | 上書 | ✅ |
 
@@ -522,19 +522,25 @@ Tra 出版社 trước sẽ cho ra bản quyền **ghi tên công ty SAI**. Kho�
 Thay trong **một lượt quét**, mỗi vị trí thử token **dài nhất trước** — để tên tác phẩm
 tình cờ chứa một token không bị lần thay sau ăn vào.
 
-**Bước 3 — 4 lý do KHÔNG sinh được → để trống + cảnh báo (gộp theo NXB):**
+**Bước 3 — 5 lý do KHÔNG sinh được → để trống + cảnh báo (gộp theo NXB):**
 
 | Lý do | Điều kiện | Ai sửa |
 |---|---|---|
 | `ルール無し` | NXB của tác phẩm không có dòng nào trong ④ | thêm 1 dòng cho NXB đó |
 | `個別ルール` | `自動化フラグ` không bắt đầu bằng `01` (tức `02：個別ルール`, 11 dòng) | viết tay — **đúng spec**, không phải lỗi |
 | `テンプレート不備` | (a) template **không chứa** `©`/`Ⓒ`/`ⓒ`/`(C)`/`（Ｃ）`, hoặc (b) chứa placeholder không điền được, hoặc (c) tác phẩm thiếu giá trị mà template đòi | sửa template |
+| `ルール未記入` | rule tồn tại nhưng `自動化フラグ` và `テンプレート` đều trống = dòng GAS tự thêm mà chưa ai điền | 池永 điền テンプレート |
 
 **Cách nhận diện (a) cố tình không dùng danh sách đen câu chỉ thị** (danh sách đó lỗi thời
 ngay khi ai viết câu mới): mọi bản quyền thật **đều phải có ký hiệu ©**, câu chỉ thị thì
 không. Nhờ vậy `コピーライトについて都度確認`, `都度問い合わせ要`, `コピーライトルール参照して個別記載`
 (19 dòng có template mà không có placeholder) bị chặn, còn `©レジンコミックス`, `©ブリック出版`
 (bản quyền cứng, không placeholder) vẫn hợp lệ.
+
+**Bước 4 — `ルール無し` thì ghi bổ sung.** Cặp (`出版社`, `レーベル`) trượt cả 3 tầng được
+append xuống cuối sheet ④ với 2 ô `出版社`/`レーベル`, mọi ô khác trống → lần sau ra
+`個別ルール`, vẫn không tự sinh `©`. Chống trùng với cả bảng rule hiện có. Lỗi ghi bị nuốt,
+kèm 1 dòng cảnh báo. Xem docs/decisions.md #copyright-autoappend-01
 
 Placeholder **không điền được** (CMS không cấp riêng lẻ): `原作者名`, `漫画家名`, `作画者名`,
 `英字作者名`, `英字著者名`, `ローマ字著者名`, `イラストレーター名`, `会社名`, `発行元社名`, và 2 dạng viết
@@ -711,14 +717,14 @@ Việc "chỉ cần thêm cột" giờ đã hết; 2 việc còn lại là **cod
 
 | GAS | Nằm trong | Tab | Mỗi dòng là |
 |---|---|---|---|
-| ❶ | `顧客作品マスタ` | `GAS1ログ` / `GAS1警告` / `GAS1変更詳細` | 1 lần chạy / 1 cảnh báo (13 loại) / 1 field đã đổi |
+| ❶ | `顧客作品マスタ` | `GAS1ログ` / `GAS1警告` / `GAS1変更詳細` | 1 lần chạy / 1 cảnh báo (14 loại) / 1 field đã đổi |
 | ❷ | `タイトルマスタ` | `GAS2ログ` / `GAS2警告` / `GAS2変更詳細` | 1 lần chạy / 1 cảnh báo (**5 loại**) / 1 cột đã đổi |
 
-**13** loại cảnh báo GAS❶: `照合注意` · `照合曖昧` · `孤立行` · `外部出稿NG注意` · `掲載停止注意` ·
+**14** loại cảnh báo GAS❶: `照合注意` · `照合曖昧` · `孤立行` · `外部出稿NG注意` · `掲載停止注意` ·
 `コピーライト注意` · `先行延長注意` · `大量無料注意` · `タイトル区分注意` · `LP制作注意` ·
 `出版社事前確認注意` · `更新日注意` · `判定消失注意` (thêm 2026-09-01: tác phẩm **đang** có
 `①②③` trên master mà lần chạy này tra không ra dòng `判定済み` — số này xấp xỉ tổng số dòng
-master nghĩa là sheet nguồn ① đã gãy, không phải vài tác phẩm lẻ đổi `ステータス`).
+master nghĩa là sheet nguồn ① đã gãy, không phải vài tác phẩm lẻ đổi `ステータス`) · `ルール自動追記`.
 
 **5** loại cảnh báo GAS❷: `タイトルNo欠落` · `タイトルNo重複` · `コピーライト未登録` · `孤立行` ·
 `設定注意`. `GAS2ログ` có đúng 5 cột đếm tương ứng.
