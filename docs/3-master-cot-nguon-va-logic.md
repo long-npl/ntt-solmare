@@ -626,15 +626,25 @@ Bốn lý do **chưa code được** (xem §5):
 | 1 | Toàn bộ ô **chỉ là chữ số** | **chính số đó** (không riêng gì `1`) | `1` → `1`, `2` → `2`, `12` → `12` |
 | 2 | `〇〇[dấu ngăn]XX`, **cho phép có đuôi chữ** | **`XX`** (số thứ hai) | `1~5` → `5`, `1~5(全話一挙配信)` → `5`, `1~3巻` → `3` |
 | 3 | `XX巻目` + bất kỳ đuôi gì | **`XX`** | `5巻目` → `5`, `5巻目まで` → `5`, `5巻目(予定)` → `5` |
-| 4 | Còn lại | **`顧客確認`** | trống, `1(初回配信話数確認中)`, `12話目`, `1巻完結`, ô bị Sheets nuốt thành ngày |
+| 4 | `XX(ghi chú)` — ngoặc **ngay sau** số | **`XX`** | `4（シーモア限定BOOK）` → `4`, `1(初回配信話数確認中)` → `1` |
+| 5 | Còn lại | **`顧客確認`** | trống, `12話目`, `1巻完結`, `P29まで`, `2025/2/25まで1巻無料`, ô bị Sheets nuốt thành ngày |
 
-**Dấu ngăn nhận ở nhánh 2:** `~` `～` `〜` `-` `－` `_` `＿` `ー`. Regex trong code chỉ có 4 ký
-tự `[~\-_ー]` vì `normalizeJapaneseText()` đã gộp sẵn `～`/`〜` → `~` và bản full-width của
-`-`/`_` → half-width. Riêng `ー` (chouonpu U+30FC) **phải nằm thẳng trong regex**: NFKC không
-coi nó là biến thể của dấu gạch nên không tự gộp. Một dấu `-` đứng một mình (không có số ở cả
-hai bên) vẫn rơi vào nhánh 4.
+**Thứ tự nhánh 2 trước nhánh 4 là một phần của quy tắc:** `1~5(全話一挙配信)` là khoảng *có*
+ghi chú, phải ra `5` (số cuối) chứ không phải `1`.
 
-**Hai ca cố tình KHÔNG khớp nhánh 3:** `話目` là *số话*, không phải *số tập* — nghĩa khác hẳn;
+**Dấu ngăn nhận ở nhánh 2:** `~` `～` `〜` `-` `－` `_` `＿` `ー`, cộng **họ dấu gạch Unicode**
+`U+2010`〜`U+2015` và `U+2212` (thêm 2026-09-09). Nhóm sau trông y hệt `-` ASCII nhưng NFKC
+**không** gộp về ASCII nên trước đó rơi hết vào `顧客確認` — ai copy 巻数 từ Word/PDF/mail là
+ra một trong số đó. `normalizeJapaneseText()` đã gộp sẵn `～`/`〜` → `~` và bản full-width của
+`-`/`_`; riêng `ー` (chouonpu U+30FC) và họ `U+2010`〜 phải nằm thẳng trong regex. Một dấu `-`
+đứng một mình (không có số ở cả hai bên) vẫn rơi vào nhánh cuối.
+
+**Nhánh 4 phải hẹp đúng mức "ngoặc ngay sau số".** Nới thành "số đầu + bất kỳ chữ gì" là ghi
+sai dữ liệu nghiệp vụ: `2025/2/25まで1巻無料` cho ra `2025`, `3/27まで1巻無料` cho ra `3` (đúng
+là 1). Ngoặc phân biệt "ghi chú kèm số tập" với "số nằm trong một câu khác".
+Xem `docs/decisions.md #volume-04`.
+
+**Hai ca cố tình KHÔNG khớp nhánh 3:** `話目` là *số話*, không phải *số tập* — nghĩa khác hẳn;
 `1巻完結` nghĩa là "trọn bộ 1 tập", không phải "tập thứ 1". Cả hai → `顧客確認`.
 
 **Không bao giờ trống** — nhánh 4 luôn ghi ra chữ `顧客確認` để mắt người rà được. Nhờ vậy

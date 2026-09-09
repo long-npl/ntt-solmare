@@ -76,6 +76,12 @@ function test_firstVolume(ctx) {
     [fv('1-5'), fv('1－5'), fv('1_5'), fv('1＿5'), fv('1ー5')],
     ['5', '5', '5', '5', '5']);
   check('khoang 2 chu so voi dau - -> 12', fv('10-12'), '12');
+  // Ho dau gach Unicode: trong y HET dau '-' ASCII nhung NFKC KHONG gop ve ASCII, nen
+  // truoc 2026-09-09 ca 7 ky tu nay roi vao 顧客確認. Ai copy tu Word/PDF/mail la ra chung.
+  check('7 dau gach Unicode khac deu duoc coi nhu khoang',
+    [fv('1‐12'), fv('1‑12'), fv('1‒12'), fv('1–12'),
+      fv('1—12'), fv('1―12'), fv('1−12')],
+    ['12', '12', '12', '12', '12', '12', '12']);
   // Mot minh dau '-' (khong phai khoang) van la 顧客確認 — quy tac cu KHONG bi pha.
   check('mot minh dau gach ngang (khong phai khoang) -> 顧客確認', fv('-'), '顧客確認');
 
@@ -98,9 +104,24 @@ function test_firstVolume(ctx) {
   // van la ca mo ho that su, roi vao 顧客確認.
   check('話目 va 1巻完結 KHONG khop pattern 巻目 -> van 顧客確認',
     [fv('12話目'), fv('5話目'), fv('1巻完結')], ['顧客確認', '顧客確認', '顧客確認']);
-  // Chu xen ngay sau so ma KHONG qua dau ngan/巻目 da biet -> van mo ho that su.
-  check('chu xen sau so, khong qua dau ngan/巻目 -> van 顧客確認',
-    [fv('1(初回配信話数確認中)'), fv('4(シーモア限定BOOK)')], ['顧客確認', '顧客確認']);
+  // Pattern MOI 'XX(ghi chu)' -> lay XX (user chot 2026-09-09, dao nguoc quyet dinh cu).
+  // Ngoac ngay sau so = ghi chu BO NGHIA cho so tap, khong phai thay the no. Do tren
+  // CMS that: 8 dong dang kieu nay, ca 8 deu la so tap + nhan san pham/tinh trang.
+  // '話数確認中' noi ve so CHUONG (話数), khac han cot nay la 初回配信巻数 -> tap van la 1.
+  check('XX(ghi chu) -> lay XX',
+    [fv('4(シーモア限定BOOK)'), fv('3（シーモア限定BOOK）'), fv('1(初回配信話数確認中)'),
+      fv('2 (予定)')],
+    ['4', '3', '1', '2']);
+  // Rule tren PHAI hep: chi khop khi ngoac dung ngay sau so. Cac ca duoi day co so o
+  // dau nhung so do KHONG phai so tap — rule lan ra la ghi sai du lieu nghiep vu.
+  check('so dau khong phai so tap -> van 顧客確認',
+    [fv('2025/2/25まで1巻無料'), fv('3/27まで1巻無料'), fv('2025/7/31まで1~2巻無料')],
+    ['顧客確認', '顧客確認', '顧客確認']);
+  check('khong bat dau bang so -> van 顧客確認',
+    [fv('P29まで'), fv('コミットOK'), fv('広告コミットOK(8/27)')],
+    ['顧客確認', '顧客確認', '顧客確認']);
+  // Khoang van thang ngoac: kiem tra thu tu rule khong bi dao.
+  check('khoang co duoi ngoac -> van lay so THU HAI', fv('1~5(全話一挙配信)'), '5');
   check('o trong -> 顧客確認',
     [fv(''), fv(null), fv(undefined)], ['顧客確認', '顧客確認', '顧客確認']);
   // 5 ô đã bị Sheets nuốt thành ngày vì người gõ 1-5 / 1-12 — dữ liệu gốc đã mất.
@@ -1037,19 +1058,22 @@ function test_firstVolumeDataset(ctx) {
     else if (v === '顧客確認') counts['顧客確認'] += 1;
     else counts.XX += 1;
   });
-  // 13 ca 顧客確認 con lai (giam tu 17 sau khi them bare-number/巻目/range-co-duoi
-  // 2026-09-04): 8 o 巻数 TRONG, 4 o bi Sheets nuot thanh NGAY (nguoi go 1-5, 1-12,
-  // 1-6), 1 o '4(シーモア限定BOOK)' (khong khop bare/range/巻目 vi co dau '(' ngay
-  // sau so, khong phai dau ngan da biet).
+  // 12 ca 顧客確認 con lai: 8 o 巻数 TRONG, va 4 o bi Sheets NUOT THANH NGAY (nguoi go
+  // 1-5, 1-12, 1-6 -> getValues() tra Date, text goc da mat). Ca thu 2 la ca DUY NHAT
+  // con lai ma regex khong the chua — muon het thi phai dat format cot 巻数 ben CMS
+  // thanh Text, khong phai sua code o day.
   //
-  // 4 ca DA CHUYEN tu 顧客確認 sang nhom XX: 2 o so don le khac 1 (bare-number gio
-  // tra chinh no), va 2 o range/巻目 co duoi ('...巻目', '1~7(7話完結)' kieu) gio
-  // boc duoc so.
+  // Giam tu 13 xuong 12 (2026-09-09): o '4(シーモア限定BOOK)' gio ra '4' nho rule
+  // 'XX(ghi chu)'. Truoc do da giam tu 17 xuong 13 (2026-09-04) nho bare-number tra
+  // chinh no + range co duoi + 巻目.
+  //
+  // Ho dau gach Unicode (U+2010..U+2015, U+2212) them cung ngay KHONG doi con so nao
+  // tren fixtures nay — 0 dong dung chung. No la luoi cho du lieu tuong lai.
   //
   // Con so nay do tren FIXTURES (tools/verify/fixtures), khong phai tren example/*.xlsx.
   // Hai ban chup khac ngay: xlsx cho 1.977 tac pham vao master va 1 o 巻数 trong,
   // fixtures cho 1.976 va 8 o trong. Fixtures moi la thu suite nay chay tren.
-  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1788, 13]);
+  check('phan bo 1 / XX / 顧客確認', [counts['1'], counts.XX, counts['顧客確認']], [175, 1789, 12]);
   // Cột này KHÔNG BAO GIỜ rỗng: nhánh cuối vét cạn mọi thứ còn lại.
   check('khong o nao rong', counts['1'] + counts.XX + counts['顧客確認'], kept.length);
 }

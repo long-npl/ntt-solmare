@@ -461,6 +461,46 @@ function createGas1Trigger() {
 // PROBE — chạy tay trong Apps Script editor để kiểm từng mảnh
 // ==============================================================================
 
+/**
+ * Liệt kê mọi ô 巻数 mà `初回配信巻数` không bóc được số, KÈM KIỂU DỮ LIỆU THẬT của ô.
+ * KHÔNG ghi gì.
+ *
+ * Vì sao cần: hai nguyên nhân trông giống hệt nhau khi nhìn sheet nhưng chữa khác hẳn —
+ * ô còn là TEXT (nếu đáng bóc số thì thêm rule được) và ô đã bị Sheets nuốt thành NGÀY
+ * (text gốc mất, chỉ chữa được bằng cách đặt format cột 巻数 = テキスト rồi gõ lại).
+ * Xem docs/decisions.md #volume-04
+ */
+function probe_dumpUnresolvedVolumes() {
+  var cms = parseCms(readSheetValues(CONFIG.SOURCES.CMS.spreadsheetId,
+    CONFIG.SOURCES.CMS.sheetName));
+  var eatenByDate = [];
+  var stillText = [];
+  var blankCount = 0;
+  cms.forEach(function (record) {
+    if (ruleFirstVolume(record) !== FIRST_VOLUME_CONFIRM) return;
+    if (record.volumes instanceof Date) {
+      eatenByDate.push(String(record.titleName) + '  ->  '
+        + Utilities.formatDate(record.volumes, CONFIG.TRIGGER_TIMEZONE, 'yyyy/MM/dd'));
+      return;
+    }
+    if (normalizeJapaneseText(record.volumes) === '') {
+      blankCount += 1;
+      return;
+    }
+    stillText.push(String(record.titleName) + '  ->  ' + JSON.stringify(String(record.volumes)));
+  });
+
+  Logger.log('巻数 không bóc được số: ' + (eatenByDate.length + stillText.length + blankCount)
+    + ' ô  (bị nuốt thành ngày: ' + eatenByDate.length + ' / còn là text: ' + stillText.length
+    + ' / trống: ' + blankCount + ')');
+  Logger.log('--- ' + eatenByDate.length + ' ô BỊ SHEETS NUỐT THÀNH NGÀY ---');
+  Logger.log('    (regex không chữa được: đặt format cột 巻数 = テキスト rồi gõ lại các ô này)');
+  eatenByDate.forEach(function (line) { Logger.log('  ' + line); });
+  Logger.log('--- ' + stillText.length + ' ô CÒN LÀ TEXT ---');
+  Logger.log('    (ca nào đáng bóc ra số thì báo để thêm rule; số tập nằm trong câu khác thì để nguyên)');
+  stillText.forEach(function (line) { Logger.log('  ' + line); });
+}
+
 /** In layout đã dò được của 顧客作品マスタ. Kỳ vọng: header hàng 15. */
 function probe_readCustomerMasterHeader() {
   var resolved = readMaster(CONFIG.OUTPUTS.CUSTOMER_WORK_MASTER, CUSTOMER_COLUMNS);

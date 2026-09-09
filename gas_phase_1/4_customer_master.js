@@ -59,23 +59,45 @@ var FIRST_VOLUME_BARE = /^(\d+)$/;
 // normalizeJapaneseText() đã tự gộp ~/～/〜 về '~' và -/_full-width về '-'/'_', nhưng
 // KHÔNG đụng tới ー — U+30FC không đổi qua NFKC, nên nó phải có mặt trực tiếp ở đây.
 //
+// U+2010〜U+2015 và U+2212 (hyphen, non-breaking hyphen, figure/en/em dash, horizontal
+// bar, minus) cũng phải có mặt trực tiếp: chúng trông y hệt dấu '-' nhưng NFKC KHÔNG gộp
+// về ASCII, nên trước 2026-09-09 cả 7 ký tự này rơi vào 顧客確認. Ai copy 巻数 từ
+// Word/PDF/mail là ra một trong số đó mà nhìn không phân biệt được.
+//
 // KHÔNG neo $ ở cuối (user chốt 2026-09-04): cho phép có đuôi chữ sau số thứ hai —
 // '1~5(全話一挙配信)' và '1~3巻' giờ bóc ra '5'/'3' thay vì rơi vào 顧客確認. Đảo ngược
 // quyết định cũ "顧客確認 hết, đúng mặt chữ rule". Xem docs/decisions.md #volume-01 #volume-03
-var FIRST_VOLUME_RANGE = /^(\d+)[~\-_ー](\d+)/;
+var FIRST_VOLUME_RANGE = /^(\d+)[~\-_ー‐-―−](\d+)/;
 
 // '5巻目', '5巻目まで', '5巻目(予定)'... -> lấy số đầu, đuôi sau '巻目' không quan trọng.
 // CHỈ khớp đúng '巻目' — '1巻完結' (nghĩa khác hẳn: "trọn bộ 1 tập") và '12話目' ('話目'
 // không phải '巻目') KHÔNG khớp, vẫn rơi vào 顧客確認. Xem docs/decisions.md #volume-03
 var FIRST_VOLUME_MAKI_ME = /^(\d+)巻目/;
 
+// 'XX(ghi chú)' -> lấy XX (user chốt 2026-09-09, đảo quyết định cũ cho riêng hình dạng này).
+// Ngoặc đứng NGAY sau số nghĩa là ghi chú BỔ NGHĨA cho số tập, không phải thay thế nó:
+// đo trên CMS thật, cả 8 dòng dạng này đều vậy — '4(シーモア限定BOOK)' là nhãn sản phẩm, còn
+// '1(初回配信話数確認中)' nói về số CHƯƠNG (話数), khác hẳn cột này là 初回配信巻数, nên tập vẫn là 1.
+//
+// PHẢI hẹp đúng mức này. Nới thành "số đầu + bất kỳ chữ gì" sẽ ghi sai dữ liệu nghiệp vụ:
+// '2025/2/25まで1巻無料' cho ra 2025, '3/27まで1巻無料' cho ra 3 (đúng là 1), '12話目' cho ra
+// số chương. Ngoặc là thứ phân biệt "ghi chú kèm số tập" với "số nằm trong một câu khác".
+// Xem docs/decisions.md #volume-04
+var FIRST_VOLUME_PAREN_NOTE = /^(\d+)\s*\(/;
+
 /**
  * 初回配信巻数 — số đơn lẻ giữ nguyên, 〇〇[ngăn]XX (kể cả có đuôi) lấy XX, XX巻目[...]
- * lấy XX, mọi thứ khác là 顧客確認.
+ * lấy XX, XX(ghi chú) lấy XX, mọi thứ khác là 顧客確認.
  *
- * Nhánh cuối giờ hẹp hơn bản đầu (2026-09-02): chỉ còn giữ 顧客確認 cho giá trị THẬT
- * SỰ mơ hồ — chữ xen giữa số không qua dấu ngăn/巻目 đã biết (vd '1(初回配信話数確認中)',
- * '4(シーモア限定BOOK)'), ô trống, và ô bị Sheets nuốt thành NGÀY. Xem docs/decisions.md #volume-02
+ * Thứ tự 4 nhánh là một phần của quy tắc: khoảng phải xét TRƯỚC ngoặc, vì
+ * '1~5(全話一挙配信)' là khoảng có ghi chú — phải ra 5 (số cuối), không phải 1.
+ *
+ * Nhánh cuối giờ chỉ còn giữ 顧客確認 cho giá trị THẬT SỰ mơ hồ, đo trên CMS thật
+ * (2026-09-09): ô trống; số nằm trong câu khác chứ không phải số tập
+ * ('2025/2/25まで1巻無料', '3/27まで1巻無料'); không bắt đầu bằng số ('P29まで',
+ * 'コミットOK'); số CHƯƠNG chứ không phải số tập ('12話目'); '1巻完結'; và ô bị Sheets nuốt
+ * thành NGÀY — ca cuối này KHÔNG chữa được bằng regex vì text gốc đã mất.
+ * Xem docs/decisions.md #volume-02 #volume-04
  */
 function ruleFirstVolume(record) {
   var value = normalizeJapaneseText(record.volumes);
@@ -85,6 +107,8 @@ function ruleFirstVolume(record) {
   if (range !== null) return range[2];
   var makiMe = FIRST_VOLUME_MAKI_ME.exec(value);
   if (makiMe !== null) return makiMe[1];
+  var parenNote = FIRST_VOLUME_PAREN_NOTE.exec(value);
+  if (parenNote !== null) return parenNote[1];
   return FIRST_VOLUME_CONFIRM;
 }
 
