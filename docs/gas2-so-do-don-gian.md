@@ -92,9 +92,10 @@ Rule ガワ bổ sung 2026-09-16. **`〇` = (媒体 đang 配信中) VÀ (không
 2. `媒体除外マスタ` (`ロゴ有無` × `ジャンル` → `除外媒体`) → loại theo từng tác phẩm. `-` = wildcard.
 3. Qua cả 2 → `〇`, rớt 1 trong 2 → `×`. Không phán định được → **để nguyên ô** (kiểu ghi `条件`).
 
-Cả 2 master nằm trong chính file `【ソル】タイトルマスタ　ガワ作成`. **Chưa điền `spreadsheetId`
-thì 6 cột giữ nguyên** + 1 dòng `設定注意` mỗi lần chạy. Chi tiết (ánh xạ tên media, gộp `YDA`,
-ký tự `⚪︎`/`〇`) ở `docs/3-master-cot-nguon-va-logic.md` §4.13.
+Cả 2 master là 2 tab trong chính file ガワ — **cùng spreadsheetId với nguồn ④ của GAS❶**
+(`出版社別コピーライトマスタ`). Để trống ID là cách TẮT: 6 cột giữ nguyên + 1 dòng `設定注意`
+mỗi lần chạy. Chi tiết (ánh xạ tên media, gộp `YDA`, ký tự `⚪︎`/`〇`) ở
+`docs/3-master-cot-nguon-va-logic.md` §4.13.
 
 ## 6. 5 cột GAS❷ KHÔNG đụng tới
 
@@ -143,7 +144,7 @@ Cả 3 nằm trong **chính spreadsheet `タイトルマスタ`** — chỗ ngư
 | `GAS2警告` | 1 dòng/cảnh báo: giờ, loại, `タイトルNo`, `タイトルID`, `タイトル名`, chi tiết |
 | `GAS2変更詳細` | 1 dòng/cột đã đổi: giờ, `タイトルNo`, `タイトル名`, tên cột, giá trị cũ, giá trị mới |
 
-4 loại cảnh báo và việc phải làm:
+6 loại cảnh báo và việc phải làm:
 
 | Loại | Nghĩa | Làm gì |
 |---|---|---|
@@ -151,6 +152,8 @@ Cả 3 nằm trong **chính spreadsheet `タイトルマスタ`** — chỗ ngư
 | `タイトルNo重複` | 2 dòng 顧客作品マスタ cùng `タイトルNo` (dòng đầu thắng) | Sửa ở 顧客作品マスタ |
 | `コピーライト未登録` | `タイトルNo` không có bên コピーライトマスタ → S/T/AA để rỗng | Xem GAS❶ có bỏ sót tác phẩm không |
 | `孤立行` | Dòng `タイトルマスタ` không còn tương ứng bên 顧客作品マスタ | **GAS❷ không xoá** — người kiểm rồi xoá tay nếu đúng |
+| `設定注意` | Việc của CẤU HÌNH/NGUỒN, không của một tác phẩm: GAS❶ chưa chạy hôm nay, nguồn thiếu cột, 2 master 媒体 chưa cấu hình / có media lạ / trạng thái lẫn lộn, hoặc số tác phẩm bị `×` vì gộp cột `YDA` | Đọc chi tiết trong dòng đó — mỗi ca nói rõ phải sửa ở đâu |
+| `掲出可能媒体判定不可` | Tác phẩm có `③シーモアロゴ判定` không phải `ロゴあり`/`ロゴなし` → cột `掲出可能媒体` bị luật ロゴ chi phối được **giữ nguyên** | Điền `③シーモアロゴ判定` ở nguồn; GAS❷ không đoán (§5) |
 
 Cảnh báo `コピーライト未登録` cũng xuất hiện **một dòng không có タイトルNo** khi
 `コピーライトマスタ` chưa có cột `出版社事前確認` — nghĩa là cột AA đang được giữ nguyên.

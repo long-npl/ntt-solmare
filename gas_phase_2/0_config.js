@@ -18,17 +18,20 @@ var CONFIG = {
       sheetName: 'コピーライトマスタ',
     },
     // NGUỒN ③ + ④ của 6 cột 掲出可能媒体 (rule ガワ 2026-09-16, xem §4.13). Cả 2 là 2 TAB
-    // trong CHÍNH file 【ソル】タイトルマスタ　ガワ作成 -> cùng một spreadsheetId.
+    // trong CHÍNH file ガワ -> BẮT BUỘC cùng một spreadsheetId.
     //
-    // spreadsheetId ĐỂ TRỐNG = CHƯA BẬT: readMediaMasters() trả null, 6 cột giữ nguyên
-    // giá trị đang có, và mỗi lần chạy ghi 1 dòng 設定注意 nhắc việc chưa cấu hình. Điền
-    // ID vào đây là công tắc duy nhất để bật — không phải sửa code ở đâu khác.
+    // ID này KHÔNG mới: đúng file mà GAS❶ đang đọc (và append) tab
+    // 出版社別コピーライトマスタ — xem SOURCES.PUBLISHER_COPYRIGHT trong
+    // gas_phase_1/0_config.js. Đổi ID bên đó thì phải đổi cả ở đây.
+    //
+    // Để TRỐNG = TẮT: readMediaMasters() trả null, 6 cột giữ nguyên giá trị đang có, và
+    // mỗi lần chạy ghi 1 dòng 設定注意. Đó là cách tắt tính năng này mà không sửa code.
     MEDIA_ADFMT_MASTER: {
-      spreadsheetId: '',
+      spreadsheetId: '1FmW8IrpUQKDEdjsWvlLSPDvTKhWwdbEUf_HLWOgHuFM',
       sheetName: '媒体×ADFMTマスタ',
     },
     MEDIA_EXCLUSION_MASTER: {
-      spreadsheetId: '',
+      spreadsheetId: '1FmW8IrpUQKDEdjsWvlLSPDvTKhWwdbEUf_HLWOgHuFM',
       sheetName: '媒体除外マスタ',
     },
   },

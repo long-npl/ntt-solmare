@@ -105,12 +105,14 @@ Ba nguồn ガワ có nêu mà **GAS chưa đọc**:
 
 | Nguồn | Đáng ra cấp | Tình trạng |
 |---|---|---|
-| `媒体×ADFMTマスタ` › `F 横断配信ステータス` | tầng ① của 6 cột `掲出可能媒体` (§4.13) | ⚠️ **code đã có** (GAS❷ NGUỒN ③), chờ `spreadsheetId` — để trống là cả 6 cột giữ nguyên |
-| `媒体除外マスタ` (ロゴ有無 × ジャンル → 除外媒体) | tầng ② của 6 cột `掲出可能媒体` (§4.13) | ⚠️ như trên (GAS❷ NGUỒN ④) |
+| `媒体×ADFMTマスタ` › `F 横断配信ステータス` | tầng ① của 6 cột `掲出可能媒体` (§4.13) | ✅ **đã đọc** — GAS❷ NGUỒN ③ |
+| `媒体除外マスタ` (ロゴ有無 × ジャンル → 除外媒体) | tầng ② của 6 cột `掲出可能媒体` (§4.13) | ✅ như trên — GAS❷ NGUỒN ④ |
 | `【池永社内】配信停止一覧` | `掲載停止日付` (thay TSV?) | ⚠️ ガワ ghi `顧客Google Drive＞配信停止一覧` nhưng chính sheet `仕様整理` của ガワ vẫn để ngỏ "file này là dự kiến dừng hay đã dừng?" — chưa chốt (xem §5) |
 
-Cả 2 master của §4.13 nằm **trong chính file `【ソル】タイトルマスタ　ガワ作成`** (rule mới ghi rõ),
-tức 1 spreadsheetId dùng cho cả hai, 2 tên sheet khác nhau.
+Cả 2 master của §4.13 nằm **trong chính file ガワ** (rule mới ghi rõ), tức 1 spreadsheetId
+dùng cho cả hai, 2 tên sheet khác nhau — và đó là **cùng ID với nguồn ④** ở bảng trên
+(`1FmW8Irp…`), file mà GAS❶ vốn đã đọc + append tab `出版社別コピーライトマスタ`. Không có ID
+mới nào cần xin.
 
 **"Phụ"** = đọc không được (mất quyền / đổi tên sheet / chưa có ID) thì **lần chạy vẫn tiếp
 tục**, cột tương ứng **giữ nguyên giá trị đang có** (không bị xoá), lý do ghi 1 dòng vào
@@ -605,7 +607,7 @@ Nguồn cũng trống thì CHỈ đóng dấu `runAt` khi dòng THẬT SỰ MỚ
 `顧客作品マスタ`, không bịa ngày hôm nay. (Bản cài đầu 2026-09-08 đóng dấu `runAt` cho MỌI ô
 đích trống bất kể mới/cũ — bug, đã sửa; xem `docs/decisions.md` #material-shared-02.)
 
-### 4.13 6 cột `掲出可能媒体` (`GDN(CM)` → `X`) — cổng ① rồi lọc ② ✅ (chờ spreadsheetId)
+### 4.13 6 cột `掲出可能媒体` (`GDN(CM)` → `X`) — cổng ① rồi lọc ② ✅
 Rule ガワ bổ sung **2026-09-16**:
 
 > ・データ取得先　※社内管理マスタ
@@ -667,7 +669,7 @@ Tên media ở nguồn mà **không khớp cột nào** (gõ sai, media mới) �
 #### Không phán định được thì KHÔNG ghi
 Kiểu ghi là **`条件`**, không phải `上書`: hàm tính ra `''` khi không đủ cơ sở, và `条件` giữ
 nguyên ô đang có. Ba ca ra `''`:
-1. Chưa cấu hình `spreadsheetId` của 2 master (xem §5) → cả 6 cột giữ nguyên + 1 `設定注意`.
+1. `spreadsheetId` để trống (cách TẮT tính năng này) → cả 6 cột giữ nguyên + 1 `設定注意`.
 2. Đọc 1 trong 2 master không được → như trên (nguồn **phụ**, không làm hỏng lần chạy).
 3. Dòng ② cần xét `ロゴ有無` nhưng tác phẩm chưa có phán định (`未判定`/trống) → cột bị dòng đó
    chi phối để nguyên + 1 cảnh báo. Đúng nhánh 4 của `LP制作` (§4.5): không bịa `〇`.
@@ -766,7 +768,7 @@ buildRegulationIndex(). Xem `docs/superpowers/specs/2026-09-08-gawa-alignment-de
 | # | Cột | Câu hỏi | Chặn cái gì |
 |---|---|---|---|
 | 1 | `掲載停止日付` | ガワ ghi取得先 là `顧客Google Drive＞配信停止一覧`, nhưng chính sheet `仕様整理` của ガワ để ngỏ "file này là **dự kiến** dừng hay **đã** dừng, còn tác phẩm dừng trong quá khứ thì sao?". Vẫn giữ TSV `multi_title_*` hay đổi sang spreadsheet `【池永社内】配信停止一覧`? | Nếu đổi thì phải viết lại NGUỒN ⑤ |
-| 2 | 6 cột `掲出可能媒体` | **spreadsheetId + quyền đọc** file `【ソル】タイトルマスタ　ガワ作成` (chứa cả 2 master của §4.13). Chưa có thì code vẫn chạy nhưng 6 cột giữ nguyên | 6 cột (đã code) |
+| 2 | 6 cột `掲出可能媒体` | **Quyền đọc** file ガワ (`1FmW8Irp…`) cho account chạy GAS❷. ID đã điền (dùng chung nguồn ④ của GAS❶), nhưng GAS❷ chạy dưới project khác — chưa có quyền thì mỗi lần chạy ghi 1 dòng エラー và 6 cột giữ nguyên | 6 cột (đã code) |
 | 2b | 6 cột `掲出可能媒体` | 3 điểm §4.13 đã **chọn mặc định** để không chặn, cần xác nhận: ① 配信中 = "ít nhất 1 dòng `⚪︎`" (không phải tất cả); ② `YDA` gộp bảo thủ (một mặt bị loại → cả cột `×`); ③ chưa phán định `ロゴ` → giữ nguyên ô | hướng của 6 cột đó |
 | 2c | 6 cột `掲出可能媒体` | 見本 **mâu thuẫn** rule ở 2 chỗ: hàng 17 là `ロゴなし`+`女性` → theo ② phải `GDN(CM) = ×` mà 見本 ghi `〇`; và `YDA = ×` trong khi `女性` không khớp `TL`. Cả cột `X` cũng ghi `〇` trong khi ① nói `×`. Xác nhận 見本 là dữ liệu nhập tay cũ | niềm tin vào 見本 |
 | 3 | `タイトルキー` | `制御シート` (hàng 13) hay `GASで更新` (ghi chú cùng cột)? | 1 cột |

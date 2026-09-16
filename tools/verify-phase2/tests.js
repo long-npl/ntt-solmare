@@ -340,6 +340,25 @@ function test_mediaColumnTable(ctx) {
     src.TITLE_REQUIRED_HEADERS.length, 30);
 }
 
+function test_mediaSourceConfig(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var adfmt = src.CONFIG.SOURCES.MEDIA_ADFMT_MASTER;
+  var exclusion = src.CONFIG.SOURCES.MEDIA_EXCLUSION_MASTER;
+
+  // ID của file ガワ — CÙNG file mà GAS❶ đọc tab 出版社別コピーライトマスタ
+  // (gas_phase_1/0_config.js SOURCES.PUBLISHER_COPYRIGHT). 2 master của §4.13 là 2 TAB
+  // trong đó, nên 2 entry này phải dùng ĐÚNG MỘT spreadsheetId: điền lệch nhau nghĩa là
+  // tầng ① và tầng ② đang đọc 2 file khác nhau mà không có gì báo.
+  check('2 master 媒体 dung cung 1 spreadsheetId (2 tab cua ガワ)',
+    adfmt.spreadsheetId, exclusion.spreadsheetId);
+  check('spreadsheetId cua ガワ da duoc dien',
+    adfmt.spreadsheetId, '1FmW8IrpUQKDEdjsWvlLSPDvTKhWwdbEUf_HLWOgHuFM');
+  check('2 ten sheet dung nhu tren ガワ',
+    [adfmt.sheetName, exclusion.sheetName], ['媒体×ADFMTマスタ', '媒体除外マスタ']);
+}
+
 function test_mediaNameKey(ctx) {
   var src = ctx.src;
   var check = ctx.check;
@@ -524,7 +543,7 @@ module.exports = {
   unit: [test_titleColumns, test_titleWriteModes, test_customerSourceHeaders,
     test_readsFirstVolume, test_titleRecordToRow,
     test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared, test_identityRefreshTitleMaster,
-    test_mediaColumnTable, test_mediaNameKey, test_distributingMark, test_parseMediaMasters,
+    test_mediaColumnTable, test_mediaSourceConfig, test_mediaNameKey, test_distributingMark, test_parseMediaMasters,
     test_mediaAvailability, test_mediaValuesForRecord, test_titleRecordToRowMedia],
   data: [],
 };
