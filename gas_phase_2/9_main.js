@@ -15,7 +15,8 @@ var CHANGE_DETAIL_SHEET_NAME = 'GAS2変更詳細';
 // không phải xoá tab bằng tay. Cột mới chèn TRƯỚC エラー để エラー luôn ở ngoài cùng bên
 // phải, chỗ mắt tìm nó.
 var LOG_HEADER = ['開始時刻', '終了時刻', '追加行数', '更新行数',
-  'タイトルNo欠落', 'タイトルNo重複', 'コピーライト未登録', '孤立行', '設定注意', 'エラー'];
+  'タイトルNo欠落', 'タイトルNo重複', 'コピーライト未登録', '孤立行', '設定注意',
+  '掲出可能媒体判定不可', 'エラー'];
 var WARNING_HEADER = ['実行時刻', '種別', 'タイトルNo', 'タイトルID', 'タイトル名', '詳細'];
 var CHANGE_DETAIL_HEADER = ['実行時刻', 'タイトルNo', 'タイトル名', '項目', '変更前', '変更後'];
 
@@ -60,6 +61,7 @@ function appendLogEntry(entry) {
     entry.noCopyrightCount || 0,
     entry.orphanCount || 0,
     entry.configNoticeCount || 0,
+    entry.mediaUndecidedCount || 0,
     (entry.errors || []).join(' / '),
   ]);
 }
@@ -173,12 +175,61 @@ function runGas2() {
       errors.push('コピーライトマスタ đọc không được (3 cột lấy từ nó giữ nguyên): ' + String(copyrightError));
     }
 
+    // Nguồn ③ + ④ (6 cột 掲出可能媒体). Cùng dạng degrade với コピーライトマスタ: hỏng thì
+    // mediaAvailability = null -> 6 cột đó giữ nguyên, lần chạy vẫn đi tiếp.
+    var mediaAvailability = null;
+    try {
+      var mediaMasters = readMediaMasters();
+      if (mediaMasters === null) {
+        warnings.push({
+          runAt: startedAt, kind: WARNING_KIND_CONFIG,
+          titleNo: '', titleId: '', titleName: '',
+          detail: '媒体×ADFMTマスタ / 媒体除外マスタ の spreadsheetId が未設定です — '
+            + '掲出可能媒体 6列（AB〜AG）は既存値のまま。CONFIG.SOURCES に ID を入れると有効になります。',
+        });
+      } else {
+        mediaAvailability = buildMediaAvailability(mediaMasters);
+        // 3 điều phải nói ra, không được im lặng: media lẫn lộn trạng thái (chỗ mà quy
+        // ước "ít nhất 1 dòng 〇" khác với "tất cả"), và tên media ở 2 master mà không
+        // khớp cột nào (gõ sai / media mới -> luật của nó rơi vào hư không).
+        if (mediaAvailability.mixedMedia.length > 0) {
+          warnings.push({
+            runAt: startedAt, kind: WARNING_KIND_CONFIG,
+            titleNo: '', titleId: '', titleName: '',
+            detail: '媒体×ADFMTマスタ で 横断配信ステータス が行ごとに混在している媒体: '
+              + mediaAvailability.mixedMedia.join('・')
+              + ' — 「1行でも〇なら配信中」と解釈しました。',
+          });
+        }
+        if (mediaAvailability.unknownMedia.length > 0) {
+          warnings.push({
+            runAt: startedAt, kind: WARNING_KIND_CONFIG,
+            titleNo: '', titleId: '', titleName: '',
+            detail: '媒体×ADFMTマスタ の媒体名が タイトルマスタ の列に一致しません: '
+              + mediaAvailability.unknownMedia.join('・') + ' — この媒体は無視されました。',
+          });
+        }
+        if (mediaAvailability.unknownExcluded.length > 0) {
+          warnings.push({
+            runAt: startedAt, kind: WARNING_KIND_CONFIG,
+            titleNo: '', titleId: '', titleName: '',
+            detail: '媒体除外マスタ の 除外媒体 が タイトルマスタ の列に一致しません: '
+              + mediaAvailability.unknownExcluded.join('・') + ' — この除外ルールは適用されていません。',
+          });
+        }
+      }
+    } catch (mediaError) {
+      errors.push('媒体×ADFMTマスタ / 媒体除外マスタ đọc không được (6 cột 掲出可能媒体 giữ nguyên): '
+        + String(mediaError));
+    }
+
     var titleMaster = readTitleMaster();
     var result = diffTitleMaster({
       customerRecords: customerRecords,
       copyrightLookup: buildCopyrightLookup(copyrightRecords),
       copyrightAvailable: copyrightAvailable,
       preConfirmationAvailable: preConfirmationAvailable,
+      mediaAvailability: mediaAvailability,
       existing: titleMaster.rows,
       headerIndex: titleMaster.headerIndex,
       columnCount: titleMaster.columnCount,
@@ -208,6 +259,7 @@ function runGas2() {
       duplicateNoCount: countWarnings(warnings, WARNING_KIND_DUPLICATE_NO),
       noCopyrightCount: countWarnings(warnings, WARNING_KIND_NO_COPYRIGHT),
       configNoticeCount: countWarnings(warnings, WARNING_KIND_CONFIG),
+      mediaUndecidedCount: countWarnings(warnings, WARNING_KIND_MEDIA_UNDECIDED),
       orphanCount: countWarnings(warnings, WARNING_KIND_ORPHAN),
       errors: errors,
     });
@@ -293,6 +345,34 @@ function probe_readCopyrightMaster() {
 }
 
 /**
+ * Xác nhận 2 master của 6 cột 掲出可能媒体 đọc được và rule ra đúng thứ mình nghĩ.
+ * Chạy hàm này TRƯỚC khi điền spreadsheetId vào CONFIG cho lần chạy thật.
+ * @returns {void}
+ */
+function probe_readMediaMasters() {
+  var masters = readMediaMasters();
+  if (masters === null) {
+    Logger.log('CHƯA CẤU HÌNH spreadsheetId — 6 cột 掲出可能媒体 đang giữ nguyên giá trị trên sheet.');
+    return;
+  }
+  Logger.log('媒体×ADFMTマスタ: ' + masters.adfmtRecords.length + ' dòng');
+  Logger.log('媒体除外マスタ: ' + masters.exclusionRecords.length + ' dòng');
+  var availability = buildMediaAvailability(masters);
+  Object.keys(availability.active).forEach(function (key) {
+    Logger.log('  ' + key + ' -> ' + (availability.active[key] ? '配信中' : '配信していない'));
+  });
+  Logger.log('trạng thái lẫn lộn: ' + JSON.stringify(availability.mixedMedia));
+  Logger.log('tên media không khớp cột: ' + JSON.stringify(availability.unknownMedia)
+    + ' / ' + JSON.stringify(availability.unknownExcluded));
+  // 2 tác phẩm mẫu để đọc bằng mắt: 1 ロゴあり thường, 1 TL (ca gộp YDA).
+  [{ logoJudgement: 'ロゴなし', genre: '女性' }, { logoJudgement: 'ロゴあり', genre: 'TL' }]
+    .forEach(function (sample) {
+      Logger.log(sample.logoJudgement + ' + ' + sample.genre + ' -> '
+        + JSON.stringify(mediaValuesFor(sample, availability).values));
+    });
+}
+
+/**
  * Chạy trọn vẹn phần TÍNH TOÁN của một lần chạy rồi in kết quả — KHÔNG ghi gì lên sheet,
  * không ghi cả log.
  * @returns {void}
@@ -301,6 +381,7 @@ function probe_dryRunDiff() {
   var runAt = new Date();
   var customer = readCustomerMaster();
   var copyright = readCopyrightMaster();
+  var mediaMasters = readMediaMasters();
   var titleMaster = readTitleMaster();
   // CỐ TÌNH bỏ qua guard chạy-sớm: probe này để xem diff sẽ ra gì, và câu hỏi đó vẫn
   // đáng trả lời kể cả khi GAS❶ chưa chạy hôm nay. runGas2() mới là chỗ guard chặn.
@@ -309,6 +390,7 @@ function probe_dryRunDiff() {
     copyrightLookup: buildCopyrightLookup(copyright.records),
     copyrightAvailable: true,
     preConfirmationAvailable: copyright.hasPreConfirmation,
+    mediaAvailability: mediaMasters === null ? null : buildMediaAvailability(mediaMasters),
     existing: titleMaster.rows,
     headerIndex: titleMaster.headerIndex,
     columnCount: titleMaster.columnCount,

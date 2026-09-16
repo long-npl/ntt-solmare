@@ -109,6 +109,59 @@ function parseCopyrightMasterRows(rawRows) {
 }
 
 
+// Cot BAT BUOC tren 媒体×ADFMTマスタ (NGUON ③) va 媒体除外マスタ (NGUON ④). Ca 2 la
+// nguon PHU: doc khong duoc -> 6 cot 掲出可能媒体 giu nguyen, van chay tiep.
+// ADFMT khong nam trong danh sach du no la cot thuc: GAS❷ khong dung no (no cap ADFMT
+// cho STEP3), va moi ten khong dung den trong danh sach bat buoc chi them mot ngoi no.
+var MEDIA_ADFMT_REQUIRED_HEADERS = ['媒体名', '横断配信ステータス'];
+var MEDIA_EXCLUSION_REQUIRED_HEADERS = ['ロゴ有無', 'ジャンル', '除外媒体'];
+
+/**
+ * Đọc 媒体×ADFMTマスタ thành record. 1 dòng = 1 cặp media × ADFMT, nên 1 media có
+ * nhiều dòng — việc gộp là của buildMediaAvailability() (5_media.js).
+ * @param {Array<Array<*>>} rawRows
+ * @returns {Array<{mediaName: *, crossStatus: *}>}
+ */
+function parseMediaAdfmtRows(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, MEDIA_ADFMT_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var records = [];
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
+    var row = rawRows[i];
+    if (!row) continue;
+    if (normalizeJapaneseText(row[col(idx, '媒体名')]) === '') continue;
+    records.push({
+      mediaName: row[col(idx, '媒体名')],
+      crossStatus: row[col(idx, '横断配信ステータス')],
+    });
+  }
+  return records;
+}
+
+/**
+ * Đọc 媒体除外マスタ thành record. Lọc dòng theo 除外媒体: dòng không nêu media nào thì
+ * không loại được gì (ロゴ有無/ジャンル đều có thể là `-`, nên không dùng làm khoá dòng).
+ * @param {Array<Array<*>>} rawRows
+ * @returns {Array<{logo: *, genre: *, excludedMedia: *}>}
+ */
+function parseMediaExclusionRows(rawRows) {
+  var resolved = resolveHeaderIndex(rawRows, MEDIA_EXCLUSION_REQUIRED_HEADERS);
+  var idx = resolved.headerIndex;
+  var records = [];
+  for (var i = resolved.headerRowIndex + 1; i < rawRows.length; i++) {
+    var row = rawRows[i];
+    if (!row) continue;
+    if (normalizeJapaneseText(row[col(idx, '除外媒体')]) === '') continue;
+    records.push({
+      logo: row[col(idx, 'ロゴ有無')],
+      genre: row[col(idx, 'ジャンル')],
+      excludedMedia: row[col(idx, '除外媒体')],
+    });
+  }
+  return records;
+}
+
+
 // ==============================================================================
 // ĐỌC / GHI SHEET
 // ==============================================================================
@@ -134,6 +187,25 @@ function readCustomerMaster() {
 function readCopyrightMaster() {
   var cfg = CONFIG.SOURCES.COPYRIGHT_MASTER;
   return parseCopyrightMasterRows(readSheetValues(cfg.spreadsheetId, cfg.sheetName));
+}
+
+/**
+ * Đọc 2 master của 6 cột 掲出可能媒体. Nguồn PHỤ — bên gọi bọc try/catch.
+ *
+ * @returns {{adfmtRecords: Array<object>, exclusionRecords: Array<object>}|null}
+ *   null = CHƯA CẤU HÌNH spreadsheetId. Phải phân biệt với "đọc lỗi": chưa cấu hình là
+ *   trạng thái chờ team cấp ID (1 dòng 設定注意), còn đọc lỗi là sự cố (1 dòng エラー).
+ */
+function readMediaMasters() {
+  var adfmtCfg = CONFIG.SOURCES.MEDIA_ADFMT_MASTER;
+  var exclusionCfg = CONFIG.SOURCES.MEDIA_EXCLUSION_MASTER;
+  if (!adfmtCfg.spreadsheetId || !exclusionCfg.spreadsheetId) return null;
+  return {
+    adfmtRecords: parseMediaAdfmtRows(
+      readSheetValues(adfmtCfg.spreadsheetId, adfmtCfg.sheetName)),
+    exclusionRecords: parseMediaExclusionRows(
+      readSheetValues(exclusionCfg.spreadsheetId, exclusionCfg.sheetName)),
+  };
 }
 
 /**

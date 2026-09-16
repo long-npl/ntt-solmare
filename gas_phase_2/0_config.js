@@ -17,6 +17,20 @@ var CONFIG = {
       spreadsheetId: '1lGybYJHGeYy7Lzu_8aK9I4DokVLolkBGO-vaVoeO_Dc',
       sheetName: 'コピーライトマスタ',
     },
+    // NGUỒN ③ + ④ của 6 cột 掲出可能媒体 (rule ガワ 2026-09-16, xem §4.13). Cả 2 là 2 TAB
+    // trong CHÍNH file 【ソル】タイトルマスタ　ガワ作成 -> cùng một spreadsheetId.
+    //
+    // spreadsheetId ĐỂ TRỐNG = CHƯA BẬT: readMediaMasters() trả null, 6 cột giữ nguyên
+    // giá trị đang có, và mỗi lần chạy ghi 1 dòng 設定注意 nhắc việc chưa cấu hình. Điền
+    // ID vào đây là công tắc duy nhất để bật — không phải sửa code ở đâu khác.
+    MEDIA_ADFMT_MASTER: {
+      spreadsheetId: '',
+      sheetName: '媒体×ADFMTマスタ',
+    },
+    MEDIA_EXCLUSION_MASTER: {
+      spreadsheetId: '',
+      sheetName: '媒体除外マスタ',
+    },
   },
   OUTPUTS: {
     TITLE_MASTER: {

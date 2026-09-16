@@ -20,6 +20,7 @@ const PURE_FILES = [
   'gas_phase_2/0_config.js',
   'gas_phase_2/3_sources.js',
   'gas_phase_2/4_title_master.js',
+  'gas_phase_2/5_media.js',
 
 
 

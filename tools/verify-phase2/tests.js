@@ -7,7 +7,7 @@ function test_titleColumns(ctx) {
   var src = ctx.src;
   var check = ctx.check;
 
-  check('25 cot (24 cu + 初回配信巻数)', src.TITLE_COLUMNS.length, 25);
+  check('31 cot (25 cu + 6 cot 掲出可能媒体)', src.TITLE_COLUMNS.length, 31);
   check('moi cot co du header + field + from + write',
     src.TITLE_COLUMNS.filter(function (c) {
       return !c.header || !c.field || !c.from || !c.write; }).length, 0);
@@ -33,9 +33,9 @@ function test_titleColumns(ctx) {
   // nó sẽ làm cả lần chạy throw.
   check('出版社事前確認 la cot tuy chon', byField.preConfirmation.optional, true);
   // Chi con 1 cot tuy chon: 出版社事前確認 (co the chua ton tai ben nguon).
-  check('requiredHeaders bo cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 24);
+  check('requiredHeaders bo cot tuy chon', src.requiredHeaders(src.TITLE_COLUMNS).length, 30);
   check('TITLE_REQUIRED_HEADERS ton trong optional (khong map thang)',
-    src.TITLE_REQUIRED_HEADERS.length, 24);
+    src.TITLE_REQUIRED_HEADERS.length, 30);
   check('khong cot optional nao lot vao TITLE_REQUIRED_HEADERS',
     src.TITLE_COLUMNS.filter(function (c) {
       return c.optional && src.TITLE_REQUIRED_HEADERS.indexOf(c.header) >= 0; }).length, 0);
@@ -43,9 +43,9 @@ function test_titleColumns(ctx) {
   check('dung 1 cot rowKey', src.TITLE_COLUMNS.filter(function (c) { return c.rowKey; }).length, 1);
   check('cot rowKey la タイトルNo', src.rowKeyColumn(src.TITLE_COLUMNS).header, 'タイトルNo');
   check('khong header nao trung nhau',
-    new Set(src.TITLE_COLUMNS.map(function (c) { return c.header; })).size, 25);
+    new Set(src.TITLE_COLUMNS.map(function (c) { return c.header; })).size, 31);
   check('khong field nao trung nhau',
-    new Set(src.TITLE_COLUMNS.map(function (c) { return c.field; })).size, 25);
+    new Set(src.TITLE_COLUMNS.map(function (c) { return c.field; })).size, 31);
 
   // 3 cột lấy từ コピーライトマスタ — nguồn PHỤ, đọc lỗi thì giữ nguyên.
   check('dung 3 cot tu コピーライトマスタ',
@@ -283,9 +283,248 @@ function test_identityRefreshTitleMaster(ctx) {
       return c.field === 'タイトル名' || c.field === 'タイトルID'; }).length, 2);
 }
 
+// ==============================================================================
+// 6 cột 掲出可能媒体 — rule ガワ 2026-09-16, xem docs/3-master-cot-nguon-va-logic.md §4.13
+// ==============================================================================
+
+// Layout thật của 媒体×ADFMTマスタ: khối ghi chú ở trên, header hàng 14, dữ liệu từ 15.
+var ADFMT_SHEET = [
+  ['', '▮媒体×ADFMTマスタ'],
+  ['', '[2]マスタエリア'],
+  ['', '手動入力', '手動入力', '手動入力', '手動入力', '手動入力/選択'],
+  ['', '媒体名', 'ADFMT', 'CR名記載キー', 'プレイスメント制限', '横断配信ステータス'],
+  ['', 'GDN（CM）', 'GIF_672×560', 'GIF672×560', '', '⚪︎'],
+  ['', 'デマジェン', '静止画_600×600', '600×600', '', '⚪︎'],
+  ['', 'YDA（Y面）', '静止画_600×600', '600×600', '', '⚪︎'],
+  ['', 'YDA（LINE面）', 'ここ営業が確認', 'ここ営業が確認', '', '⚪︎'],
+  ['', 'Meta', '動画_1080×1920', 'M1080×1920', '', '⚪︎'],
+  ['', 'Tiktok', '動画_1080×1920', 'M1080×1920', '', '⚪︎'],
+  ['', 'X', '静止画_カルーセル_1080×1080', 'C1080×1080', '', '×'],
+  ['', 'X', '動画_1080×1920', 'M1080×1920', '', '×'],
+];
+
+// Layout thật của 媒体除外マスタ: header hàng 14, và đúng 2 dòng dữ liệu.
+var EXCLUSION_SHEET = [
+  ['', '▮媒体除外マスタ'],
+  ['', '[2]マスタエリア'],
+  ['', '手動入力', '手動入力', '手動入力/選択'],
+  ['', 'ロゴ有無', 'ジャンル', '除外媒体'],
+  ['', '-', 'TL', 'YDA（LINE面）'],
+  ['', 'ロゴ無し', '-', 'GDN（CM）'],
+];
+
+function test_mediaColumnTable(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  check('31 cot (25 cu + 6 cot 掲出可能媒体)', src.TITLE_COLUMNS.length, 31);
+
+  var media = src.TITLE_COLUMNS.filter(function (c) { return c.from === 'media'; });
+  check('6 cot lay tu 2 master 媒体',
+    media.map(function (c) { return c.header; }),
+    ['GDN(CM)', 'デマジェン', 'YDA', 'Meta', 'TikTok', 'X']);
+  // 条件 chứ KHÔNG phải 上書: tính ra rỗng (chưa cấu hình / đọc lỗi / chưa phán định
+  // được) phải GIỮ NGUYÊN ô người gõ, không xoá trắng 6 cột trên 8.000 dòng.
+  check('6 cot deu la 条件',
+    media.filter(function (c) { return c.write === '条件'; }).length, 6);
+  check('条件 -> compareFor giu nguyen o khi gia tri moi rong',
+    src.compareFor(media[0])('〇', ''), true);
+  check('条件 -> gia tri moi khac thi ghi de',
+    src.compareFor(media[0])('〇', '×'), false);
+
+  // 4 cột 新規媒体 TRÙNG TÊN nhau -> buildHeaderIndex() chỉ thấy cột trái nhất.
+  // Đưa vào bảng là ghi 4 cột vào cùng 1 ô. Xem §4.13.
+  check('KHONG dua 新規媒体 vao bang cot',
+    src.TITLE_COLUMNS.filter(function (c) { return c.header === '新規媒体'; }).length, 0);
+  check('6 cot 媒体 khong phai optional',
+    src.TITLE_REQUIRED_HEADERS.length, 30);
+}
+
+function test_mediaNameKey(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  // NFKC gộp được ngoặc full-width, nhưng KHÔNG gộp hoa/thường.
+  check('ngoac full-width == half-width',
+    src.mediaNameKey('GDN（CM）'), src.mediaNameKey('GDN(CM)'));
+  check('Tiktok == TikTok', src.mediaNameKey('Tiktok'), src.mediaNameKey('TikTok'));
+  check('YDA（Y面） KHAC YDA',
+    src.mediaNameKey('YDA（Y面）') === src.mediaNameKey('YDA'), false);
+  check('khoang trang 2 dau bi bo', src.mediaNameKey(' Meta '), src.mediaNameKey('Meta'));
+}
+
+function test_distributingMark(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  // Nguồn ghi ⚪︎ = U+26AA + U+FE0E; đích ghi 〇 = U+3007. NFKC không gộp họ ký tự này.
+  check('⚪︎ (U+26AA + variation selector) la dang chay',
+    src.isDistributingMark('⚪︎'), true);
+  check('cac mat chu vong tron khac cung tinh',
+    ['⚪', '◯', '○', '〇', '◎'].map(src.isDistributingMark),
+    [true, true, true, true, true]);
+  check('× khong phai dang chay', src.isDistributingMark('×'), false);
+  check('o trong / gach ngang khong phai dang chay',
+    [src.isDistributingMark(''), src.isDistributingMark('-')], [false, false]);
+}
+
+function test_parseMediaMasters(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var adfmt = src.parseMediaAdfmtRows(ADFMT_SHEET);
+  check('doc du 8 dong media×ADFMT', adfmt.length, 8);
+  check('dong dau: ten media + trang thai',
+    [adfmt[0].mediaName, adfmt[0].crossStatus], ['GDN（CM）', '⚪︎']);
+
+  var exclusion = src.parseMediaExclusionRows(EXCLUSION_SHEET);
+  check('doc du 2 dong 媒体除外', exclusion.length, 2);
+  check('dong TL -> loai YDA（LINE面）',
+    [exclusion[0].logo, exclusion[0].genre, exclusion[0].excludedMedia],
+    ['-', 'TL', 'YDA（LINE面）']);
+}
+
+function test_mediaAvailability(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var availability = src.buildMediaAvailability({
+    adfmtRecords: src.parseMediaAdfmtRows(ADFMT_SHEET),
+    exclusionRecords: src.parseMediaExclusionRows(EXCLUSION_SHEET),
+  });
+
+  check('X tat ca dong deu × -> khong 配信中',
+    availability.active[src.mediaNameKey('X')], false);
+  check('5 media con lai deu 配信中',
+    ['GDN（CM）', 'デマジェン', 'YDA（Y面）', 'YDA（LINE面）', 'Meta', 'Tiktok']
+      .map(function (name) { return availability.active[src.mediaNameKey(name)]; }),
+    [true, true, true, true, true, true]);
+  check('khong media nao lan lon trang thai', availability.mixedMedia, []);
+  check('moi ten media o nguon deu khop 1 cot', availability.unknownMedia, []);
+  check('2 luat loai duoc doc', availability.rules.length, 2);
+
+  // Media có dòng lẫn lộn ⚪︎/× vẫn tính 配信中 (ít nhất 1 dòng chạy) NHƯNG phải nêu tên
+  // ra: đó đúng là ca mà "ít nhất 1" và "tất cả" cho kết quả khác nhau.
+  var mixedSheet = ADFMT_SHEET.concat([['', 'X', '動画_1080×1350', 'M1080×1350', '', '⚪︎']]);
+  var mixed = src.buildMediaAvailability({
+    adfmtRecords: src.parseMediaAdfmtRows(mixedSheet),
+    exclusionRecords: [],
+  });
+  check('media lan lon -> van 配信中', mixed.active[src.mediaNameKey('X')], true);
+  check('media lan lon -> bao ten ra', mixed.mixedMedia, ['X']);
+
+  // Tên media không khớp cột nào (gõ sai / media mới) phải nói ra, không im lặng.
+  var unknown = src.buildMediaAvailability({
+    adfmtRecords: [{ mediaName: 'LINE広告', crossStatus: '⚪︎' }],
+    exclusionRecords: [{ logo: '-', genre: '-', excludedMedia: 'Pinterest' }],
+  });
+  check('ten media la o ① -> bao ra', unknown.unknownMedia, ['LINE広告']);
+  check('ten media la o ② -> bao ra', unknown.unknownExcluded, ['Pinterest']);
+}
+
+function test_mediaValuesForRecord(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var availability = src.buildMediaAvailability({
+    adfmtRecords: src.parseMediaAdfmtRows(ADFMT_SHEET),
+    exclusionRecords: src.parseMediaExclusionRows(EXCLUSION_SHEET),
+  });
+  function values(logoJudgement, genre) {
+    return src.mediaValuesFor({ logoJudgement: logoJudgement, genre: genre }, availability);
+  }
+  var ORDER = ['mediaGdnCm', 'mediaDemagen', 'mediaYda', 'mediaMeta', 'mediaTiktok', 'mediaX'];
+  function row(result) {
+    return ORDER.map(function (field) { return result.values[field]; });
+  }
+
+  // ロゴあり + 少女: không luật nào khớp -> chỉ tầng ① quyết định. X là × vì ① nói ×.
+  check('ロゴあり + 少女 -> 〇 het, tru X',
+    row(values('ロゴあり', '少女')), ['〇', '〇', '〇', '〇', '〇', '×']);
+
+  // ロゴなし khớp luật 2 (ロゴ無し kanji bên master) -> GDN(CM) bị loại.
+  check('ロゴなし -> GDN(CM) thanh ×',
+    row(values('ロゴなし', '女性')), ['×', '〇', '〇', '〇', '〇', '×']);
+
+  // ジャンル TL khớp luật 1 -> loại YDA（LINE面）; cột YDA gộp 2 mặt theo hướng BẢO THỦ.
+  check('ジャンル TL -> YDA thanh × (gop bao thu)',
+    row(values('ロゴあり', 'TL')), ['〇', '〇', '×', '〇', '〇', '×']);
+  check('khop TIEN TO nhu §4.5: TLコミック cung bi loai',
+    row(values('ロゴあり', 'TLコミック')), ['〇', '〇', '×', '〇', '〇', '×']);
+  check('ghi ra so tac pham bi × chi vi 1 mat cua YDA',
+    values('ロゴあり', 'TL').ydaSingleFaceExcluded, true);
+  check('女性 khong khop tien to TL', values('ロゴあり', '女性').ydaSingleFaceExcluded, false);
+
+  // Chưa phán định ロゴ: cột do luật ロゴ chi phối phải ĐỂ TRỐNG (条件 giữ nguyên ô),
+  // các cột khác vẫn phán định bình thường. Đúng nhánh 4 của LP制作 §4.5.
+  var undecided = values('', '女性');
+  check('ロゴ chua phan dinh -> GDN(CM) de trong, cot khac van tinh',
+    row(undecided), ['', '〇', '〇', '〇', '〇', '×']);
+  check('neu ten cot khong phan dinh duoc de canh bao',
+    undecided.undecided, ['GDN(CM)']);
+  check('未判定 cung tinh la chua phan dinh',
+    row(values('未判定', '女性'))[0], '');
+
+  // Chưa cấu hình / đọc nguồn lỗi -> availability null -> 6 cột đều rỗng.
+  check('khong co availability -> 6 cot deu rong',
+    row(src.mediaValuesFor({ logoJudgement: 'ロゴあり', genre: '少女' }, null)),
+    ['', '', '', '', '', '']);
+}
+
+function test_titleRecordToRowMedia(ctx) {
+  var src = ctx.src;
+  var check = ctx.check;
+
+  var headerRow = [''].concat(src.requiredHeaders(src.TITLE_COLUMNS)).concat(['新規媒体']);
+  var headerIndex = src.buildHeaderIndex(headerRow);
+  var width = headerRow.length;
+  function at(row, header) { return row[src.col(headerIndex, header)]; }
+
+  var record = { titleNo: 7, titleName: 'A', logoJudgement: 'ロゴなし', genre: 'TL' };
+  var availability = src.buildMediaAvailability({
+    adfmtRecords: src.parseMediaAdfmtRows(ADFMT_SHEET),
+    exclusionRecords: src.parseMediaExclusionRows(EXCLUSION_SHEET),
+  });
+
+  var prev = new Array(width).fill('');
+  prev[src.col(headerIndex, 'GDN(CM)')] = '〇';
+  prev[src.col(headerIndex, 'X')] = '〇';
+  prev[src.col(headerIndex, '新規媒体')] = '-';
+
+  var row = src.titleRecordToRow({
+    record: record, copyright: null, copyrightAvailable: false,
+    preConfirmationAvailable: false, headerIndex: headerIndex, columnCount: width,
+    runAt: new Date(2026, 8, 16), previousRow: prev,
+    mediaValues: src.mediaValuesFor(record, availability).values,
+  });
+  check('ロゴなし -> GDN(CM) bi ghi de thanh ×', at(row, 'GDN(CM)'), '×');
+  check('① noi × -> cot X thanh ×', at(row, 'X'), '×');
+  check('TL -> YDA thanh ×', at(row, 'YDA'), '×');
+  check('cot 新規媒体 nguoi go tay van con', at(row, '新規媒体'), '-');
+
+  // Không có mediaValues (chưa cấu hình / nguồn lỗi): 6 cột giữ nguyên, KHÔNG xoá.
+  var kept = src.titleRecordToRow({
+    record: record, copyright: null, copyrightAvailable: false,
+    preConfirmationAvailable: false, headerIndex: headerIndex, columnCount: width,
+    runAt: new Date(2026, 8, 16), previousRow: prev,
+  });
+  check('chua cau hinh -> giu nguyen gia tri dang co',
+    [at(kept, 'GDN(CM)'), at(kept, 'X')], ['〇', '〇']);
+
+  // Dòng MỚI mà chưa cấu hình: ô trống, không bịa 〇.
+  var added = src.titleRecordToRow({
+    record: record, copyright: null, copyrightAvailable: false,
+    preConfirmationAvailable: false, headerIndex: headerIndex, columnCount: width,
+    runAt: new Date(2026, 8, 16), previousRow: undefined,
+  });
+  check('dong moi + chua cau hinh -> de trong, khong bia 〇', at(added, 'GDN(CM)'), '');
+}
+
 module.exports = {
   unit: [test_titleColumns, test_titleWriteModes, test_customerSourceHeaders,
     test_readsFirstVolume, test_titleRecordToRow,
-    test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared, test_identityRefreshTitleMaster],
+    test_materialSharedAtCopy, test_customerSourceOptionalMaterialShared, test_identityRefreshTitleMaster,
+    test_mediaColumnTable, test_mediaNameKey, test_distributingMark, test_parseMediaMasters,
+    test_mediaAvailability, test_mediaValuesForRecord, test_titleRecordToRowMedia],
   data: [],
 };

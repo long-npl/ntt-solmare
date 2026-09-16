@@ -5,8 +5,11 @@
 // la ban COPY tu 顧客作品マスタ (nguồn duy nhất) — GAS❷ chỉ tự đóng dấu ngày chạy khi
 // dòng THẬT SỰ MỚI mà nguồn cũng trống (xem docs/decisions.md #material-shared-02).
 //
-// Ngoai 25 cot duoi day, sheet con co タイトルキー va AB〜AK 掲出可能媒体 la cot NGUOI
-// nhap tay — engine khong dung toi vi chung khong co trong bang.
+// NGOAI LE: 6 cot AB~AG 掲出可能媒体 la cot DUY NHAT GAS❷ tu tinh — tu 2 master rieng
+// (媒体×ADFMTマスタ + 媒体除外マスタ), logic o 5_media.js. Xem docs §4.13.
+//
+// Ngoai 31 cot duoi day, sheet con co タイトルキー va AH~AK 新規媒体 la cot NGUOI nhap
+// tay — engine khong dung toi vi chung khong co trong bang.
 
 var TITLE_COLUMNS = [
   // rowKey: parseTitleMasterRows() cũng lọc dòng theo chính cột này.
@@ -42,14 +45,32 @@ var TITLE_COLUMNS = [
   { header: '大量無料開始日', field: 'massFreeStart', from: 'customer', write: '上書', type: 'date' },
   { header: '大量無料終了日', field: 'massFreeEnd', from: 'customer', write: '上書', type: 'date' },
   { header: '出版社事前確認', field: 'preConfirmation', from: 'copyright', write: '上書', optional: true },
+  // 6 cot 掲出可能媒体 (AB~AG) — rule ガワ 2026-09-16, logic o 5_media.js, xem §4.13.
+  //
+  // `mediaSources` la TEN MEDIA ben 媒体×ADFMTマスタ / 媒体除外マスタ, khong phai ten cot:
+  // hai ben viet khac nhau (`GDN（CM）` ngoac full-width, `Tiktok` khac hoa/thuong), va
+  // `YDA` cong CA HAI mat. Bang anh xa nay la mot phan cua rule, nen no nam ngay canh cot.
+  //
+  // `条件` chu KHONG phai `上書`: tinh ra rong (chua cau hinh / doc nguon loi / chua phan
+  // dinh duoc ロゴ) phai GIU NGUYEN o nguoi go, khong xoa trang 6 cot tren 8.000 dong.
+  { header: 'GDN(CM)', field: 'mediaGdnCm', from: 'media', write: '条件', mediaSources: ['GDN（CM）'] },
+  { header: 'デマジェン', field: 'mediaDemagen', from: 'media', write: '条件', mediaSources: ['デマジェン'] },
+  { header: 'YDA', field: 'mediaYda', from: 'media', write: '条件', mediaSources: ['YDA（Y面）', 'YDA（LINE面）'] },
+  { header: 'Meta', field: 'mediaMeta', from: 'media', write: '条件', mediaSources: ['Meta'] },
+  { header: 'TikTok', field: 'mediaTiktok', from: 'media', write: '条件', mediaSources: ['Tiktok'] },
+  { header: 'X', field: 'mediaX', from: 'media', write: '条件', mediaSources: ['X'] },
 ];
+
+// 4 cot `新規媒体` (AH~AK) CO TINH KHONG co trong bang: chung trung ten nhau y het, ma
+// buildHeaderIndex() chi giu index trai nhat -> dua vao bang la ghi 4 cot vao cung 1 o.
+// Va ben 媒体×ADFMTマスタ cung chua co media nao mang ten do. Xem §4.13.
 
 // Cột 出版社事前確認 tách riêng khỏi 2 cột copyright còn lại vì nó có thể CHƯA TỒN TẠI
 // bên nguồn (xem COPYRIGHT_PRE_CONFIRMATION_HEADER trong gas2/sources.js) trong khi 2 cột
 // kia luôn có. Hai tình huống, hai cờ.
 var TITLE_PRE_CONFIRMATION_HEADER = '出版社事前確認';
 
-// Thiếu 1 trong 24 cột này trên タイトルマスタ -> throw ngay ở findHeaderRowIndex().
+// Thiếu 1 trong 30 cột này trên タイトルマスタ -> throw ngay ở findHeaderRowIndex().
 // Cột BẮT BUỘC = mọi cột trong bảng TRỪ cột optional. Dùng requiredHeaders() của
 // engine chứ không map thẳng: map thẳng làm cờ `optional` bị bỏ qua hoàn toàn, và một
 // cột đánh dấu tuỳ chọn vẫn khiến cả lần chạy throw.
@@ -86,6 +107,14 @@ function titleRecordToRow(options) {
         return;
       }
       if (options.previousRow === undefined) row[stampIndex] = options.runAt;
+      return;
+    }
+    if (column.from === 'media') {
+      // `条件` tự cài ở đây (titleRecordToRow không đi qua toSheetRow của engine):
+      // giá trị rỗng = chưa phán định được -> KHÔNG ghi, ô cũ ở lại.
+      var mediaValue = options.mediaValues ? options.mediaValues[column.field] : '';
+      if (normalizeJapaneseText(mediaValue) === '') return;
+      row[col(options.headerIndex, column.header)] = mediaValue;
       return;
     }
     if (column.from === 'copyright') {
@@ -135,7 +164,7 @@ function locateUpdatedAtCell(values, headerRowIndex) {
   return null;
 }
 
-// 5 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
+// 6 loại cảnh báo ghi vào tab GAS2警告. Đặt tên hằng thay vì rải chuỗi khắp nơi để
 // tab log và test không thể lệch nhau vì một lỗi gõ.
 //
 var WARNING_KIND_MISSING_NO = 'タイトルNo欠落';
@@ -143,6 +172,9 @@ var WARNING_KIND_DUPLICATE_NO = 'タイトルNo重複';
 var WARNING_KIND_NO_COPYRIGHT = 'コピーライト未登録';
 var WARNING_KIND_ORPHAN = '孤立行';
 var WARNING_KIND_CONFIG = '設定注意';
+// Loai RIENG, khong gop vao 設定注意: day la viec MOT TAC PHAM chua phan dinh duoc, xay
+// ra tren tung dong; gop vao 設定注意 thi cot dem cua GAS2ログ khong con doc duoc nua.
+var WARNING_KIND_MEDIA_UNDECIDED = '掲出可能媒体判定不可';
 
 /**
  * Khoá join của toàn bộ GAS❷: chuỗi đã chuẩn hoá của タイトルNo.
@@ -266,10 +298,21 @@ function diffTitleMaster(options) {
   });
 
   var claimed = new Map();
+  // Đếm để gộp thành MỘT dòng 設定注意 ở cuối: mỗi tác phẩm TL là một lần cột YDA thành
+  // × chỉ vì mặt LINE面, và 1 dòng/tác phẩm sẽ chôn vùi mọi cảnh báo khác. Xem §4.13.
+  var ydaSingleFaceCount = 0;
 
   indexed.records.forEach(function (record) {
     var key = titleNoKey(record.titleNo);
     var copyright = options.copyrightLookup.get(key) || null;
+    var media = mediaValuesFor(record, options.mediaAvailability || null);
+    if (media.undecided.length > 0) {
+      warnings.push(buildWarning(runAt, WARNING_KIND_MEDIA_UNDECIDED, record,
+        '③シーモアロゴ判定 は「' + normalizeJapaneseText(record.logoJudgement)
+        + '」— ロゴ有無 を判定できないため ' + media.undecided.join('・')
+        + ' は既存値のまま（上書きしません）。'));
+    }
+    if (media.ydaSingleFaceExcluded) ydaSingleFaceCount += 1;
 
     // Chỉ cảnh báo khi ĐỌC ĐƯỢC nguồn mà vẫn không thấy khoá. Nguồn đọc không được là
     // sự cố của cả lần chạy, đã có 1 dòng log riêng — nhân nó lên 8.000 dòng cảnh báo
@@ -289,6 +332,7 @@ function diffTitleMaster(options) {
       columnCount: options.columnCount,
       previousRow: previous ? previous.rawRow : undefined,
       runAt: runAt,
+      mediaValues: media.values,
     });
 
     if (!previous) {
@@ -312,6 +356,13 @@ function diffTitleMaster(options) {
     warnings.push(buildWarning(runAt, WARNING_KIND_ORPHAN, row,
       'Dòng này không còn タイトルNo tương ứng trên 顧客作品マスタ — GAS❷ để nguyên, cần người kiểm.'));
   });
+
+  if (ydaSingleFaceCount > 0) {
+    warnings.push(buildWarning(runAt, WARNING_KIND_CONFIG,
+      { titleNo: '', titleId: '', titleName: '' },
+      'YDA 列は YDA（Y面）と YDA（LINE面）を1列で兼ねているため、片面のみ除外対象の '
+      + ydaSingleFaceCount + ' 件を安全側で「×」としました。列を分けるかはご判断ください。'));
+  }
 
   return {
     toUpdate: toUpdate,

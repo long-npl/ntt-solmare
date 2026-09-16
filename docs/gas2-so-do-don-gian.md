@@ -52,7 +52,7 @@ Layout `タイトルマスタ`: cột A là cột đệm trống, **header ở h
 dải cột B~AK. Ô `C5` là `更新日` (GAS❷ đóng dấu giờ chạy vào đây). Code **không hardcode**
 hàng 15 hay chữ cái cột nào — mọi thứ tra theo tên header.
 
-## 3. 24 cột GAS❷ ghi
+## 3. 31 cột GAS❷ ghi (25 + 6 cột 掲出可能媒体)
 
 | Cột | Nguồn |
 |---|---|
@@ -67,6 +67,7 @@ hàng 15 hay chữ cái cột nào — mọi thứ tra theo tên header.
 | **T `タイトル個別コピーライト(あれば優先使用)`** | コピーライトマスタ |
 | U〜Z `各種掲出期間` (6 cột) | 顧客作品マスタ |
 | **AA `出版社事前確認`** | コピーライトマスタ |
+| **AB〜AG `掲出可能媒体`** (6 cột) | `媒体×ADFMTマスタ` + `媒体除外マスタ` — xem §5 |
 
 **Không có phép biến đổi nào** — 23 cột là copy nguyên văn. Mọi logic nghiệp vụ (lọc
 レギュレーション, sinh 出版社コピーライト, suy `先行終了日（最終確定）`, phán định `LP制作`)
@@ -82,12 +83,25 @@ nào cũ dòng nào mới — đúng thứ duy nhất cột này dùng để tr�
 
 **Hệ quả:** dòng đã có trên sheet mà `E` đang trống sẽ **trống mãi**. Muốn lấp phải điền tay.
 
-## 5. 12 cột GAS❷ KHÔNG đụng tới
+## 5. `AB~AG 掲出可能媒体` — 6 cột, 2 tầng
 
-`M タイトルキー`, `N 初回配信巻数`, `AB~AK 掲出可能媒体` (10 cột). Ai nhập tay vào đó thì
-giá trị được giữ nguyên qua mọi lần chạy — kể cả khi dòng bị update.
+Rule ガワ bổ sung 2026-09-16. **`〇` = (媒体 đang 配信中) VÀ (không bị 除外 với tác phẩm này)**:
 
-Cơ chế bảo vệ nằm ở chỗ dòng ghi được **dựng từ bản copy của dòng cũ** rồi mới ghi đè 24
+1. `媒体×ADFMTマスタ` › `F 横断配信ステータス` → media nào đang chạy (tầng chung, không theo
+   tác phẩm). Media có **ít nhất 1 dòng** `⚪︎` là đang chạy.
+2. `媒体除外マスタ` (`ロゴ有無` × `ジャンル` → `除外媒体`) → loại theo từng tác phẩm. `-` = wildcard.
+3. Qua cả 2 → `〇`, rớt 1 trong 2 → `×`. Không phán định được → **để nguyên ô** (kiểu ghi `条件`).
+
+Cả 2 master nằm trong chính file `【ソル】タイトルマスタ　ガワ作成`. **Chưa điền `spreadsheetId`
+thì 6 cột giữ nguyên** + 1 dòng `設定注意` mỗi lần chạy. Chi tiết (ánh xạ tên media, gộp `YDA`,
+ký tự `⚪︎`/`〇`) ở `docs/3-master-cot-nguon-va-logic.md` §4.13.
+
+## 6. 5 cột GAS❷ KHÔNG đụng tới
+
+`M タイトルキー` và `AH~AK 新規媒体` (4 cột). Ai nhập tay vào đó thì giá trị được giữ nguyên
+qua mọi lần chạy — kể cả khi dòng bị update.
+
+Cơ chế bảo vệ nằm ở chỗ dòng ghi được **dựng từ bản copy của dòng cũ** rồi mới ghi đè các
 cột GAS❷ sở hữu. Nghĩa là **mọi cột 池永 thêm về sau cũng tự động được giữ**, không phải
 sửa code.
 
@@ -95,12 +109,10 @@ Lý do từng cột chưa có nguồn:
 
 - `M タイトルキー` — hàng 13 của ガワ ghi `制御シート` (nhập tay), ghi chú hàng 29 lại ghi
   `→GASで更新`. Hai chỗ mâu thuẫn, chưa chốt.
-- `N 初回配信巻数` — nguồn là CMS (GAS❷ hiện không đọc CMS), quy tắc "chỉ lấy số tập cuối"
-  chưa được định nghĩa chính xác.
-- `AB~AK 掲出可能媒体` — logic ở `媒体除外マスタ` (`ロゴ有無 × ジャンル → 除外媒体`), chưa có
-  spreadsheetId và chưa chốt cách so khớp `ジャンル`.
+- `AH~AK 新規媒体` — 4 cột **cùng một tên** nên không tra được theo tên, và `媒体×ADFMTマスタ`
+  cũng chưa có media nào mang tên đó.
 
-## 6. Cách chạy tay
+## 7. Cách chạy tay
 
 Mở project GAS❷ trong Apps Script editor.
 
@@ -121,7 +133,7 @@ Cài lịch: chạy `createGas2Trigger()` **một lần**. Nó xoá trigger cũ 
 9h và 17h. Apps Script chỉ có `nearMinute()` cho trigger hằng ngày nên Google chạy trong
 khoảng **±15 phút** quanh 9:30/17:30 — không có cách đặt đúng phút.
 
-## 7. Đọc 3 tab log
+## 8. Đọc 3 tab log
 
 Cả 3 nằm trong **chính spreadsheet `タイトルマスタ`** — chỗ người ta đang mở khi thắc mắc.
 
@@ -144,7 +156,7 @@ Cảnh báo `コピーライト未登録` cũng xuất hiện **một dòng khô
 `コピーライトマスタ` chưa có cột `出版社事前確認` — nghĩa là cột AA đang được giữ nguyên.
 Thêm cột đúng tên đó vào nguồn là đủ để kích hoạt, không phải sửa code.
 
-## 8. Khi nguồn hỏng
+## 9. Khi nguồn hỏng
 
 | Nguồn | Đọc không được thì sao |
 |---|---|
@@ -158,7 +170,7 @@ mà copyright sai là đúng loại tai nạn dự án này sinh ra để chặn
 Slack: điền 2 Script Property `SLACK_BOT_TOKEN` và `SLACK_CHANNEL_ID` qua
 Apps Script editor > Project Settings. Chưa điền thì GAS❷ im lặng bỏ qua, không lỗi.
 
-## 9. Cấu trúc code
+## 10. Cấu trúc code
 
 ```
 gas2/
@@ -177,7 +189,7 @@ cần `python tools/verify/exportFixtures.py` trước).
 mọi lệnh ghi mà nó định thực hiện. Không assert gì — để người đọc nhìn, dùng khi nghi ngờ
 phần dàn dựng.
 
-## 10. Hai điều dễ quên
+## 11. Hai điều dễ quên
 
 **`gas2/common.js` là bản copy của `src/common.js`.** Sửa `src/common.js` thì phải copy
 lại nguyên file và cập nhật dòng ngày ở đầu. Apps Script không cho project này import
@@ -186,7 +198,7 @@ project kia nên không có cách nào tránh.
 **Đổi spreadsheetId của 2 master ở GAS❶ thì phải đổi cả ở `gas2/config.js`.** Quên thì
 GAS❷ vẫn chạy trơn tru trên master cũ và không có gì báo.
 
-## 11. Thêm nguồn cho 1 trong 12 cột còn treo
+## 12. Thêm nguồn cho 1 trong 5 cột còn treo
 
 Ba bước, không phải sửa lại thiết kế:
 
