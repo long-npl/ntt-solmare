@@ -114,6 +114,18 @@ function buildMediaAvailability(options) {
     if (counts[key].on > 0 && counts[key].off > 0) mixedMedia.push(key);
   });
 
+  // Cột mà KHÔNG mặt nào của nó có dòng ở ①. Giá trị vẫn là × (① là nguồn duy nhất trả
+  // lời "media nào đang chạy", không có dòng = không chạy), nhưng phải nêu tên: một dòng
+  // bị xoá hay đổi tên bên 媒体×ADFMTマスタ sẽ biến cả cột thành × trên ~8.000 dòng, và
+  // "cột đó đang bị tắt vì master thiếu dòng" khác hẳn "media đó đang thật sự dừng".
+  var missingMedia = [];
+  mediaColumns().forEach(function (column) {
+    var seen = column.mediaSources.filter(function (name) {
+      return counts[mediaNameKey(name)] !== undefined;
+    });
+    if (seen.length === 0) missingMedia.push(column.header);
+  });
+
   var rules = [];
   var unknownExcluded = [];
   (options.exclusionRecords || []).forEach(function (record) {
@@ -138,6 +150,7 @@ function buildMediaAvailability(options) {
   return {
     active: active,
     mixedMedia: mixedMedia,
+    missingMedia: missingMedia,
     unknownMedia: unknownMedia,
     unknownExcluded: unknownExcluded,
     rules: rules,

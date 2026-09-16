@@ -201,6 +201,15 @@ function runGas2() {
               + ' — 「1行でも〇なら配信中」と解釈しました。',
           });
         }
+        if (mediaAvailability.missingMedia.length > 0) {
+          warnings.push({
+            runAt: startedAt, kind: WARNING_KIND_CONFIG,
+            titleNo: '', titleId: '', titleName: '',
+            detail: '媒体×ADFMTマスタ に1行も存在しない媒体の列: '
+              + mediaAvailability.missingMedia.join('・')
+              + ' — 「配信していない」として全タイトル「×」になります。マスタの行が消えていないかご確認ください。',
+          });
+        }
         if (mediaAvailability.unknownMedia.length > 0) {
           warnings.push({
             runAt: startedAt, kind: WARNING_KIND_CONFIG,
@@ -362,6 +371,7 @@ function probe_readMediaMasters() {
     Logger.log('  ' + key + ' -> ' + (availability.active[key] ? '配信中' : '配信していない'));
   });
   Logger.log('trạng thái lẫn lộn: ' + JSON.stringify(availability.mixedMedia));
+  Logger.log('cột không có media nào ở ①: ' + JSON.stringify(availability.missingMedia));
   Logger.log('tên media không khớp cột: ' + JSON.stringify(availability.unknownMedia)
     + ' / ' + JSON.stringify(availability.unknownExcluded));
   // 2 tác phẩm mẫu để đọc bằng mắt: 1 ロゴあり thường, 1 TL (ca gộp YDA).

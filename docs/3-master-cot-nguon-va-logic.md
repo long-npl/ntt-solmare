@@ -634,6 +634,11 @@ Trên dữ liệu ガワ ngày 2026-09-16: `GDN（CM）` `デマジェン` `YDA�
 `Tiktok` đều `⚪︎`; **`X` là `×` ở cả 3 dòng** → cột `X` của **mọi** tác phẩm ra `×`. 見本 hàng
 16–25 đang ghi `X = 〇`: đó là giá trị nhập tay cũ, không phải kỳ vọng đầu ra.
 
+**Media KHÔNG có dòng nào ở ① cũng ra `×`** — ① là nguồn duy nhất trả lời "media nào đang
+chạy", không có dòng nghĩa là không chạy. Nhưng mỗi cột như vậy sinh 1 dòng `設定注意` nêu
+tên: "cột đang bị tắt vì master thiếu dòng" khác hẳn "media đó thật sự đã dừng", và một dòng
+bị xoá/đổi tên bên ① sẽ biến cả cột thành `×` trên ~8.000 dòng.
+
 #### Tầng ② — loại theo tác phẩm
 Toàn bộ `媒体除外マスタ` hiện chỉ có **2 dòng**:
 

@@ -420,7 +420,23 @@ function test_mediaAvailability(ctx) {
     [true, true, true, true, true, true]);
   check('khong media nao lan lon trang thai', availability.mixedMedia, []);
   check('moi ten media o nguon deu khop 1 cot', availability.unknownMedia, []);
+  check('6 cot deu co mat o ①', availability.missingMedia, []);
   check('2 luat loai duoc doc', availability.rules.length, 2);
+
+  // Cột mà media của nó KHÔNG có dòng nào ở ① vẫn ra × (① là nguồn duy nhất trả lời
+  // "media nào đang chạy"), nhưng phải nêu tên: một dòng bị xoá / đổi tên bên
+  // 媒体×ADFMTマスタ sẽ biến cả cột thành × trên ~8.000 dòng, im lặng là không chấp nhận.
+  var partial = src.buildMediaAvailability({
+    adfmtRecords: [{ mediaName: 'GDN（CM）', crossStatus: '⚪︎' }],
+    exclusionRecords: [],
+  });
+  check('cot khong co media nao o ① -> bao ten cot ra',
+    partial.missingMedia, ['デマジェン', 'YDA', 'Meta', 'TikTok', 'X']);
+  check('YDA chi can 1 mat co mat la khong bao thieu',
+    src.buildMediaAvailability({
+      adfmtRecords: [{ mediaName: 'YDA（Y面）', crossStatus: '⚪︎' }],
+      exclusionRecords: [],
+    }).missingMedia.indexOf('YDA'), -1);
 
   // Media có dòng lẫn lộn ⚪︎/× vẫn tính 配信中 (ít nhất 1 dòng chạy) NHƯNG phải nêu tên
   // ra: đó đúng là ca mà "ít nhất 1" và "tất cả" cho kết quả khác nhau.
