@@ -105,8 +105,8 @@ Ba nguồn ガワ có nêu mà **GAS chưa đọc**:
 
 | Nguồn | Đáng ra cấp | Tình trạng |
 |---|---|---|
-| `媒体×ADFMTマスタ` › `F 横断配信ステータス` | tầng ① của 6 cột `掲出可能媒体` (§4.13) | ✅ **đã đọc** — GAS❷ NGUỒN ③ |
-| `媒体除外マスタ` (ロゴ有無 × ジャンル → 除外媒体) | tầng ② của 6 cột `掲出可能媒体` (§4.13) | ✅ như trên — GAS❷ NGUỒN ④ |
+| `媒体×ADFMTマスタ` › `F 横断配信ステータス` | tầng ① của 7 cột `掲出可能媒体` (§4.13) | ✅ **đã đọc** — GAS❷ NGUỒN ③ |
+| `媒体除外マスタ` (ロゴ有無 × ジャンル → 除外媒体) | tầng ② của 7 cột `掲出可能媒体` (§4.13) | ✅ như trên — GAS❷ NGUỒN ④ |
 | `【池永社内】配信停止一覧` | `掲載停止日付` (thay TSV?) | ⚠️ ガワ ghi `顧客Google Drive＞配信停止一覧` nhưng chính sheet `仕様整理` của ガワ vẫn để ngỏ "file này là dự kiến dừng hay đã dừng?" — chưa chốt (xem §5) |
 
 Cả 2 master của §4.13 nằm **trong chính file ガワ** (rule mới ghi rõ), tức 1 spreadsheetId
@@ -347,7 +347,8 @@ nằm ở GAS❶. GAS❷ cố ý không lặp lại một mảnh nào: rule đ�
 | `出版社事前確認` | **コピーライトマスタ** › cùng tên | Nguồn thiếu cột này → **bỏ qua riêng cột này**, 2 cột copyright kia vẫn ghi | 上書 | ✅ đã có trên sheet, 44/51 dòng có giá trị |
 | `GDN(CM)` | `媒体×ADFMTマスタ` + `媒体除外マスタ` | **Logic §4.13** — cổng ① rồi lọc ②; nguồn ghi `GDN（CM）` (ngoặc full-width) | 条件 | ⚠️ code xong, chờ ID |
 | `デマジェン` | như trên | như trên | 条件 | ⚠️ |
-| `YDA` | như trên | như trên; nguồn có `YDA（LINE面）` + `YDA（Y面）` còn master chỉ **một** cột → gộp **bảo thủ**: một mặt bị loại là cả cột `×` | 条件 | ⚠️ |
+| `YDA(Y面)` | như trên | như trên | 条件 | ⚠️ |
+| `YDA(LINE面)` | như trên | như trên; luật `TL` chỉ đánh `×` vào **đúng cột này** | 条件 | ⚠️ |
 | `Meta` | như trên | như trên | 条件 | ⚠️ |
 | `TikTok` | như trên | như trên; nguồn ghi `Tiktok` → khớp sau `toUpperCase()` | 条件 | ⚠️ |
 | `X` | như trên | như trên; ① hiện `×` cả 3 dòng → cột này ra `×` cho **mọi** tác phẩm | 条件 | ⚠️ |
@@ -360,8 +361,10 @@ Nghĩa là `タイトルキー`, 4 cột `新規媒体` **và mọi cột 池永
 cần thêm danh sách "cấm ghi" nào. Cách khác (`new Array(n)` rồi fill) sẽ xoá trắng chúng
 mỗi lần dòng bị update, không có lỗi nào để nhận ra. Đây là bài học đã trả giá ở GAS❶.
 
-6 cột `掲出可能媒体` được bảo vệ bằng **lớp thứ hai**: kiểu ghi `条件` — chưa cấu hình / đọc nguồn
-lỗi / không phán định được đều cho ra `''`, và `条件` thì `''` không ghi đè ô.
+7 cột `掲出可能媒体` được bảo vệ bằng **lớp thứ hai**: kiểu ghi `条件` — chưa cấu hình / đọc nguồn
+lỗi / không phán định được đều cho ra `''`, và `条件` thì `''` không ghi đè ô. Chúng còn khai
+`optional`, nên ガワ đổi tên cột chỉ làm **7 cột đó** dừng lại (+1 dòng `設定注意`), không làm
+sập cả lần chạy.
 
 ---
 
@@ -607,7 +610,7 @@ Nguồn cũng trống thì CHỈ đóng dấu `runAt` khi dòng THẬT SỰ MỚ
 `顧客作品マスタ`, không bịa ngày hôm nay. (Bản cài đầu 2026-09-08 đóng dấu `runAt` cho MỌI ô
 đích trống bất kể mới/cũ — bug, đã sửa; xem `docs/decisions.md` #material-shared-02.)
 
-### 4.13 6 cột `掲出可能媒体` (`GDN(CM)` → `X`) — cổng ① rồi lọc ② ✅
+### 4.13 7 cột `掲出可能媒体` (`GDN(CM)` → `X`) — cổng ① rồi lọc ② ✅
 Rule ガワ bổ sung **2026-09-16**:
 
 > ・データ取得先　※社内管理マスタ
@@ -660,16 +663,20 @@ Hai bên viết khác nhau, nên bảng ánh xạ là **một phần của rule*
 | Tên ở ①/② | Cột `タイトルマスタ` | Vì sao phải khai báo |
 |---|---|---|
 | `GDN（CM）` | `GDN(CM)` | ngoặc full-width vs half-width — NFKC gộp được |
+| `YDA（Y面）` | `YDA(Y面)` | như trên |
+| `YDA（LINE面）` | `YDA(LINE面)` | như trên |
 | `デマジェン` `Meta` `X` | cùng tên | — |
 | `Tiktok` | `TikTok` | khác **hoa/thường**; NFKC *không* gộp → phải `toUpperCase()` |
-| `YDA（Y面）` + `YDA（LINE面）` | `YDA` | **2 media → 1 cột**, xem ngay dưới |
 
-`YDA` gộp 2 mặt theo hướng **bảo thủ**: chỉ `〇` khi **không mặt nào** bị loại; một mặt bị loại
-là cả cột `×`. Rủi ro tuân thủ (chạy nhầm mặt đang bị cấm) nặng hơn thiệt hại cơ hội (bỏ lỡ
-mặt còn chạy được). Mỗi lần chạy sinh 1 dòng `設定注意` nêu số tác phẩm bị `×` **chỉ vì** một
-mặt — để 営業 thấy cái giá của việc gộp cột và quyết có tách cột hay không.
+**`YDA` đã được ガワ tách thành 2 cột (2026-09-16)**, nên mỗi cột giờ đúng 1 media và **không
+còn phép gộp nào**. Luật `- × TL → YDA（LINE面）` vì vậy chỉ đánh `×` vào cột `YDA(LINE面)`,
+còn `YDA(Y面)` của cùng tác phẩm vẫn `〇`. (Bản trước 1 cột cõng 2 mặt và phải chọn chiều gộp
+— xem `docs/decisions.md` #media-01.)
 
-Tên media ở nguồn mà **không khớp cột nào** (gõ sai, media mới) → 1 dòng `設定注意`, không im lặng.
+Tên media ở nguồn mà **không khớp cột nào** (gõ sai, media mới) → 1 dòng `設定注意`, không im
+lặng. Và ngược lại: cột trong bảng mà **không còn trên sheet** (ガワ đổi tên) cũng ra 1 dòng
+`設定注意` — 7 cột này khai `optional` nên một cái đổi tên **không** làm cả lần chạy throw
+nữa. Đúng ca đã xảy ra 2026-09-16 khi `YDA` biến thành 2 cột.
 
 #### Không phán định được thì KHÔNG ghi
 Kiểu ghi là **`条件`**, không phải `上書`: hàm tính ra `''` khi không đủ cơ sở, và `条件` giữ
@@ -684,7 +691,7 @@ Nguồn ① ghi `⚪︎` = `U+26AA` + `U+FE0E`; đích ghi `〇` = `U+3007`; `×
 `normalizeJapaneseText()` (NFKC) **không** gộp họ ký tự vòng tròn → tập ký tự "đang chạy" phải
 liệt kê thẳng (`⚪` `◯` `○` `〇` `◎`), và giá trị GHI ra luôn là `〇`/`×` đúng như 見本.
 
-#### 4 cột `新規媒体` (AH~AK) vẫn KHÔNG đụng
+#### 4 cột `新規媒体` vẫn KHÔNG đụng
 Chúng **trùng tên nhau y hệt**, mà `buildHeaderIndex()` chỉ giữ index trái nhất → không địa chỉ
 hoá được bằng tên, và ở ① cũng chưa có media nào mang tên đó. Giữ nguyên giá trị nhập tay (`-`)
 cho tới khi 4 cột được đặt tên media thật.
@@ -774,8 +781,8 @@ buildRegulationIndex(). Xem `docs/superpowers/specs/2026-09-08-gawa-alignment-de
 |---|---|---|---|
 | 1 | `掲載停止日付` | ガワ ghi取得先 là `顧客Google Drive＞配信停止一覧`, nhưng chính sheet `仕様整理` của ガワ để ngỏ "file này là **dự kiến** dừng hay **đã** dừng, còn tác phẩm dừng trong quá khứ thì sao?". Vẫn giữ TSV `multi_title_*` hay đổi sang spreadsheet `【池永社内】配信停止一覧`? | Nếu đổi thì phải viết lại NGUỒN ⑤ |
 | 2 | 6 cột `掲出可能媒体` | **Quyền đọc** file ガワ (`1FmW8Irp…`) cho account chạy GAS❷. ID đã điền (dùng chung nguồn ④ của GAS❶), nhưng GAS❷ chạy dưới project khác — chưa có quyền thì mỗi lần chạy ghi 1 dòng エラー và 6 cột giữ nguyên | 6 cột (đã code) |
-| 2b | 6 cột `掲出可能媒体` | 3 điểm §4.13 đã **chọn mặc định** để không chặn, cần xác nhận: ① 配信中 = "ít nhất 1 dòng `⚪︎`" (không phải tất cả); ② `YDA` gộp bảo thủ (một mặt bị loại → cả cột `×`); ③ chưa phán định `ロゴ` → giữ nguyên ô | hướng của 6 cột đó |
-| 2c | 6 cột `掲出可能媒体` | 見本 **mâu thuẫn** rule ở 2 chỗ: hàng 17 là `ロゴなし`+`女性` → theo ② phải `GDN(CM) = ×` mà 見本 ghi `〇`; và `YDA = ×` trong khi `女性` không khớp `TL`. Cả cột `X` cũng ghi `〇` trong khi ① nói `×`. Xác nhận 見本 là dữ liệu nhập tay cũ | niềm tin vào 見本 |
+| 2b | 7 cột `掲出可能媒体` | 2 điểm §4.13 đã **chọn mặc định**, cần xác nhận: ① 配信中 = "ít nhất 1 dòng `⚪︎`" (không phải tất cả); ② chưa phán định `ロゴ` → giữ nguyên ô. (Điểm "gộp `YDA`" đã **hết hiệu lực** — ガワ tách 2 cột ngày 2026-09-16) | hướng của 7 cột đó |
+| 2c | 7 cột `掲出可能媒体` | 見本 **mâu thuẫn** rule ở 2 chỗ: hàng 17 là `ロゴなし`+`女性` → theo ② phải `GDN(CM) = ×` mà 見本 ghi `〇`; và `YDA = ×` trong khi `女性` không khớp `TL`. Cả cột `X` cũng ghi `〇` trong khi ① nói `×`. Xác nhận 見本 là dữ liệu nhập tay cũ | niềm tin vào 見本 |
 | 3 | `タイトルキー` | `制御シート` (hàng 13) hay `GASで更新` (ghi chú cùng cột)? | 1 cột |
 | 4 | Giờ chạy ghi trên ガワ | Ô B8 của ガワ `コピーライトマスタ` ghi **9時30分、17時30分** nhưng GAS❶ ghi cả 2 master lúc **9時、17時** (9:30/17:30 là giờ của GAS❷). Ghi chú ガワ có cần sửa? | Chỉ là docs |
 

@@ -175,8 +175,8 @@ function runGas2() {
       errors.push('コピーライトマスタ đọc không được (3 cột lấy từ nó giữ nguyên): ' + String(copyrightError));
     }
 
-    // Nguồn ③ + ④ (6 cột 掲出可能媒体). Cùng dạng degrade với コピーライトマスタ: hỏng thì
-    // mediaAvailability = null -> 6 cột đó giữ nguyên, lần chạy vẫn đi tiếp.
+    // Nguồn ③ + ④ (7 cột 掲出可能媒体). Cùng dạng degrade với コピーライトマスタ: hỏng thì
+    // mediaAvailability = null -> 7 cột đó giữ nguyên, lần chạy vẫn đi tiếp.
     var mediaAvailability = null;
     try {
       var mediaMasters = readMediaMasters();
@@ -185,7 +185,7 @@ function runGas2() {
           runAt: startedAt, kind: WARNING_KIND_CONFIG,
           titleNo: '', titleId: '', titleName: '',
           detail: '媒体×ADFMTマスタ / 媒体除外マスタ の spreadsheetId が未設定です — '
-            + '掲出可能媒体 6列（AB〜AG）は既存値のまま。CONFIG.SOURCES に ID を入れると有効になります。',
+            + '掲出可能媒体 7列は既存値のまま。CONFIG.SOURCES に ID を入れると有効になります。',
         });
       } else {
         mediaAvailability = buildMediaAvailability(mediaMasters);
@@ -233,6 +233,23 @@ function runGas2() {
     }
 
     var titleMaster = readTitleMaster();
+
+    // 7 cột 掲出可能媒体 là optional, nên cột bị đổi tên/xoá KHÔNG làm lần chạy throw —
+    // nhưng im lặng thì người ta tưởng GAS đang ghi. 2026-09-16 cột `YDA` bị tách thành
+    // 2 cột và đó đúng là ca này.
+    var absentMediaColumns = mediaColumns().filter(function (column) {
+      return tryCol(titleMaster.headerIndex, column.header) === undefined;
+    }).map(function (column) { return column.header; });
+    if (absentMediaColumns.length > 0) {
+      warnings.push({
+        runAt: startedAt, kind: WARNING_KIND_CONFIG,
+        titleNo: '', titleId: '', titleName: '',
+        detail: 'タイトルマスタ に存在しない 掲出可能媒体 列: ' + absentMediaColumns.join('・')
+          + ' — この列は書き込みをスキップしました。ガワ で列名が変わった場合は GAS❷ の '
+          + 'TITLE_COLUMNS も合わせて更新してください。',
+      });
+    }
+
     var result = diffTitleMaster({
       customerRecords: customerRecords,
       copyrightLookup: buildCopyrightLookup(copyrightRecords),

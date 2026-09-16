@@ -52,7 +52,7 @@ Layout `タイトルマスタ`: cột A là cột đệm trống, **header ở h
 dải cột B~AK. Ô `C5` là `更新日` (GAS❷ đóng dấu giờ chạy vào đây). Code **không hardcode**
 hàng 15 hay chữ cái cột nào — mọi thứ tra theo tên header.
 
-## 3. 31 cột GAS❷ ghi (25 + 6 cột 掲出可能媒体)
+## 3. 32 cột GAS❷ ghi (25 + 7 cột 掲出可能媒体)
 
 | Cột | Nguồn |
 |---|---|
@@ -67,7 +67,7 @@ hàng 15 hay chữ cái cột nào — mọi thứ tra theo tên header.
 | **T `タイトル個別コピーライト(あれば優先使用)`** | コピーライトマスタ |
 | U〜Z `各種掲出期間` (6 cột) | 顧客作品マスタ |
 | **AA `出版社事前確認`** | コピーライトマスタ |
-| **AB〜AG `掲出可能媒体`** (6 cột) | `媒体×ADFMTマスタ` + `媒体除外マスタ` — xem §5 |
+| **`掲出可能媒体`** (7 cột: `GDN(CM)` `デマジェン` `YDA(Y面)` `YDA(LINE面)` `Meta` `TikTok` `X`) | `媒体×ADFMTマスタ` + `媒体除外マスタ` — xem §5 |
 
 **Không có phép biến đổi nào** — 23 cột là copy nguyên văn. Mọi logic nghiệp vụ (lọc
 レギュレーション, sinh 出版社コピーライト, suy `先行終了日（最終確定）`, phán định `LP制作`)
@@ -83,7 +83,7 @@ nào cũ dòng nào mới — đúng thứ duy nhất cột này dùng để tr�
 
 **Hệ quả:** dòng đã có trên sheet mà `E` đang trống sẽ **trống mãi**. Muốn lấp phải điền tay.
 
-## 5. `AB~AG 掲出可能媒体` — 6 cột, 2 tầng
+## 5. `掲出可能媒体` — 7 cột, 2 tầng
 
 Rule ガワ bổ sung 2026-09-16. **`〇` = (媒体 đang 配信中) VÀ (không bị 除外 với tác phẩm này)**:
 
@@ -93,14 +93,18 @@ Rule ガワ bổ sung 2026-09-16. **`〇` = (媒体 đang 配信中) VÀ (không
 3. Qua cả 2 → `〇`, rớt 1 trong 2 → `×`. Không phán định được → **để nguyên ô** (kiểu ghi `条件`).
 
 Cả 2 master là 2 tab trong chính file ガワ — **cùng spreadsheetId với nguồn ④ của GAS❶**
-(`出版社別コピーライトマスタ`). Để trống ID là cách TẮT: 6 cột giữ nguyên + 1 dòng `設定注意`
-mỗi lần chạy. Chi tiết (ánh xạ tên media, gộp `YDA`, ký tự `⚪︎`/`〇`) ở
+(`出版社別コピーライトマスタ`). Để trống ID là cách TẮT: 7 cột giữ nguyên + 1 dòng `設定注意`
+mỗi lần chạy. Chi tiết (ánh xạ tên media, ký tự `⚪︎`/`〇`) ở
 `docs/3-master-cot-nguon-va-logic.md` §4.13.
 
-## 6. 5 cột GAS❷ KHÔNG đụng tới
+7 cột này khai `optional`: ガワ đổi tên cột (đã xảy ra 2026-09-16 khi `YDA` tách thành
+`YDA(Y面)` + `YDA(LINE面)`) chỉ làm **các cột đó** dừng ghi + 1 dòng `設定注意`, chứ không
+làm cả lần chạy throw như trước.
 
-`M タイトルキー` và `AH~AK 新規媒体` (4 cột). Ai nhập tay vào đó thì giá trị được giữ nguyên
-qua mọi lần chạy — kể cả khi dòng bị update.
+## 6. Các cột GAS❷ KHÔNG đụng tới
+
+`タイトルキー`, 4 cột `新規媒体`, và `旧タイトルNo(参考)` (cột mới 2026-09-16, của GAS khác).
+Ai nhập tay vào đó thì giá trị được giữ nguyên qua mọi lần chạy — kể cả khi dòng bị update.
 
 Cơ chế bảo vệ nằm ở chỗ dòng ghi được **dựng từ bản copy của dòng cũ** rồi mới ghi đè các
 cột GAS❷ sở hữu. Nghĩa là **mọi cột 池永 thêm về sau cũng tự động được giữ**, không phải
@@ -110,8 +114,9 @@ Lý do từng cột chưa có nguồn:
 
 - `M タイトルキー` — hàng 13 của ガワ ghi `制御シート` (nhập tay), ghi chú hàng 29 lại ghi
   `→GASで更新`. Hai chỗ mâu thuẫn, chưa chốt.
-- `AH~AK 新規媒体` — 4 cột **cùng một tên** nên không tra được theo tên, và `媒体×ADFMTマスタ`
+- `新規媒体` ×4 — 4 cột **cùng một tên** nên không tra được theo tên, và `媒体×ADFMTマスタ`
   cũng chưa có media nào mang tên đó.
+- `旧タイトルNo(参考)` — do `6_old_title_no.js` phụ trách, không nằm trong `TITLE_COLUMNS`.
 
 ## 7. Cách chạy tay
 
@@ -201,7 +206,7 @@ project kia nên không có cách nào tránh.
 **Đổi spreadsheetId của 2 master ở GAS❶ thì phải đổi cả ở `gas2/config.js`.** Quên thì
 GAS❷ vẫn chạy trơn tru trên master cũ và không có gì báo.
 
-## 12. Thêm nguồn cho 1 trong 5 cột còn treo
+## 12. Thêm nguồn cho 1 cột còn treo
 
 Ba bước, không phải sửa lại thiết kế:
 

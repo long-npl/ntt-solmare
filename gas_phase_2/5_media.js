@@ -1,11 +1,11 @@
-// 5_media.js — 6 cot 掲出可能媒体 (AB~AG): cong ① roi loc ②.
+// 5_media.js — 7 cot 掲出可能媒体: cong ① roi loc ②.
 //
 // Rule ガワ bo sung 2026-09-16 — xem docs/3-master-cot-nguon-va-logic.md §4.13:
 //   1. 媒体×ADFMTマスタ › F 横断配信ステータス  -> media nao dang 配信中 (tang CHUNG)
 //   2. 媒体除外マスタ (ロゴ有無 × ジャンル)      -> loai theo TUNG tac pham
 //   3. Qua ca 2 -> 〇, rot 1 trong 2 -> ×
 //
-// Day la file DUY NHAT biet 2 master do. 4_title_master.js chi khai bao 6 cot (kem
+// Day la file DUY NHAT biet 2 master do. 4_title_master.js chi khai bao 7 cot (kem
 // `mediaSources`), 3_sources.js chi parse, 9_main.js chi noi day.
 //
 // TAT CA ham o day la THUAN — khong goi API Google nao.
@@ -65,7 +65,7 @@ function mediaGenreKey(value) {
   return normalizeJapaneseText(value).toUpperCase();
 }
 
-/** 6 cột `掲出可能媒体` của bảng cột. Đọc lúc CHẠY, không phải lúc nạp file (thứ tự file). */
+/** 7 cột `掲出可能媒体` của bảng cột. Đọc lúc CHẠY, không phải lúc nạp file (thứ tự file). */
 function mediaColumns() {
   return TITLE_COLUMNS.filter(function (column) { return column.from === 'media'; });
 }
@@ -158,23 +158,22 @@ function buildMediaAvailability(options) {
 }
 
 /**
- * Giá trị 6 cột `掲出可能媒体` của MỘT tác phẩm.
+ * Giá trị 7 cột `掲出可能媒体` của MỘT tác phẩm.
  *
- * `availability === null` (chưa cấu hình spreadsheetId, hoặc đọc nguồn lỗi) -> 6 cột
+ * `availability === null` (chưa cấu hình spreadsheetId, hoặc đọc nguồn lỗi) -> 7 cột
  * đều rỗng. Kiểu ghi của chúng là `条件`, nên rỗng = GIỮ NGUYÊN ô đang có.
  *
  * @param {{logoJudgement: *, genre: *}} record
  * @param {object|null} availability - Kết quả buildMediaAvailability()
- * @returns {{values: object, undecided: Array<string>, ydaSingleFaceExcluded: boolean}}
+ * @returns {{values: object, undecided: Array<string>}}
  */
 function mediaValuesFor(record, availability) {
   var values = {};
   var undecided = [];
-  var ydaSingleFaceExcluded = false;
 
   if (!availability) {
     mediaColumns().forEach(function (column) { values[column.field] = ''; });
-    return { values: values, undecided: undecided, ydaSingleFaceExcluded: false };
+    return { values: values, undecided: undecided };
   }
 
   var logo = mediaLogoKey(record ? record.logoJudgement : '');
@@ -207,13 +206,14 @@ function mediaValuesFor(record, availability) {
     });
 
     // Thứ tự 3 nhánh là phần của rule:
-    //   1. Bị ② loại -> × (dứt khoát, kể cả khi mặt khác còn chạy: xem gộp YDA ở §4.13).
+    //   1. Bị ② loại -> ×.
     //   2. Chưa phán định được -> rỗng, để 条件 giữ nguyên ô + 1 dòng cảnh báo.
     //   3. Còn ít nhất 1 mặt chạy được -> 〇; không mặt nào -> × (tầng ① tắt).
+    //
+    // Vòng lặp vẫn viết theo NHIỀU mặt dù ガワ 2026-09-16 cho mỗi cột đúng 1 media: bảng
+    // cột là thứ đổi theo ガワ, và cột nào rồi cũng có thể lại cõng 2 tên media.
     if (counted.excluded > 0) {
       values[column.field] = MEDIA_NO;
-      // Cột gộp nhiều mặt mà CHỈ một mặt bị loại: cái giá của việc 1 cột cõng 2 mặt.
-      if (column.mediaSources.length > 1 && counted.on > 0) ydaSingleFaceExcluded = true;
       return;
     }
     if (counted.unknown > 0) {
@@ -227,6 +227,5 @@ function mediaValuesFor(record, availability) {
   return {
     values: values,
     undecided: undecided,
-    ydaSingleFaceExcluded: ydaSingleFaceExcluded,
   };
 }

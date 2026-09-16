@@ -5,11 +5,14 @@
 // la ban COPY tu 顧客作品マスタ (nguồn duy nhất) — GAS❷ chỉ tự đóng dấu ngày chạy khi
 // dòng THẬT SỰ MỚI mà nguồn cũng trống (xem docs/decisions.md #material-shared-02).
 //
-// NGOAI LE: 6 cot AB~AG 掲出可能媒体 la cot DUY NHAT GAS❷ tu tinh — tu 2 master rieng
+// NGOAI LE: 7 cot 掲出可能媒体 la cot DUY NHAT GAS❷ tu tinh — tu 2 master rieng
 // (媒体×ADFMTマスタ + 媒体除外マスタ), logic o 5_media.js. Xem docs §4.13.
 //
-// Ngoai 31 cot duoi day, sheet con co タイトルキー va AH~AK 新規媒体 la cot NGUOI nhap
-// tay — engine khong dung toi vi chung khong co trong bang.
+// Ngoai 32 cot duoi day, sheet con co タイトルキー, 4 cot 新規媒体 va 旧タイトルNo(参考)
+// — cot cua NGUOI hoac cua GAS khac; engine khong dung toi vi chung khong co trong bang.
+//
+// KHONG ghi chu cot theo CHU CAI o day nua: 2026-09-16 sheet vua them 旧タイトルNo(参考)
+// va tach YDA thanh 2 cot, tuc moi chu cai deu dich. Code von tra theo TEN.
 
 var TITLE_COLUMNS = [
   // rowKey: parseTitleMasterRows() cũng lọc dòng theo chính cột này.
@@ -45,23 +48,33 @@ var TITLE_COLUMNS = [
   { header: '大量無料開始日', field: 'massFreeStart', from: 'customer', write: '上書', type: 'date' },
   { header: '大量無料終了日', field: 'massFreeEnd', from: 'customer', write: '上書', type: 'date' },
   { header: '出版社事前確認', field: 'preConfirmation', from: 'copyright', write: '上書', optional: true },
-  // 6 cot 掲出可能媒体 (AB~AG) — rule ガワ 2026-09-16, logic o 5_media.js, xem §4.13.
+  // 7 cot 掲出可能媒体 — rule ガワ 2026-09-16, logic o 5_media.js, xem §4.13.
   //
   // `mediaSources` la TEN MEDIA ben 媒体×ADFMTマスタ / 媒体除外マスタ, khong phai ten cot:
-  // hai ben viet khac nhau (`GDN（CM）` ngoac full-width, `Tiktok` khac hoa/thuong), va
-  // `YDA` cong CA HAI mat. Bang anh xa nay la mot phan cua rule, nen no nam ngay canh cot.
+  // hai ben viet khac nhau (nguon ghi `GDN（CM）` ngoac FULL-width con cot dich ghi
+  // `GDN(CM)` half-width; nguon ghi `Tiktok` con cot ghi `TikTok`). mediaNameKey() gop
+  // duoc ca hai kieu lech do, nhung `header` thi phai dung TUNG BYTE nhu tren sheet.
+  //
+  // 2026-09-16 ガワ TACH cot YDA thanh YDA(Y面) + YDA(LINE面) -> moi cot dung 1 media, het
+  // phep gop. Truoc do 1 cot cong 2 mat va phai chon chieu gop (xem #media-01).
   //
   // `条件` chu KHONG phai `上書`: tinh ra rong (chua cau hinh / doc nguon loi / chua phan
-  // dinh duoc ロゴ) phai GIU NGUYEN o nguoi go, khong xoa trang 6 cot tren 8.000 dong.
-  { header: 'GDN(CM)', field: 'mediaGdnCm', from: 'media', write: '条件', mediaSources: ['GDN（CM）'] },
-  { header: 'デマジェン', field: 'mediaDemagen', from: 'media', write: '条件', mediaSources: ['デマジェン'] },
-  { header: 'YDA', field: 'mediaYda', from: 'media', write: '条件', mediaSources: ['YDA（Y面）', 'YDA（LINE面）'] },
-  { header: 'Meta', field: 'mediaMeta', from: 'media', write: '条件', mediaSources: ['Meta'] },
-  { header: 'TikTok', field: 'mediaTiktok', from: 'media', write: '条件', mediaSources: ['Tiktok'] },
-  { header: 'X', field: 'mediaX', from: 'media', write: '条件', mediaSources: ['X'] },
+  // dinh duoc ロゴ) phai GIU NGUYEN o nguoi go, khong xoa trang 7 cot tren 8.000 dong.
+  //
+  // `optional` vi 営業 CO doi ten cot that: 2026-09-16 cot `YDA` bien thanh 2 cot, va vi
+  // ho so huu 7 ten nay nen no se con doi nua. Bat buoc -> findHeaderRowIndex() khong
+  // khop duoc hang header va CA LAN CHAY throw, khong ghi mot o nao. Tuy chon -> chi 7
+  // cot nay dung lai + 1 dong 設定注意, 24 cot kia van chay.
+  { header: 'GDN(CM)', field: 'mediaGdnCm', from: 'media', write: '条件', optional: true, mediaSources: ['GDN（CM）'] },
+  { header: 'デマジェン', field: 'mediaDemagen', from: 'media', write: '条件', optional: true, mediaSources: ['デマジェン'] },
+  { header: 'YDA(Y面)', field: 'mediaYdaY', from: 'media', write: '条件', optional: true, mediaSources: ['YDA（Y面）'] },
+  { header: 'YDA(LINE面)', field: 'mediaYdaLine', from: 'media', write: '条件', optional: true, mediaSources: ['YDA（LINE面）'] },
+  { header: 'Meta', field: 'mediaMeta', from: 'media', write: '条件', optional: true, mediaSources: ['Meta'] },
+  { header: 'TikTok', field: 'mediaTiktok', from: 'media', write: '条件', optional: true, mediaSources: ['Tiktok'] },
+  { header: 'X', field: 'mediaX', from: 'media', write: '条件', optional: true, mediaSources: ['X'] },
 ];
 
-// 4 cot `新規媒体` (AH~AK) CO TINH KHONG co trong bang: chung trung ten nhau y het, ma
+// 4 cot `新規媒体` CO TINH KHONG co trong bang: chung trung ten nhau y het, ma
 // buildHeaderIndex() chi giu index trai nhat -> dua vao bang la ghi 4 cot vao cung 1 o.
 // Va ben 媒体×ADFMTマスタ cung chua co media nao mang ten do. Xem §4.13.
 
@@ -70,7 +83,7 @@ var TITLE_COLUMNS = [
 // kia luôn có. Hai tình huống, hai cờ.
 var TITLE_PRE_CONFIRMATION_HEADER = '出版社事前確認';
 
-// Thiếu 1 trong 30 cột này trên タイトルマスタ -> throw ngay ở findHeaderRowIndex().
+// Thiếu 1 trong 24 cột này trên タイトルマスタ -> throw ngay ở findHeaderRowIndex().
 // Cột BẮT BUỘC = mọi cột trong bảng TRỪ cột optional. Dùng requiredHeaders() của
 // engine chứ không map thẳng: map thẳng làm cờ `optional` bị bỏ qua hoàn toàn, và một
 // cột đánh dấu tuỳ chọn vẫn khiến cả lần chạy throw.
@@ -110,11 +123,16 @@ function titleRecordToRow(options) {
       return;
     }
     if (column.from === 'media') {
+      // tryCol, KHÔNG col(): 7 cột này là optional, nên cột chưa/không còn trên sheet
+      // phải bỏ qua im lặng ở đây (runGas2 mới là chỗ ghi 1 dòng 設定注意) — col() sẽ
+      // throw và làm sập cả lần chạy vì một cái đổi tên cột.
+      var mediaIndex = tryCol(options.headerIndex, column.header);
+      if (mediaIndex === undefined) return;
       // `条件` tự cài ở đây (titleRecordToRow không đi qua toSheetRow của engine):
       // giá trị rỗng = chưa phán định được -> KHÔNG ghi, ô cũ ở lại.
       var mediaValue = options.mediaValues ? options.mediaValues[column.field] : '';
       if (normalizeJapaneseText(mediaValue) === '') return;
-      row[col(options.headerIndex, column.header)] = mediaValue;
+      row[mediaIndex] = mediaValue;
       return;
     }
     if (column.from === 'copyright') {
@@ -298,9 +316,6 @@ function diffTitleMaster(options) {
   });
 
   var claimed = new Map();
-  // Đếm để gộp thành MỘT dòng 設定注意 ở cuối: mỗi tác phẩm TL là một lần cột YDA thành
-  // × chỉ vì mặt LINE面, và 1 dòng/tác phẩm sẽ chôn vùi mọi cảnh báo khác. Xem §4.13.
-  var ydaSingleFaceCount = 0;
 
   indexed.records.forEach(function (record) {
     var key = titleNoKey(record.titleNo);
@@ -312,7 +327,6 @@ function diffTitleMaster(options) {
         + '」— ロゴ有無 を判定できないため ' + media.undecided.join('・')
         + ' は既存値のまま（上書きしません）。'));
     }
-    if (media.ydaSingleFaceExcluded) ydaSingleFaceCount += 1;
 
     // Chỉ cảnh báo khi ĐỌC ĐƯỢC nguồn mà vẫn không thấy khoá. Nguồn đọc không được là
     // sự cố của cả lần chạy, đã có 1 dòng log riêng — nhân nó lên 8.000 dòng cảnh báo
@@ -357,13 +371,6 @@ function diffTitleMaster(options) {
       'Dòng này không còn タイトルNo tương ứng trên 顧客作品マスタ — GAS❷ để nguyên, cần người kiểm.'));
   });
 
-  if (ydaSingleFaceCount > 0) {
-    warnings.push(buildWarning(runAt, WARNING_KIND_CONFIG,
-      { titleNo: '', titleId: '', titleName: '' },
-      'YDA 列は YDA（Y面）と YDA（LINE面）を1列で兼ねているため、片面のみ除外対象の '
-      + ydaSingleFaceCount + ' 件を安全側で「×」としました。列を分けるかはご判断ください。'));
-  }
-
   return {
     toUpdate: toUpdate,
     toAdd: toAdd,
@@ -384,7 +391,10 @@ function diffTitleMaster(options) {
 function collectChangedColumns(previousRow, values, headerIndex, runAt, record) {
   var changes = [];
   TITLE_COLUMNS.forEach(function (column) {
-    var index = col(headerIndex, column.header);
+    // tryCol: hàm này lặp TOÀN BỘ bảng cột, trong đó có cột optional có thể không tồn
+    // tại trên sheet. col() ở đây từng biến một cái đổi tên cột thành lỗi cả lần chạy.
+    var index = tryCol(headerIndex, column.header);
+    if (index === undefined) return;
     var oldValue = previousRow[index];
     var newValue = values[index];
     // Hàm so sánh suy từ chế độ ghi của chính cột (compareFor trong engine), không
